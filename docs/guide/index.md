@@ -28,7 +28,7 @@ description (architecture, matching, services and their limits) stays in the
 - [Unplayable tracks](unplayable-tracks): the greyed-out tracks in your playlists, and how Trackhop replaces them.
 - [Trackhop Desktop (Windows, macOS, Linux)](desktop): the engine as a program on your computer, no Docker needed.
 - [Trackhop on a server (Docker, beta)](docker): works for everyday use, still young. Scheduled syncs on a home server or a NAS, with a web page.
-- [Trackhop on iPhone and iPad](iphone): no App Store app; your own Trackhop server on the home screen, like an app.
+- [Trackhop on iPhone and iPad](iphone): no App Store app; your own Trackhop server on the home screen, like an app ([Italiano](trackhop-su-iphone)).
 - [The trackhop command](cli): run syncs, read their results, add and remove tracks from a terminal or a script, with Desktop or Docker.
 
 **On your computer or server**

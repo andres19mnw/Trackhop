@@ -1,6 +1,7 @@
 ---
 title: Trackhop on iPhone and iPad
 description: Why there is no Trackhop app for iPhone (Apple's fees, its review rules, no background work) and what works instead - your own Trackhop server, whose page sits on the iPhone's home screen like an app.
+i18n: iphone
 ---
 
 # Trackhop on iPhone and iPad
@@ -77,4 +78,4 @@ home-screen app: their sign-in page can leave the app and not come back to it. S
 accept a sign-in only on `127.0.0.1` or an `https://` address: the [Docker guide](docker#services)
 gives the rule for each one.
 
-[All guide pages](./)
+[Italiano](trackhop-su-iphone) · [All guide pages](./)
