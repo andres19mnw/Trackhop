@@ -1,13 +1,44 @@
 ---
 title: Trackhop on iPhone and iPad
-description: There is no Trackhop app for iPhone, but your own Trackhop server (Docker, on a NAS or a home computer) runs your playlist syncs and its page sits on the iPhone's home screen like an app. How to set it up, what works and what doesn't.
+description: Why there is no Trackhop app for iPhone (Apple's fees, its review rules, no background work) and what works instead - your own Trackhop server, whose page sits on the iPhone's home screen like an app.
 ---
 
 # Trackhop on iPhone and iPad
 
-There is no Trackhop app in the App Store. What works on an iPhone or an iPad today is your own
-**Trackhop server**: it runs your syncs day and night, and its page sits on the home screen and opens
-full screen, like an app.
+There is no Trackhop app for iPhone or iPad, and it is not for lack of wanting one. The iPhone is the
+most closed of the platforms Trackhop could run on: what is free and open on Android, Windows, macOS
+and Linux, Apple either charges for or does not allow.
+
+What works on an iPhone today is your own **Trackhop server**: it runs your syncs day and night, and
+its page sits on the home screen and opens full screen, like an app.
+
+## Why there is no iPhone app
+
+- **Apple charges to publish anything.** An iPhone app, even a free and open-source one, reaches
+  people only through the App Store, and publishing there needs Apple's paid developer membership,
+  renewed every year. Trackhop is free and has no ads: it would pay Apple every year to
+  give an app away. On Android the same app is on GitHub and F-Droid for free.
+- **No installing from elsewhere.** On Android you can install Trackhop from its own page, F-Droid or
+  Obtainium. On iPhone the ways around the App Store either cost the same membership, or need a
+  computer and a fresh install every week: nothing a normal user would put up with.
+- **No work in the background.** iOS pauses an app a few seconds after you leave it. A sync that runs
+  every night on its own, the heart of Trackhop, is something iOS does not let an app do reliably: it
+  would run only when iOS decides, often not at all. Web apps on the iPhone get even less: no
+  background work of any kind.
+- **Stricter rules for what an app may do.** Trackhop's quick sign-ins, which work with your usual
+  Spotify, YouTube Music or Amazon Music account and no developer key, use the services' own web
+  players. Apple's App Store rules want a service's permission for that, so an iPhone app would be
+  limited to the official routes, each needing its own developer key, like the Google Play version
+  without its plugin.
+- **Apple Music's own API costs the same membership.** On Android, Trackhop reaches Apple Music through
+  its web player instead, with your usual Apple ID: on the iPhone that route is closed too.
+
+So the parts that make Trackhop easy (sign in with your account, then forget it while it syncs on its
+own) are exactly the parts the iPhone takes away. A server does them instead, for every device you
+have, the iPhone included.
+
+If an iPhone app would make a difference for you, say so in an
+[issue](https://github.com/xlollx/Trackhop/issues/new/choose): requests decide what comes next.
 
 ## What you need
 
@@ -45,14 +76,5 @@ Connect Spotify, YouTube Music and the other services from a computer's browser,
 home-screen app: their sign-in page can leave the app and not come back to it. Some services also
 accept a sign-in only on `127.0.0.1` or an `https://` address: the [Docker guide](docker#services)
 gives the rule for each one.
-
-## Why no App Store app
-
-An App Store app needs Apple's paid developer membership, and an iPhone app cannot run syncs on its
-own schedule in the background the way Android allows: a scheduled sync would run only when iOS
-decides. A server you own does that part better, for every device you have.
-
-If an iPhone app would make a difference for you, say so in an
-[issue](https://github.com/xlollx/Trackhop/issues/new/choose): requests decide what comes next.
 
 [All guide pages](./)
