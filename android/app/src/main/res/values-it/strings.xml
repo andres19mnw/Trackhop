@@ -2400,7 +2400,7 @@
     <string name="server_handover_done">Fatto: ora questa sync la esegue il tuo server.</string>
     <string name="server_handover_missing">Il tuo server non ha un account collegato per %1$s. Collegalo nella pagina del server, poi riprova.</string>
     <string name="server_handover_no_radio">Una sync della radio ascolta su questo telefono, quindi resta qui.</string>
-    <string name="server_handover_no_two_way">Le sync bidirezionali non si possono ancora affidare al server.</string>
+    <string name="server_handover_pair_broken">L\'altra metà di questa coppia bidirezionale manca su questo telefono, quindi resta qui.</string>
     <string name="server_handover_no_shazam">I tuoi brani di Shazam si leggono su questo telefono, quindi questa sync resta qui.</string>
     <string name="server_handover_no_files">Le playlist da file stanno su questo telefono, quindi questa sync resta qui.</string>
     <string name="server_bring_back_title">Riportarla su questo telefono?</string>

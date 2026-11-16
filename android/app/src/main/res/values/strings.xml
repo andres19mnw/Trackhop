@@ -2401,7 +2401,7 @@
     <string name="server_handover_done">Done: your server runs this sync now.</string>
     <string name="server_handover_missing">Your server has no connected account for %1$s. Connect it on the server\'s page, then try again.</string>
     <string name="server_handover_no_radio">A radio sync listens on this phone, so it stays here.</string>
-    <string name="server_handover_no_two_way">Two-way syncs can\'t be handed over yet.</string>
+    <string name="server_handover_pair_broken">The other half of this two-way pair is missing on this phone, so it stays here.</string>
     <string name="server_handover_no_shazam">Your Shazam songs are read on this phone, so this sync stays here.</string>
     <string name="server_handover_no_files">File playlists live on this phone, so this sync stays here.</string>
     <string name="server_bring_back_title">Bring it back to this phone?</string>

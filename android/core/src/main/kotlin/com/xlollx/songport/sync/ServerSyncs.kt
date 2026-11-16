@@ -4,6 +4,7 @@ import com.xlollx.songport.data.FileStore
 import com.xlollx.songport.model.SyncJob
 import com.xlollx.songport.net.Http
 import com.xlollx.songport.net.parseJson
+import com.xlollx.songport.shared.SharedGroups
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -103,9 +104,23 @@ class ServerSyncs(address: String, private val token: String) {
      * asks for the id [HandOver.serverId]: sent again after an answer lost on the way, the server
      * gives back the sync it made then, not a second one (a server that does not take it picks its own).
      */
-    suspend fun create(job: SyncJob, plan: HandOver.Plan.Ready): String {
-        val made = call("POST", "syncs", HandOver.body(job, plan))
-        return made.idOrNull("id") ?: throw Failure(Failure.Kind.ODD, "no id")
+    suspend fun create(job: SyncJob, plan: HandOver.Plan.Ready): String = made(job, plan, pair = false).id
+
+    /** What the server made: the sync's id, and for a two-way pair the id of its reverse (↔) half. */
+    data class Made(val id: String, val linkedId: String?)
+
+    /**
+     * [create], for a two-way pair when [pair]: [job] must be the pair's original half; one call makes
+     * both halves there, and the answer names the reverse one (`linkedSyncId`). Asked again with the
+     * same id, the server gives back the pair it made.
+     */
+    suspend fun made(job: SyncJob, plan: HandOver.Plan.Ready, pair: Boolean): Made {
+        val made = call("POST", "syncs", HandOver.body(job, plan, pair))
+        val id = made.idOrNull("id") ?: throw Failure(Failure.Kind.ODD, "no id")
+        val linked = made.idOrNull("linkedSyncId")
+        // A pair answered without its other half is not a pair: nothing is marked until the server says so.
+        if (pair && linked == null) throw Failure(Failure.Kind.ODD, "no linked sync")
+        return Made(id, linked)
     }
 
     /** A run's review there: not found, and matches to check. */
@@ -146,6 +161,10 @@ class ServerSyncs(address: String, private val token: String) {
     data class Sync(
         val id: String, val name: String, val source: Side, val target: Side, val timing: String,
         val enabled: Boolean, val running: Boolean, val lastRun: Long?, val nextRun: Long?, val last: Run?,
+        /** The id of the other half of a two-way pair (the server's `linkedSyncId`), else null. */
+        val linkedId: String? = null,
+        /** The reverse (↔) half of a pair. */
+        val twin: Boolean = false,
     )
 
     data class ReviewTrack(val id: String, val artist: String, val title: String)
@@ -201,6 +220,7 @@ class ServerSyncs(address: String, private val token: String) {
             Sync(
                 id, s.textOrNull("name") ?: source.playlist, source, target, s.textOrNull("timing").orEmpty(),
                 s.flag("enabled"), s.flag("running"), s.time("lastRun"), s.time("nextRun"), run(s["lastResult"]),
+                s.idOrNull("linkedSyncId"), s.flag("twin"),
             )
         }
 
@@ -233,17 +253,19 @@ object HandOver {
         data class NotHere(val why: Why) : Plan()
     }
 
+    /** [TWO_WAY]: a pair whose other half is no longer on this phone, so it cannot be handed over as a pair. */
     enum class Why { RADIO, TWO_WAY, SHAZAM, FILES }
 
     /**
      * What [job] needs on a server with [services]. A side goes to the connector with the same id
      * when it is connected there, otherwise to a connected account of the same service (the main
-     * one first); the playlists are the server's to check when the sync is made.
+     * one first); the playlists are the server's to check when the sync is made. A half of a two-way
+     * pair is planned as its pair ([pair]) from [jobs], this phone's syncs: both halves use the same two services.
      */
-    fun plan(job: SyncJob, services: List<ServerSyncs.Service>): Plan {
+    fun plan(job: SyncJob, services: List<ServerSyncs.Service>, jobs: List<SyncJob> = emptyList()): Plan {
+        val job = if (job.linkedJobId != null) pair(job, jobs)?.first ?: return Plan.NotHere(Why.TWO_WAY) else job
         when {
             job.radio != null -> return Plan.NotHere(Why.RADIO)
-            job.linkedJobId != null -> return Plan.NotHere(Why.TWO_WAY)
             job.shazam -> return Plan.NotHere(Why.SHAZAM)
             // File playlists are each device's own.
             FileStore.family(job.source.provider) == "csv" || FileStore.family(job.target.provider) == "csv" -> return Plan.NotHere(Why.FILES)
@@ -252,6 +274,19 @@ object HandOver {
         val dst = pick(job.target.provider, services)
         if (src != null && dst != null) return Plan.Ready(src, dst)
         return Plan.Missing(listOfNotNull(job.source.provider.takeIf { src == null }, job.target.provider.takeIf { dst == null }).distinct())
+    }
+
+    /**
+     * The two halves of the pair [job] belongs to, as (original, reverse) from [jobs], or null when it is
+     * not in a pair or the other half is gone. The reverse half is the one flagged [SyncJob.twin]; a pair
+     * saved before the flag is told apart by the name the editor gave its reverse half ("Name ↔").
+     * The two syncs of a shared playlist are linked the same way but are the group's, never a pair here.
+     */
+    fun pair(job: SyncJob, jobs: List<SyncJob>): Pair<SyncJob, SyncJob>? {
+        val other = job.linkedJobId?.let { id -> jobs.firstOrNull { it.id == id } }?.takeIf { it.linkedJobId == job.id } ?: return null
+        if (SharedGroups.sharedSide(job) != null || SharedGroups.sharedSide(other) != null) return null
+        val jobIsTwin = job.twin || (!other.twin && job.name == other.name + " ↔")
+        return if (jobIsTwin) other to job else job to other
     }
 
     /** The server's connector for this device's [provider], or null when none is connected there. */
@@ -268,8 +303,11 @@ object HandOver {
      */
     fun serverId(job: SyncJob): String = "phone-" + job.id.filter { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' }.take(80)
 
-    /** The body of POST /api/v1/syncs that makes [job] on the server, with the connectors of [plan]. */
-    fun body(job: SyncJob, plan: Plan.Ready): JsonObject = buildJsonObject {
+    /**
+     * The body of POST /api/v1/syncs that makes [job] on the server, with the connectors of [plan]. With
+     * [pair], [job] is a two-way pair's original half and the server makes the reverse one too.
+     */
+    fun body(job: SyncJob, plan: Plan.Ready, pair: Boolean = false): JsonObject = buildJsonObject {
         put("id", serverId(job))
         put("name", job.name.ifBlank { job.source.playlistName })
         put("source", buildJsonObject {
@@ -286,6 +324,10 @@ object HandOver {
         put("changes", if (job.archive) "archive" else if (job.mirrorRemovals) "mirror" else "add")
         if (job.mirrorRemovals && !job.archive) put("follows", job.followsChanges)
         put("enabled", job.enabled)
+        if (pair) {
+            put("twoWay", true)
+            put("twoWayRemovals", job.twoWayRemovals && !job.archive)
+        }
         put("favorite", job.favorite)
         if (job.tags.isNotEmpty()) put("tags", buildJsonObject { job.tags.forEach { (k, v) -> put(k, v) } })
     }

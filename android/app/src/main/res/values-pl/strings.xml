@@ -2502,7 +2502,7 @@
     <string name="server_handover_done">Gotowe: teraz tę synchronizację uruchamia twój serwer.</string>
     <string name="server_handover_missing">Twój serwer nie ma połączonego konta %1$s. Połącz je na stronie serwera i spróbuj ponownie.</string>
     <string name="server_handover_no_radio">Synchronizacja radia słucha na tym telefonie, więc zostaje tutaj.</string>
-    <string name="server_handover_no_two_way">Synchronizacji dwukierunkowych nie można jeszcze przekazać serwerowi.</string>
+    <string name="server_handover_pair_broken">Drugiej połowy tej pary dwukierunkowej brakuje na tym telefonie, więc zostaje tutaj.</string>
     <string name="server_handover_no_shazam">Twoje utwory z Shazama są odczytywane na tym telefonie, więc ta synchronizacja zostaje tutaj.</string>
     <string name="server_handover_no_files">Playlisty z plików są na tym telefonie, więc ta synchronizacja zostaje tutaj.</string>
     <string name="server_bring_back_title">Przywrócić na ten telefon?</string>

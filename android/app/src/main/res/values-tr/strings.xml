@@ -2398,7 +2398,7 @@
     <string name="server_handover_done">Tamam: bu senkronizasyonu artık sunucun çalıştırıyor.</string>
     <string name="server_handover_missing">Sunucunda %1$s için bağlı bir hesap yok. Sunucunun sayfasında bağla, sonra tekrar dene.</string>
     <string name="server_handover_no_radio">Radyo senkronizasyonu bu telefonda dinler, bu yüzden burada kalır.</string>
-    <string name="server_handover_no_two_way">Çift yönlü senkronizasyonlar henüz sunucuya devredilemez.</string>
+    <string name="server_handover_pair_broken">Bu çift yönlü çiftin diğer yarısı bu telefonda yok, bu yüzden burada kalır.</string>
     <string name="server_handover_no_shazam">Shazam şarkıların bu telefonda okunur, bu yüzden bu senkronizasyon burada kalır.</string>
     <string name="server_handover_no_files">Dosya çalma listeleri bu telefonda durur, bu yüzden bu senkronizasyon burada kalır.</string>
     <string name="server_bring_back_title">Bu telefona geri alınsın mı?</string>

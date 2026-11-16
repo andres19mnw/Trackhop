@@ -116,7 +116,9 @@ object ServerLink {
 
     /**
      * [job] made on the server with the server's own accounts, its review choices sent along, then
-     * turned off here and marked as handed over. Nothing changes on the phone unless all of it worked.
+     * turned off here and marked as handed over. A two-way pair goes as one: the server makes both
+     * halves from the original one, and both phone halves are turned off and marked. Nothing changes on
+     * the phone unless all of it worked.
      * Not cut short when the dialog goes (a turned screen): once the server has made it, the phone
      * must know. Should the answer be lost all the same, asking again finds the sync it made there
      * ([HandOver.serverId]) and takes it, without making a second one.
@@ -124,10 +126,11 @@ object ServerLink {
     suspend fun handOver(ctx: Context, job: SyncJob): Outcome = withContext(NonCancellable) {
         val api = api(ctx) ?: return@withContext Outcome(false, ctx.getString(R.string.server_err_off, ctx.getString(R.string.server_locks_title)))
         try {
-            when (val plan = HandOver.plan(job, api.services())) {
+            val jobs = Store.get(ctx).data.jobs
+            when (val plan = HandOver.plan(job, api.services(), jobs)) {
                 is HandOver.Plan.NotHere -> Outcome(false, ctx.getString(when (plan.why) {
                     HandOver.Why.RADIO -> R.string.server_handover_no_radio
-                    HandOver.Why.TWO_WAY -> R.string.server_handover_no_two_way
+                    HandOver.Why.TWO_WAY -> R.string.server_handover_pair_broken
                     HandOver.Why.SHAZAM -> R.string.server_handover_no_shazam
                     HandOver.Why.FILES -> R.string.server_handover_no_files
                 }))
@@ -136,26 +139,35 @@ object ServerLink {
                     plan.services.joinToString(", ") { com.xlollx.songport.providers.Providers.byId(it)?.displayName ?: it },
                 ))
                 is HandOver.Plan.Ready -> {
+                    val pair = HandOver.pair(job, jobs)
+                    // A pair is made from its original half; the server makes the reverse one.
+                    val main = pair?.first ?: job
                     val there = api.syncs()
                     // Made there by an earlier try whose answer did not arrive: that one is this sync.
-                    val made = HandOver.serverId(job).takeIf { id -> there.any { it.id == id } }
+                    val earlier = HandOver.serverId(main).takeIf { id -> there.any { it.id == id } }
                     // The same sync there already: a second one would add what is missing twice.
-                    if (made == null && there.any { HandOver.sameAs(job, it) }) {
+                    if (earlier == null && there.any { HandOver.sameAs(main, it) }) {
                         return@withContext Outcome(false, ctx.getString(R.string.server_handover_exists, ctx.getString(R.string.server_title)))
                     }
-                    val serverId = made ?: api.create(job, plan)
+                    // Asked again, the server answers a sync it has as it is, so a pair found there is read, not made twice.
+                    val made = if (pair == null && earlier != null) ServerSyncs.Made(earlier, null) else api.made(main, plan, pair != null)
+                    val halves = if (pair == null) listOf(job to made.id)
+                    else listOf(pair.first to made.id, pair.second to (made.linkedId ?: throw ServerSyncs.Failure(ServerSyncs.Failure.Kind.ODD, "no linked sync")))
                     // The choices made here so far: the server's runs start from them.
-                    runCatching { ReviewDecisions.apply(Store.get(ctx), job.id, api.exchange(serverId, ReviewDecisions.ofSync(Store.get(ctx).data, job))) }
+                    for ((half, serverId) in halves) {
+                        runCatching { ReviewDecisions.apply(Store.get(ctx), half.id, api.exchange(serverId, ReviewDecisions.ofSync(Store.get(ctx).data, half))) }
+                    }
                     val store = Store.get(ctx)
+                    val now = System.currentTimeMillis()
                     store.update { d ->
                         d.copy(
-                            handedOver = d.handedOver + (job.id to HandedOver(serverId, System.currentTimeMillis(), job.enabled)),
-                            jobs = d.jobs.map { if (it.id == job.id) it.copy(enabled = false) else it },
+                            handedOver = d.handedOver + halves.associate { (half, serverId) -> half.id to HandedOver(serverId, now, half.enabled) },
+                            jobs = d.jobs.map { j -> if (halves.any { it.first.id == j.id }) j.copy(enabled = false) else j },
                         )
                     }
                     store.flush()
-                    store.job(job.id)?.let { Scheduler.apply(ctx, it) }
-                    log(ctx, "${job.name}: handed over to ${api.base}")
+                    for ((half, _) in halves) store.job(half.id)?.let { Scheduler.apply(ctx, it) }
+                    log(ctx, "${job.name}: handed over to ${api.base}" + if (pair != null) " (as a pair)" else "")
                     runCatching { refresh(ctx) }
                     Outcome(true, ctx.getString(R.string.server_handover_done))
                 }
@@ -166,6 +178,13 @@ object ServerLink {
         }
     }
 
+    /** [job] and, when it is half of a pair that was handed over too, its other half, each with its hand-over. */
+    private fun handedHalves(ctx: Context, job: SyncJob): List<Pair<SyncJob, HandedOver>> {
+        val d = Store.get(ctx).data
+        val other = HandOver.pair(job, d.jobs)?.let { (a, b) -> if (a.id == job.id) b else a }
+        return listOfNotNull(job, other).mapNotNull { j -> d.handedOver[j.id]?.let { j to it } }
+    }
+
     /**
      * [job] back on this phone: the server's review choices taken in, the sync deleted there (its
      * playlists stay), and turned on here again as it was. A server that cannot be reached changes
@@ -173,17 +192,21 @@ object ServerLink {
      */
     suspend fun bringBack(ctx: Context, job: SyncJob): Outcome = withContext(NonCancellable) {
         val api = api(ctx) ?: return@withContext Outcome(false, ctx.getString(R.string.server_err_off, ctx.getString(R.string.server_locks_title)), canBringBackHere = true)
-        val h = handedOver(ctx, job.id) ?: return@withContext Outcome(true, ctx.getString(R.string.server_bring_back_done))
+        val halves = handedHalves(ctx, job)
+        if (halves.isEmpty()) return@withContext Outcome(true, ctx.getString(R.string.server_bring_back_done))
         try {
-            try {
-                ReviewDecisions.apply(Store.get(ctx), job.id, api.exchange(h.serverId, ReviewDecisions.ofSync(Store.get(ctx).data, job)))
-            } catch (e: ServerSyncs.Failure) {
-                // Gone there, or a server without the call: the sync comes back without them.
-                if (e.kind != ServerSyncs.Failure.Kind.GONE && e.kind != ServerSyncs.Failure.Kind.OLD) throw e
+            for ((half, h) in halves) {
+                try {
+                    ReviewDecisions.apply(Store.get(ctx), half.id, api.exchange(h.serverId, ReviewDecisions.ofSync(Store.get(ctx).data, half)))
+                } catch (e: ServerSyncs.Failure) {
+                    // Gone there, or a server without the call: the sync comes back without them.
+                    if (e.kind != ServerSyncs.Failure.Kind.GONE && e.kind != ServerSyncs.Failure.Kind.OLD) throw e
+                }
             }
-            api.delete(h.serverId)
-            takeBack(ctx, job.id)
-            _known.value = _known.value - h.serverId
+            // The server drops a pair's other half with the one deleted; one already gone is no failure.
+            for ((_, h) in halves) api.delete(h.serverId)
+            for ((half, _) in halves) takeBack(ctx, half.id)
+            _known.value = _known.value - halves.map { it.second.serverId }.toSet()
             log(ctx, "${job.name}: back from ${api.base}")
             Outcome(true, ctx.getString(R.string.server_bring_back_done))
         } catch (e: ServerSyncs.Failure) {
@@ -200,9 +223,9 @@ object ServerLink {
      * was. The server's copy, if any, is left as it is, and its review choices are not taken in.
      */
     suspend fun bringBackHere(ctx: Context, job: SyncJob): Outcome = withContext(NonCancellable) {
-        val serverId = handedOver(ctx, job.id)?.serverId
-        takeBack(ctx, job.id)
-        serverId?.let { _known.value = _known.value - it }
+        val halves = handedHalves(ctx, job)
+        for (id in halves.map { it.first.id }.ifEmpty { listOf(job.id) }) takeBack(ctx, id)
+        _known.value = _known.value - halves.map { it.second.serverId }.toSet()
         log(ctx, "${job.name}: brought back without the server")
         Outcome(true, ctx.getString(R.string.server_bring_back_done))
     }

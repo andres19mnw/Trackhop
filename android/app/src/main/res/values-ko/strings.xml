@@ -2349,7 +2349,7 @@
     <string name="server_handover_done">완료: 이제 서버가 이 동기화를 실행해요.</string>
     <string name="server_handover_missing">서버에 연결된 %1$s 계정이 없어요. 서버 페이지에서 연결한 뒤 다시 시도하세요.</string>
     <string name="server_handover_no_radio">라디오 동기화는 이 휴대폰에서 듣기 때문에 여기에 남아요.</string>
-    <string name="server_handover_no_two_way">양방향 동기화는 아직 서버에 맡길 수 없어요.</string>
+    <string name="server_handover_pair_broken">이 양방향 쌍의 나머지 한쪽이 이 휴대폰에 없어서 여기에 남아 있습니다.</string>
     <string name="server_handover_no_shazam">Shazam 곡은 이 휴대폰에서 읽기 때문에 이 동기화는 여기에 남아요.</string>
     <string name="server_handover_no_files">파일 플레이리스트는 이 휴대폰에 있어서 이 동기화는 여기에 남아요.</string>
     <string name="server_bring_back_title">이 휴대폰으로 되돌릴까요?</string>

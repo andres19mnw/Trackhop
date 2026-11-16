@@ -2400,7 +2400,7 @@
     <string name="server_handover_done">Fertig: Jetzt führt dein Server diese Sync aus.</string>
     <string name="server_handover_missing">Dein Server hat kein verbundenes Konto für %1$s. Verbinde es auf der Seite des Servers und versuche es dann erneut.</string>
     <string name="server_handover_no_radio">Eine Radio-Sync hört auf diesem Handy zu und bleibt daher hier.</string>
-    <string name="server_handover_no_two_way">Zwei-Wege-Syncs können noch nicht übergeben werden.</string>
+    <string name="server_handover_pair_broken">Die andere Hälfte dieses Zwei-Wege-Paars fehlt auf diesem Telefon, deshalb bleibt es hier.</string>
     <string name="server_handover_no_shazam">Deine Shazam-Songs werden auf diesem Handy gelesen, daher bleibt diese Sync hier.</string>
     <string name="server_handover_no_files">Datei-Playlists liegen auf diesem Handy, daher bleibt diese Sync hier.</string>
     <string name="server_bring_back_title">Zurück auf dieses Handy holen?</string>

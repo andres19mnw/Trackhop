@@ -2350,7 +2350,7 @@
     <string name="server_handover_done">完了：この同期はサーバーが実行します。</string>
     <string name="server_handover_missing">サーバーに %1$s の接続済みアカウントがありません。サーバーのページで接続してから、もう一度お試しください。</string>
     <string name="server_handover_no_radio">ラジオの同期はこのスマホで聴き取るため、ここに残ります。</string>
-    <string name="server_handover_no_two_way">双方向の同期はまだサーバーに任せられません。</string>
+    <string name="server_handover_pair_broken">この双方向ペアのもう一方がこのスマートフォンにないため、ここに残ります。</string>
     <string name="server_handover_no_shazam">Shazam の曲はこのスマホで読み取るため、この同期はここに残ります。</string>
     <string name="server_handover_no_files">ファイルのプレイリストはこのスマホにあるため、この同期はここに残ります。</string>
     <string name="server_bring_back_title">このスマホに戻しますか？</string>

@@ -2408,7 +2408,7 @@
     <string name="server_handover_done">C\'est fait : ton serveur exécute maintenant cette synchro.</string>
     <string name="server_handover_missing">Ton serveur n\'a aucun compte connecté pour %1$s. Connecte-le sur la page du serveur, puis réessaie.</string>
     <string name="server_handover_no_radio">Une synchro radio écoute sur ce téléphone, elle reste donc ici.</string>
-    <string name="server_handover_no_two_way">Les synchros bidirectionnelles ne peuvent pas encore être confiées au serveur.</string>
+    <string name="server_handover_pair_broken">L\'autre moitié de cette paire bidirectionnelle est absente de ce téléphone : elle reste ici.</string>
     <string name="server_handover_no_shazam">Tes titres Shazam sont lus sur ce téléphone, cette synchro reste donc ici.</string>
     <string name="server_handover_no_files">Les playlists de fichiers sont sur ce téléphone, cette synchro reste donc ici.</string>
     <string name="server_bring_back_title">La ramener sur ce téléphone ?</string>

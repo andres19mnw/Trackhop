@@ -45,8 +45,11 @@ over to the server**.
 - **Bring back to this phone**, in the same menu, deletes the sync on the server (the playlists stay
   as they are) and runs it on the phone again, with the review choices made on the server.
 
-Radio syncs (they listen on the phone), Shazam syncs, syncs of File playlists and two-way pairs stay
-on the phone.
+A **two-way pair** goes over as one: both halves are made on the server and both cards on the phone
+are marked **On server**. Handing over either half does it, and **Bring back to this phone** on either
+half deletes the pair there and turns both halves on again here.
+
+Radio syncs (they listen on the phone), Shazam syncs and syncs of File playlists stay on the phone.
 
 ## Tools › My server
 

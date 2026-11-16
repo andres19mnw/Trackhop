@@ -2350,7 +2350,7 @@
     <string name="server_handover_done">完成：现在由你的服务器运行这个同步。</string>
     <string name="server_handover_missing">你的服务器没有已连接的 %1$s 账号。请在服务器页面连接后再试。</string>
     <string name="server_handover_no_radio">电台同步在这部手机上收听，所以留在这里。</string>
-    <string name="server_handover_no_two_way">双向同步暂时不能交给服务器。</string>
+    <string name="server_handover_pair_broken">这对双向同步在此手机上缺少另一半，因此保留在这里。</string>
     <string name="server_handover_no_shazam">你的 Shazam 歌曲在这部手机上读取，所以这个同步留在这里。</string>
     <string name="server_handover_no_files">文件歌单保存在这部手机上，所以这个同步留在这里。</string>
     <string name="server_bring_back_title">带回这部手机？</string>

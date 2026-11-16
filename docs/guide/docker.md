@@ -943,8 +943,9 @@ it here (`POST /api/v1/syncs/{sync}/run`), and the card shows this server's last
 to review what it left. **Bring back to this phone** in the same menu deletes the sync here (the
 playlists stay as they are) and turns it on again on the phone.
 
-Radio syncs, two-way pairs, Shazam syncs and syncs of File playlists stay on the phone. Deleting a
-handed-over card on the phone leaves the sync here: delete it on this page.
+A two-way pair goes as one request (`POST /api/v1/syncs` with `twoWay`, and `twoWayRemovals` when the
+pair follows removals): the server makes both halves, and both of the phone's cards are marked. Radio
+syncs, Shazam syncs and syncs of File playlists stay on the phone. Deleting a handed-over card on the phone leaves the sync here: delete it on this page.
 
 ### Review choices on both sides
 

@@ -2408,7 +2408,7 @@
     <string name="server_handover_done">Listo: ahora tu servidor ejecuta esta sincronización.</string>
     <string name="server_handover_missing">Tu servidor no tiene una cuenta conectada de %1$s. Conéctala en la página del servidor y vuelve a intentarlo.</string>
     <string name="server_handover_no_radio">Una sincronización de radio escucha en este teléfono, así que se queda aquí.</string>
-    <string name="server_handover_no_two_way">Las sincronizaciones bidireccionales aún no se pueden pasar al servidor.</string>
+    <string name="server_handover_pair_broken">Falta la otra mitad de este par bidireccional en este teléfono, así que se queda aquí.</string>
     <string name="server_handover_no_shazam">Tus canciones de Shazam se leen en este teléfono, así que esta sincronización se queda aquí.</string>
     <string name="server_handover_no_files">Las playlists de archivo están en este teléfono, así que esta sincronización se queda aquí.</string>
     <string name="server_bring_back_title">¿Traerla de vuelta a este teléfono?</string>
