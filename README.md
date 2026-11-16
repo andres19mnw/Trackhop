@@ -159,6 +159,8 @@ move. Trackhop is for keeping playlists in step over time, without handing your 
   [Docker Hub](https://hub.docker.com/r/xlollx/trackhop): `docker pull xlollx/trackhop`. For the whole
   household, `SONGPORT_MULTIUSER=true`: each person signs in and has their own services and syncs
   ([how](https://trackhop.org/guide/docker#several-people-on-one-server)).
+- **iPhone, iPad**: no App Store app. The server's page goes on the home screen and opens like an app,
+  while the syncs run on the server: [Trackhop on iPhone and iPad](https://trackhop.org/guide/iphone).
 - **On Azure (beta)**: no server at home? [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fxlollx%2FTrackhop%2Fmain%2Fpackaging%2Fazure%2Fazuredeploy.json) creates Trackhop
   on Azure Container Apps in your own subscription: always on, with an HTTPS address and its data on an Azure Files share.
   Billed to your subscription: about $5 a month in most regions when it sits idle between syncs, up to about $15 if it is busy all the time (estimate from Azure's list prices for Container Apps after its monthly free grant; storage costs cents). Remove it by deleting the resource group ([details](packaging/azure)).
