@@ -1,0 +1,92 @@
+name: Google Play reviews
+
+# Every day: the app's recent Google Play reviews (Google's API gives those of the last week), kept in
+# the badges branch as play-reviews.json so a new one is noticed and answered. Only what Play already
+# shows publicly: name, stars, text, date, language, whether there is a reply. No device details.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: badges-play-reviews
+  cancel-in-progress: false
+
+jobs:
+  reviews:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KEY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      PACKAGE: com.xlollx.songport
+    steps:
+      - name: Read the reviews
+        run: |
+          [ -n "$KEY" ] || { echo "::notice::No service account: skipped."; exit 0; }
+          pip install -q google-auth requests
+          mkdir -p out
+          python3 - <<'PY'
+          import json, os, datetime, requests
+          from google.oauth2 import service_account
+          from google.auth.transport.requests import Request
+          creds = service_account.Credentials.from_service_account_info(
+              json.loads(os.environ["KEY"]), scopes=["https://www.googleapis.com/auth/androidpublisher"])
+          creds.refresh(Request())
+          url = f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{os.environ['PACKAGE']}/reviews"
+          reviews, token = [], None
+          while True:
+              r = requests.get(url, headers={"Authorization": f"Bearer {creds.token}"},
+                               params={"maxResults": 100, **({"token": token} if token else {})}, timeout=30)
+              if r.status_code != 200:
+                  print(f"::warning::Reviews API answered {r.status_code}: {r.text[:300]}")
+                  raise SystemExit(0)
+              body = r.json()
+              for rv in body.get("reviews", []):
+                  user = next((c["userComment"] for c in rv.get("comments", []) if "userComment" in c), {})
+                  dev = next((c["developerComment"] for c in rv.get("comments", []) if "developerComment" in c), None)
+                  reviews.append({
+                      "id": rv.get("reviewId"),
+                      "author": rv.get("authorName", ""),
+                      "stars": user.get("starRating"),
+                      "text": (user.get("text") or "").strip(),
+                      "language": user.get("reviewerLanguage"),
+                      "version": user.get("appVersionName"),
+                      "date": datetime.datetime.fromtimestamp(int(user.get("lastModified", {}).get("seconds", 0)), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                      "replied": dev is not None,
+                  })
+              token = (body.get("tokenPagination") or {}).get("nextPageToken")
+              if not token:
+                  break
+          # The API only returns the last week: keep the ones seen before too.
+          try:
+              old = requests.get(f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/badges/play-reviews.json", timeout=30).json()["reviews"]
+          except Exception:
+              old = []
+          seen = {r["id"] for r in reviews}
+          reviews += [r for r in old if r["id"] not in seen]
+          reviews.sort(key=lambda r: r["date"], reverse=True)
+          out = {"checked": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "unanswered": sum(1 for r in reviews if not r["replied"]), "reviews": reviews[:200]}
+          json.dump(out, open("out/play-reviews.json", "w"), indent=1, ensure_ascii=False)
+          print(f"{len(reviews)} reviews, {out['unanswered']} without a reply")
+          PY
+        shell: bash
+      - name: Into the badges branch
+        run: |
+          [ -f out/play-reviews.json ] || exit 0
+          for try in 1 2 3 4; do
+            rm -rf badges
+            git init -q badges; cd badges
+            git fetch -q --depth=1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" badges && git checkout -q -B badges FETCH_HEAD
+            cp ../out/play-reviews.json .
+            git add play-reviews.json
+            git diff --cached --quiet && { echo "No change."; exit 0; }
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Google Play reviews"
+            git push -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" badges && exit 0
+            cd ..; sleep $((try * 5))
+          done
+          exit 1
