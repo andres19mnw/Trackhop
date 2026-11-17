@@ -1,4 +1,4 @@
-# The texts of the two tools that run in the browser (/wrapped, /convert), per language.
+# The texts of the tools that run in the browser (/wrapped, /convert, /link), per language.
 # "js" is handed to the page's script as it is; {name} is filled in there.
 en:
   home: /
@@ -71,6 +71,32 @@ en:
     stays_h: What happens to your file
     stays: "Your browser reads it on this page, a piece at a time, and writes the new file there. It is not sent to Trackhop or to anyone else; there is no account, no cookies and no statistics about who uses the page. A file that is cut short or cannot be read gives a message and nothing to download."
     guide: 'To move the playlist itself to another service, and keep it in step: <a href="/guide/export-playlist-csv">export and import with the app</a>.'
+  link:
+    h1: A link for every service
+    lead: A friend sent you a song on a service you don't use? Paste the link here and open the same song wherever you listen.
+    label: Paste a song or album link
+    paste: Paste
+    go: Find it
+    priv: "Nothing is stored: the lookup goes straight from your browser to the services"
+    priv_short: Nothing is stored
+    again: Try another link
+    reads_h: Links it can read
+    apple: Apple Music or iTunes
+    full: Full details
+    title_only: Title only
+    reads_note: One song or one album at a time. From a Spotify link the page only gets the title, so it makes a best guess and lets you correct the artist.
+    goes_h: Where it can take you
+    exact: Exact
+    search: Search
+    legend_exact: The button opens the song itself.
+    legend_search: The button opens that service's search with the artist and title already typed in. Those services don't let a page look up a song without a sign-in.
+    cta: Moving more than one song? The Trackhop app does this for whole playlists, and adds "Link for every service" to your share sheet.
+    how_h: How it finds the song
+    how: "Your browser asks the music services' public catalogues about the link you pasted: who the song is by, which album it is on, how long it is. With that it builds one button per service."
+    why_h: Why some buttons say Search
+    why: Most services only let a page look up a song after you sign in, and this page never asks you to. For those it opens their own search with the artist and title filled in, and it says so on the button.
+    stays_h: What stays with you
+    stays: There is no Trackhop server behind this page. The link goes from your browser to the services it is looked up on, and nothing is kept once you close the tab.
   js:
     lang: en
     reading: "Reading {name}… {pct}%"
@@ -226,6 +252,104 @@ en:
       download_zip: ["Download {n} file (.zip)", "Download {n} files (.zip)"]
       nothing: Tick at least one playlist
       remove: "Remove {name}"
+    link:
+      home: /
+      finding: Looking…
+      found: "Found: {what}"
+      from: "{service} link"
+      marks:
+        exact: Exact
+        guess: Best guess
+        search: Search
+      kind:
+        song: Song
+        album: Album
+      kind_guess: "{kind} · best guess"
+      songs_n: ["{n} song", "{n} songs"]
+      art: "Cover of {title}"
+      copy: Copy all links
+      copied: Copied
+      copy_failed: Select the text below and copy it
+      share: Share
+      copy_what: What "Copy all links" copies
+      copy_guess: best guess
+      copy_search: search
+      opens:
+        song: Opens the song
+        album: Opens the album
+      opens_guess: Opens our best guess
+      guess_sub:
+        song: A real song page, but for the guessed artist. Check the artist first.
+        album: A real album page, but for the guessed artist. Check the artist first.
+      differs_sub:
+        song: A real song page with the same title and artist. It may be another version.
+        album: A real album page with the same title and artist. It may be another edition.
+      opens_search: Opens a search
+      search_sub:
+        song: "Already filled in with “{q}”. The song is usually the first result."
+        album: "Already filled in with “{q}”. The album is usually the first result."
+      search_sub_guess: "Already filled in with “{q}”."
+      notes:
+        pasted: The link you pasted
+        same:
+          song: Same title, artist and length
+          album: Same title, artist and number of songs
+        differs:
+          song: Same title and artist, another length
+          album: Same title and artist, another number of songs
+      guess_h: Best guess from the title
+      guess_p:
+        song: "Spotify tells this page the song's title and nothing else. The artist shown is the most likely one for “{title}”. If it's a different song, put the right artist here."
+        album: "Spotify tells this page the album's title and nothing else. The artist shown is the most likely one for “{title}”. If it's a different album, put the right artist here."
+      guess_none_h: Only the title is known
+      guess_none_p:
+        song: "Spotify tells this page the song's title and nothing else, and no likely artist turned up for “{title}”. Put the artist here and the buttons get better."
+        album: "Spotify tells this page the album's title and nothing else, and no likely artist turned up for “{title}”. Put the artist here and the buttons get better."
+      artist: Artist
+      update: Update
+      alts: Or was it
+      alts_label: Other artists with this title
+      get: get Trackhop
+      err:
+        empty:
+          h: Paste a link first.
+          p: A song or album link from Apple Music, Deezer or Spotify.
+        not-link:
+          h: That doesn't look like a link.
+          p: "In the music app, use Share › Copy link on a song or an album, then paste it here."
+        playlist:
+          h: That's a playlist link. This page reads one song or album at a time.
+          tips:
+            - Open the song you want inside the playlist, copy its own link and paste that.
+            - "To move the whole playlist, {get}: the app does exactly that."
+        artist:
+          h: That's an artist link. This page reads one song or album at a time.
+          tips:
+            - Open a song or an album by the artist, copy its own link and paste that.
+        podcast:
+          h: That's a podcast link. This page reads songs and albums.
+          p: Podcasts have other names and other catalogues on each service, so there is nothing reliable to match.
+        other:
+          h: That link isn't a song or an album.
+          p: "Open the song or the album itself, use Share › Copy link, and paste that one."
+        short:
+          h: That's a short link, and a web page can't follow it.
+          p: Open it, wait for the song to show, then copy the full link from the address bar (or with Share › Copy link) and paste it here.
+        site:
+          h: This page can't read links from that site.
+          p: It reads song and album links from Apple Music, Deezer and Spotify. If you can find the song on one of those, paste that link instead.
+        not-found:
+          h: "{service} doesn't know that link."
+          p: The song may have been removed, or a piece of the link got lost on the way. Copy it again from the app and try once more.
+        no-answer:
+          h: "{service} isn't answering right now."
+          p: Nothing was half done. Wait a moment and press the button again.
+        offline:
+          h: You're offline.
+          p: The lookup needs the internet. Once you're back, press the button again.
+        unknown:
+          h: Something went wrong on this page.
+          p: Nothing was half done. Reload the page and try again.
 it:
   home: /it/
   kicker: Trackhop · Strumenti
@@ -297,6 +421,32 @@ it:
     stays_h: Cosa succede al tuo file
     stays: "Lo legge il tuo browser in questa pagina, un pezzo alla volta, e lì scrive il nuovo file. Non viene inviato a Trackhop né a nessun altro; non ci sono account, cookie o statistiche su chi usa la pagina. Un file tagliato o illeggibile dà un messaggio e niente da scaricare."
     guide: 'Per portare la playlist su un altro servizio e tenerla allineata: <a href="/guide/export-playlist-csv">esporta e importa con l''app</a> (in inglese).'
+  link:
+    h1: Un link per ogni servizio
+    lead: Ti hanno mandato una canzone su un servizio che non usi? Incolla qui il link e apri la stessa canzone dove ascolti tu.
+    label: Incolla il link di un brano o di un album
+    paste: Incolla
+    go: Cerca
+    priv: "Non viene salvato niente: la ricerca va dal tuo browser direttamente ai servizi"
+    priv_short: Non viene salvato niente
+    again: Prova un altro link
+    reads_h: I link che sa leggere
+    apple: Apple Music o iTunes
+    full: Tutti i dettagli
+    title_only: Solo il titolo
+    reads_note: Un brano o un album alla volta. Da un link di Spotify la pagina riceve solo il titolo, quindi fa un'ipotesi e ti lascia correggere l'artista.
+    goes_h: Dove ti può portare
+    exact: Esatto
+    search: Ricerca
+    legend_exact: Il pulsante apre proprio quel brano.
+    legend_search: Il pulsante apre la ricerca di quel servizio con artista e titolo già scritti. Quei servizi non lasciano cercare un brano a una pagina senza un accesso.
+    cta: Devi spostare più di un brano? L'app Trackhop lo fa per playlist intere, e aggiunge "Link per ogni servizio" al menu di condivisione.
+    how_h: Come trova il brano
+    how: "Il tuo browser chiede ai cataloghi pubblici dei servizi musicali notizie sul link che hai incollato: di chi è il brano, in quale album sta, quanto dura. Con questo prepara un pulsante per ogni servizio."
+    why_h: Perché alcuni pulsanti dicono Ricerca
+    why: Quasi tutti i servizi lasciano cercare un brano a una pagina solo dopo un accesso, e questa pagina non te lo chiede mai. Per quelli apre la loro ricerca con artista e titolo già scritti, e lo dice sul pulsante.
+    stays_h: Cosa resta a te
+    stays: Dietro questa pagina non c'è nessun server di Trackhop. Il link va dal tuo browser ai servizi su cui viene cercato, e quando chiudi la scheda non resta niente.
   js:
     lang: it
     reading: "Lettura di {name}… {pct}%"
@@ -452,3 +602,101 @@ it:
       download_zip: ["Scarica {n} file (.zip)", "Scarica {n} file (.zip)"]
       nothing: Spunta almeno una playlist
       remove: "Togli {name}"
+    link:
+      home: /it/
+      finding: Cerco…
+      found: "Trovato: {what}"
+      from: "Link di {service}"
+      marks:
+        exact: Esatto
+        guess: Ipotesi
+        search: Ricerca
+      kind:
+        song: Brano
+        album: Album
+      kind_guess: "{kind} · ipotesi"
+      songs_n: ["{n} brano", "{n} brani"]
+      art: "Copertina di {title}"
+      copy: Copia tutti i link
+      copied: Copiato
+      copy_failed: Seleziona il testo qui sotto e copialo
+      share: Condividi
+      copy_what: Cosa copia "Copia tutti i link"
+      copy_guess: ipotesi
+      copy_search: ricerca
+      opens:
+        song: Aprono il brano
+        album: Aprono l'album
+      opens_guess: Aprono la nostra ipotesi
+      guess_sub:
+        song: La pagina di un brano vero, ma dell'artista ipotizzato. Prima controlla l'artista.
+        album: La pagina di un album vero, ma dell'artista ipotizzato. Prima controlla l'artista.
+      differs_sub:
+        song: La pagina di un brano vero con lo stesso titolo e lo stesso artista. Potrebbe essere un'altra versione.
+        album: La pagina di un album vero con lo stesso titolo e lo stesso artista. Potrebbe essere un'altra edizione.
+      opens_search: Aprono una ricerca
+      search_sub:
+        song: "Con “{q}” già scritto. Di solito il brano è il primo risultato."
+        album: "Con “{q}” già scritto. Di solito l'album è il primo risultato."
+      search_sub_guess: "Con “{q}” già scritto."
+      notes:
+        pasted: Il link che hai incollato
+        same:
+          song: Stesso titolo, artista e durata
+          album: Stesso titolo, artista e numero di brani
+        differs:
+          song: Stesso titolo e artista, durata diversa
+          album: Stesso titolo e artista, numero di brani diverso
+      guess_h: Un'ipotesi a partire dal titolo
+      guess_p:
+        song: "Spotify dice a questa pagina il titolo del brano e nient'altro. L'artista che vedi è il più probabile per “{title}”. Se il brano è un altro, scrivi qui l'artista giusto."
+        album: "Spotify dice a questa pagina il titolo dell'album e nient'altro. L'artista che vedi è il più probabile per “{title}”. Se l'album è un altro, scrivi qui l'artista giusto."
+      guess_none_h: Si conosce solo il titolo
+      guess_none_p:
+        song: "Spotify dice a questa pagina il titolo del brano e nient'altro, e per “{title}” non è venuto fuori un artista probabile. Scrivi qui l'artista e i pulsanti migliorano."
+        album: "Spotify dice a questa pagina il titolo dell'album e nient'altro, e per “{title}” non è venuto fuori un artista probabile. Scrivi qui l'artista e i pulsanti migliorano."
+      artist: Artista
+      update: Aggiorna
+      alts: Oppure era
+      alts_label: Altri artisti con questo titolo
+      get: scarica Trackhop
+      err:
+        empty:
+          h: Prima incolla un link.
+          p: Il link di un brano o di un album di Apple Music, Deezer o Spotify.
+        not-link:
+          h: Questo non sembra un link.
+          p: "Nell'app di musica usa Condividi › Copia link su un brano o su un album, poi incollalo qui."
+        playlist:
+          h: Questo è il link di una playlist. Questa pagina legge un brano o un album alla volta.
+          tips:
+            - Apri il brano che ti interessa dentro la playlist, copia il suo link e incolla quello.
+            - "Per spostare tutta la playlist, {get}: l'app fa proprio questo."
+        artist:
+          h: Questo è il link di un artista. Questa pagina legge un brano o un album alla volta.
+          tips:
+            - Apri un brano o un album dell'artista, copia il suo link e incolla quello.
+        podcast:
+          h: Questo è il link di un podcast. Questa pagina legge brani e album.
+          p: I podcast hanno nomi e cataloghi diversi su ogni servizio, quindi non c'è niente di affidabile con cui farli combaciare.
+        other:
+          h: Questo link non è un brano né un album.
+          p: "Apri proprio il brano o l'album, usa Condividi › Copia link e incolla quello."
+        short:
+          h: Questo è un link breve, e una pagina web non può seguirlo.
+          p: Aprilo, aspetta che compaia il brano, poi copia il link completo dalla barra degli indirizzi (o con Condividi › Copia link) e incollalo qui.
+        site:
+          h: Questa pagina non sa leggere i link di quel sito.
+          p: Legge i link di brani e album di Apple Music, Deezer e Spotify. Se trovi il brano su uno di questi, incolla quel link.
+        not-found:
+          h: "{service} non conosce questo link."
+          p: Il brano potrebbe essere stato tolto, oppure un pezzo del link si è perso per strada. Copialo di nuovo dall'app e riprova.
+        no-answer:
+          h: "{service} in questo momento non risponde."
+          p: Non è stato fatto niente a metà. Aspetta un momento e premi di nuovo il pulsante.
+        offline:
+          h: Sei offline.
+          p: Per cercare serve internet. Quando torni in linea, premi di nuovo il pulsante.
+        unknown:
+          h: In questa pagina qualcosa è andato storto.
+          p: Non è stato fatto niente a metà. Ricarica la pagina e riprova.

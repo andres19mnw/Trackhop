@@ -50,6 +50,9 @@ tool-wrapped:
 tool-convert:
   en: /convert
   it: /it/convert
+tool-link:
+  en: /link
+  it: /it/link
 help-add:
   en: /guide/help-add-a-service
   ru: /guide/help-add-a-service-ru

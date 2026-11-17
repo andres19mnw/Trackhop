@@ -34,6 +34,7 @@ description (architecture, matching, services and their limits) stays in the
 **Tools on this site, nothing to install**
 - [Your Wrapped, any time](../wrapped): top artists, songs and hours, year by year, from the data export of Spotify, Apple Music or YouTube Music. The file is read in your browser and is not uploaded ([Italiano](../it/wrapped)).
 - [Convert a playlist file](../convert): CSV, M3U, PLS, XSPF, JSPF, JSON, an Apple Music/iTunes library or a plain list into another format, in your browser ([Italiano](../it/convert)).
+- [A link for every service](../link): paste a song or album link from Apple Music, Deezer or Spotify and open the same song on the service you use. The lookup runs in your browser and nothing is stored ([Italiano](../it/link)).
 
 **On your computer or server**
 - [Playlist sync for Windows](playlist-sync-windows), [for Mac](playlist-sync-mac), [for Linux](playlist-sync-linux): the desktop app, how to install it and what it does.
@@ -102,7 +103,7 @@ description (architecture, matching, services and their limits) stays in the
 - [Alternativa gratuita a Soundiiz e TuneMyMusic](alternativa-soundiiz): niente account, niente limiti.
 - [Da Spotify ad Apple Music](trasferire-playlist-spotify-apple-music) e [da Spotify a YouTube Music](trasferire-playlist-spotify-youtube-music), gratis.
 - [Salvare Discover Weekly prima che cambi](salvare-discover-weekly) · [Backup automatico delle playlist](backup-playlist-spotify) · [Rimuovere i brani doppi](rimuovere-duplicati-playlist) · [Sistemare i brani in grigio](brani-non-riproducibili) · [Il tuo Wrapped, quando vuoi](wrapped-quando-vuoi) · [Senza abbonamento](senza-abbonamento).
-- Sul sito, senza installare niente: [il tuo Wrapped dai dati che il servizio ti dà](../it/wrapped) e [convertire un file di playlist](../it/convert).
+- Sul sito, senza installare niente: [il tuo Wrapped dai dati che il servizio ti dà](../it/wrapped), [convertire un file di playlist](../it/convert) e [un link per ogni servizio](../it/link), per aprire un brano sul servizio che usi tu.
 
 **Maintaining it**
 - [Release process](release-process): version, changelogs, what CI does, F-Droid and Obtainium.

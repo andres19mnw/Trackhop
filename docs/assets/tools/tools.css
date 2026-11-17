@@ -1,9 +1,9 @@
-/* The tools that run in the browser (/wrapped, /convert). Built on the tokens of site.css. */
-:root { --ok: #17713f; --okbg: #e3f5ea; --bad: #a3261d; --badbg: #fde8e6; --chart: #5b3fd9; --chart-dim: #9585e6; --track: #e7e1f3; }
+/* The tools that run in the browser (/wrapped, /convert, /link). Built on the tokens of site.css. */
+:root { --ok: #17713f; --okbg: #e3f5ea; --bad: #a3261d; --badbg: #fde8e6; --chart: #5b3fd9; --chart-dim: #9585e6; --track: #e7e1f3; --note: #5c3d00; --notebg: #fff0cc; --noteline: #ecd08a; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --ok: #8fd6a4; --okbg: #1f3a29; --bad: #ffb4ab; --badbg: #44201c; --chart: #c8bfff; --chart-dim: #7d70c4; --track: #2e2b39; }
+  :root:not([data-theme="light"]) { --ok: #8fd6a4; --okbg: #1f3a29; --bad: #ffb4ab; --badbg: #44201c; --chart: #c8bfff; --chart-dim: #7d70c4; --track: #2e2b39; --note: #ffdf9e; --notebg: #3a2c0e; --noteline: #6b5320; }
 }
-:root[data-theme="dark"] { --ok: #8fd6a4; --okbg: #1f3a29; --bad: #ffb4ab; --badbg: #44201c; --chart: #c8bfff; --chart-dim: #7d70c4; --track: #2e2b39; }
+:root[data-theme="dark"] { --ok: #8fd6a4; --okbg: #1f3a29; --bad: #ffb4ab; --badbg: #44201c; --chart: #c8bfff; --chart-dim: #7d70c4; --track: #2e2b39; --note: #ffdf9e; --notebg: #3a2c0e; --noteline: #6b5320; }
 
 .tool { display: flex; flex-direction: column; gap: 16px; }
 .tool > * { margin-top: 0; margin-bottom: 0; }
@@ -263,3 +263,142 @@ main.tool-wide { max-width: 1072px; }
   @keyframes wr-grow-x { from { transform: scaleX(0); } }
   @keyframes wr-draw { from { stroke-dashoffset: var(--len); } }
 }
+
+/* ---- /link ----
+   One link in, one button per service out. Three marks say what a button does: Exact (the song
+   itself), Best guess (a real page, for a guessed artist or another version), Search. */
+.lk svg.i { width: 1em; height: 1em; flex: none; margin: 0; vertical-align: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.lk .tool-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
+.lk .tool-btn svg.i { font-size: 16px; }
+.lk .tool-priv { line-height: 1.4; }
+.lk .tool-priv svg.i { font-size: 14px; stroke-width: 2.2; }
+.lk :is(input, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prose .lk :is(h2, h3, p, ul, li, pre) { margin: 0; }
+.prose .lk ul { padding: 0; list-style: none; }
+.prose .lk h1 { font-size: clamp(30px, 5.4vw, 46px); line-height: 1.1; letter-spacing: -.02em; }
+.lk .tool-lead { max-width: 62ch; }
+.lk-intro { display: flex; flex-direction: column; gap: 12px; }
+.lk-intro > * { margin: 0; }
+.lk-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* The paste card */
+.lk-paste { display: flex; flex-direction: column; gap: 12px; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); max-width: 760px; }
+.lk-paste label { font-size: 19px; font-weight: 700; line-height: 1.3; }
+.lk-row { display: flex; gap: 10px; align-items: stretch; }
+.lk-field { position: relative; flex: 1; min-width: 0; display: flex; }
+.lk-field > svg { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); font-size: 20px; color: var(--ink-3); pointer-events: none; }
+.lk-field input { flex: 1; min-width: 0; width: 100%; height: 56px; font: inherit; font-size: 17px; padding: 0 16px 0 46px; border: 1.5px solid var(--ink-3); border-radius: 16px; background: var(--bg); color: var(--ink); text-overflow: ellipsis; }
+.lk-paste.has-paste .lk-field input { padding-right: 118px; }
+.lk-field input::placeholder { color: var(--ink-3); opacity: 1; }
+.lk-field input:focus-visible { outline-offset: 1px; border-color: var(--accent); }
+.lk-field input[aria-invalid="true"] { border-color: var(--bad); }
+.lk-field .lk-pastebtn { position: absolute; right: 8px; top: 8px; height: 40px; padding: 0 14px; }
+.lk .lk-go { height: 56px; padding: 0 26px; font-size: 16px; border-radius: 16px; }
+.lk-under { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+@media (max-width: 560px) {
+  .lk-paste { padding: 16px; }
+  .lk-row { flex-direction: column; }
+  .lk .lk-go { width: 100%; height: 50px; }
+}
+
+/* Before a link is pasted: what it reads, where it takes you */
+.lk-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; max-width: 760px; }
+@media (max-width: 700px) { .lk-two { grid-template-columns: 1fr; } }
+.lk-panel { display: flex; flex-direction: column; gap: 12px; padding: 18px; border-radius: var(--radius); background: var(--surface-2); min-width: 0; }
+.prose .lk-panel h2 { font-size: 16px; line-height: 1.3; }
+.lk-reads { display: flex; flex-direction: column; }
+.prose .lk-reads li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.prose .lk-reads li:first-child { border-top: 0; padding-top: 0; }
+.prose .lk-reads li:last-child { padding-bottom: 0; }
+.lk-reads b { font-size: 15px; line-height: 1.3; }
+.prose .lk-reads code { grid-column: 1; padding: 0; border-radius: 0; background: none; font: 13px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lk-reads .lk-mark { grid-column: 2; grid-row: 1 / 3; }
+.lk-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.lk-chips li { display: inline-flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; font-weight: 600; line-height: 1.3; }
+.lk-legend { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--ink-2); line-height: 1.45; }
+.lk-legend li { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; align-items: start; }
+.lk-legend .lk-mark { justify-self: start; margin-top: 1px; }
+
+/* The Exact / Best guess / Search mark */
+.lk-mark { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; border-radius: 999px; font-size: 12.5px; font-weight: 700; line-height: 1.5; white-space: nowrap; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
+.lk .lk-mark svg.i { font-size: 12px; stroke-width: 2.6; }
+.lk-mark.exact { background: var(--okbg); color: var(--ok); border-color: transparent; }
+.lk-mark.guess { background: var(--notebg); color: var(--note); border-color: var(--noteline); }
+
+/* The link that was read */
+.lk-loaded { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.lk-from { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 240px; }
+.lk-from-ic { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); color: var(--accent); font-size: 18px; }
+.lk-from > div { min-width: 0; }
+.lk-from b { display: block; font-size: 15px; line-height: 1.3; }
+.lk-from > div span { display: block; font: 13px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The result */
+.lk-result { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 20px 32px; align-items: start; }
+.lk-result[aria-busy="true"] { opacity: .7; }
+.lk-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.lk-song { display: flex; flex-direction: column; gap: 16px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); min-width: 0; }
+.prose .lk-art { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 12px; display: block; border: 1px solid var(--line); background: var(--surface-2); }
+.lk-noart { display: grid; place-items: center; color: var(--ink-3); font-size: 40px; }
+.lk-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lk-kind { font-size: 13.5px; font-weight: 600; color: var(--ink-3); }
+.prose .lk-title { font-size: clamp(24px, 3vw, 30px); font-weight: 800; letter-spacing: -.02em; line-height: 1.15; }
+.lk-title:focus-visible { border-radius: 4px; }
+.lk-artist { font-size: 18px; font-weight: 600; line-height: 1.3; }
+.lk-album { font-size: 14.5px; color: var(--ink-2); line-height: 1.45; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.lk-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.lk-acts .tool-btn { flex: 1 1 130px; }
+.lk-copy { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.lk-copy summary { cursor: pointer; padding: 10px 14px; font-size: 14px; font-weight: 600; color: var(--link); border-radius: 14px; }
+.prose .lk-copy pre { margin: 0; padding: 0 14px 14px; border-radius: 0; background: none; overflow: visible; font: 12.5px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 860px) {
+  .lk-result { grid-template-columns: minmax(0, 1fr); }
+  .lk-song { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 14px; align-items: center; padding: 14px; }
+  .lk-song .lk-acts, .lk-song .lk-guess { grid-column: 1 / -1; }
+  .lk-side { display: contents; }
+  .lk-main { order: 2; }
+  .lk-copy { order: 3; }
+}
+
+/* The services */
+.lk-main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.lk-group { display: flex; flex-direction: column; gap: 10px; }
+.prose .lk-group h3 { font-size: 16px; line-height: 1.3; }
+.lk-group h3 small { display: block; font-size: 14px; font-weight: 400; color: var(--ink-2); }
+.lk-svcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 10px; }
+.lk-svc { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px 12px 12px; min-height: 64px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); text-decoration: none; }
+.lk-svc:hover { border-color: var(--accent); }
+.lk-svc .ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); color: var(--ink-2); font-size: 19px; }
+.lk-svc.exact .ic { background: var(--accent); color: var(--accent-ink); }
+.lk-svc .nm { min-width: 0; font-weight: 700; font-size: 16px; line-height: 1.3; }
+.lk-svc .nm small { display: block; font-weight: 400; font-size: 13px; color: var(--ink-2); line-height: 1.35; }
+@media (prefers-reduced-motion: no-preference) { .lk-svc { transition: border-color .15s; } }
+
+/* Best guess */
+.lk-guess { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--notebg); color: var(--note); border: 1px solid var(--noteline); }
+.lk-guess-h { display: flex; gap: 10px; align-items: flex-start; }
+.lk .lk-guess-h svg.i { font-size: 20px; margin-top: 2px; }
+.lk-guess-h b { display: block; font-size: 16px; line-height: 1.3; }
+.lk-guess-h span { display: block; font-size: 14.5px; line-height: 1.5; margin-top: 2px; }
+.lk-fix { display: flex; flex-direction: column; gap: 6px; }
+.lk-fix label { font-size: 14px; font-weight: 700; }
+.lk-fix-row { display: flex; gap: 8px; }
+.lk-fix input { flex: 1; min-width: 0; height: 42px; font: inherit; font-size: 16px; padding: 0 12px; border: 1.5px solid var(--note); border-radius: 12px; background: var(--surface); color: var(--ink); }
+.lk .lk-fix .tool-btn { height: 42px; background: var(--note); color: var(--notebg); }
+.lk-guess :is(input, button):focus-visible { outline-color: var(--note); }
+.lk-alts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 14px; }
+.lk-alts span { font-weight: 700; margin-right: 2px; }
+.lk-alts button { font: inherit; font-size: 13.5px; font-weight: 600; line-height: 1.3; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--note); background: transparent; color: var(--note); cursor: pointer; }
+.lk-alts button:hover { background: var(--surface); }
+
+/* A link it cannot read, a service that does not answer */
+.lk-err { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: start; max-width: 760px; padding: 12px 14px; }
+.lk .lk-err > svg.i { font-size: 22px; grid-row: span 3; margin-top: 1px; }
+.lk-err b { font-size: 16px; line-height: 1.35; }
+.lk-err p { font-size: 15px; line-height: 1.5; }
+.prose .lk .lk-err ul { list-style: disc; padding-left: 18px; font-size: 15px; line-height: 1.5; }
+.lk-err a { color: inherit; font-weight: 600; }
+
+.lk .lk-about { max-width: 760px; display: flex; flex-direction: column; gap: 10px; margin-top: 28px; }
+.prose .lk .lk-about h2 { font-size: 22px; line-height: 1.3; margin-top: 16px; }
+.lk-about p { color: var(--ink-2); }
