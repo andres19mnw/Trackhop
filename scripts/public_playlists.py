@@ -101,7 +101,8 @@ def main(out):
     data = {**counts, "total": total, "checked": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
     json.dump(data, open(os.path.join(out, "public-playlists.json"), "w"), indent=1)
     # The README's badge reads this through shields.io's endpoint format.
-    json.dump({"schemaVersion": 1, "label": "public playlists synced", "message": f"{total:,}", "color": "7c3aed"},
+    # Rounded down with a "+": only public Spotify and YouTube playlists that keep the description count.
+    json.dump({"schemaVersion": 1, "label": "public playlists synced", "message": f"{total // 10 * 10:,}+" if total >= 10 else f"{total}", "color": "7c3aed"},
               open(os.path.join(out, "public-playlists-badge.json"), "w"))
 
 
