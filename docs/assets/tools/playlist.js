@@ -72,9 +72,9 @@ export function safeName(name) {
   return blank(s) ? 'playlist' : s;
 }
 
-const unescapeXml = (s) => s
-  .replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"')
-  .replaceAll('&apos;', "'").replaceAll('&#38;', '&').replaceAll('&amp;', '&');
+// One pass, so "&amp;lt;" stays "&lt;" (unescaping in steps would turn it into "<").
+const XML_ENTITIES = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&', '#38': '&' };
+const unescapeXml = (s) => s.replace(/&(lt|gt|quot|apos|amp|#38);/g, (_, e) => XML_ENTITIES[e]);
 const escapeXml = (s) => s
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 
@@ -87,7 +87,7 @@ export function detect(fileName, text) {
   const starts = (s) => head.toLowerCase().startsWith(s);
   if (head.startsWith('#EXTM3U') || name.endsWith('.m3u') || name.endsWith('.m3u8')) return 'm3u';
   if (name.endsWith('.pls') || starts('[playlist]')) return 'pls';
-  if (name.endsWith('.xspf') || (head.startsWith('<') && head.includes('xspf.org'))) return 'xspf';
+  if (name.endsWith('.xspf') || (head.startsWith('<') && /<playlist\b[^>]*xspf\.org/i.test(head))) return 'xspf';
   if (name.endsWith('.opml') || (head.startsWith('<') && head.toLowerCase().includes('<opml'))) return 'opml';
   if (head.includes('<plist') || (name.endsWith('.xml') && head.startsWith('<'))) return 'itunes';
   if (head.startsWith('{') || head.startsWith('[') || name.endsWith('.json')) return 'json';

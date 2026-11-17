@@ -283,3 +283,10 @@ test('CsvRows: the separator is read off the first lines', () => {
   r.end();
   assert.deepEqual(rows, [['a', 'b,c', 'd'], ['1', '2;3', '4']]);
 });
+
+test('XSPF: entities are unescaped once, and a mention of xspf.org in a title is not the namespace', () => {
+  const x = '<?xml version="1.0"?>\n<playlist version="1" xmlns="http://xspf.org/ns/0/"><trackList>' +
+    '<track><title>A &amp;lt;b&amp;gt; &amp; &#38; C</title><creator>X</creator></track></trackList></playlist>';
+  assert.equal(parseText('a.xspf', x).tracks[0].title, 'A &lt;b&gt; & & C');
+  assert.notEqual(detect('a.xml', '<?xml version="1.0"?><note>see xspf.org</note>'), 'xspf');
+});
