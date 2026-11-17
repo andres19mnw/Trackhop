@@ -1,5 +1,5 @@
 ---
-title: Trackhop without a paid music service: new music every week on free accounts
+title: "Trackhop without a paid music service: new music every week on free accounts"
 description: No Spotify Premium, no YouTube Music Premium? Trackhop fills the free accounts of YouTube Music, Spotify, Deezer and SoundCloud, or your own server, with new releases, charts, radio, setlists and AI playlists that update by themselves. Free and open source.
 ---
 
