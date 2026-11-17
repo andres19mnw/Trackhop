@@ -7,7 +7,7 @@ key, or failing, keeps its last count (read back from the badges branch) instead
     python3 scripts/public_playlists.py OUT_DIR
 Environment: SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, YOUTUBE_API_KEY (each optional).
 """
-import base64, json, os, sys, time, urllib.parse, urllib.request
+import base64, json, os, sys, time, urllib.error, urllib.parse, urllib.request
 
 PHRASE = "synced with trackhop"
 UA = "Trackhop-stats/1 (+https://trackhop.org)"
@@ -16,8 +16,13 @@ PREVIOUS = "https://raw.githubusercontent.com/xlollx/Trackhop/badges/public-play
 
 def get(url, headers=None, data=None):
     req = urllib.request.Request(url, data=data, headers={"User-Agent": UA, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        # The service's own error text ("invalid_client", "invalid limit"…), never the request's keys.
+        where = url.split("?")[0]
+        raise RuntimeError(f"{where} answered {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
 
 
 def spotify():
