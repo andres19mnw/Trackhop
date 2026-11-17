@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Count
         env:
-          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID || vars.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
@@ -30,6 +30,8 @@ jobs:
             echo "::notice::No SPOTIFY_CLIENT_SECRET or YOUTUBE_API_KEY yet: nothing to count."; exit 0
           fi
           python3 scripts/public_playlists.py out
+          # Its SVG for the README at once (the hourly Downloads run redraws them all too).
+          mkdir -p svg && cp out/public-playlists-badge.json svg/ && python3 scripts/badge_svg.py svg && cp svg/public-playlists-badge.svg out/
       - name: Into the badges branch
         run: |
           [ -f out/public-playlists.json ] || exit 0
@@ -37,8 +39,8 @@ jobs:
             rm -rf badges
             git init -q badges; cd badges
             git fetch -q --depth=1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" badges && git checkout -q -B badges FETCH_HEAD
-            cp ../out/public-playlists.json ../out/public-playlists-badge.json .
-            git add public-playlists.json public-playlists-badge.json
+            cp ../out/public-playlists.json ../out/public-playlists-badge.json ../out/public-playlists-badge.svg .
+            git add public-playlists.json public-playlists-badge.json public-playlists-badge.svg
             git diff --cached --quiet && { echo "No change."; exit 0; }
             git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Public playlists"
             git push -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" badges && exit 0

@@ -7,7 +7,7 @@ key, or failing, keeps its last count (read back from the badges branch) instead
     python3 scripts/public_playlists.py OUT_DIR
 Environment: SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, YOUTUBE_API_KEY (each optional).
 """
-import base64, json, os, sys, time, urllib.parse, urllib.request
+import base64, json, os, sys, time, urllib.error, urllib.parse, urllib.request
 
 PHRASE = "synced with trackhop"
 UA = "Trackhop-stats/1 (+https://trackhop.org)"
@@ -16,8 +16,13 @@ PREVIOUS = "https://raw.githubusercontent.com/xlollx/Trackhop/badges/public-play
 
 def get(url, headers=None, data=None):
     req = urllib.request.Request(url, data=data, headers={"User-Agent": UA, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        # The service's own error text ("invalid_client", "invalid limit"…), never the request's keys.
+        where = url.split("?")[0]
+        raise RuntimeError(f"{where} answered {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
 
 
 def spotify():
@@ -29,17 +34,25 @@ def spotify():
                 b"grant_type=client_credentials")["access_token"]
     seen = set()
     offset = 0
+    # Apps in Spotify's development mode get smaller pages: 50 when allowed, else 10.
+    limit = 50
     # Spotify's search stops at offset 1000; only playlists whose description really says it count.
     while offset < 1000:
-        q = urllib.parse.urlencode({"q": '"Synced with Trackhop"', "type": "playlist", "limit": 50, "offset": offset})
-        page = get(f"https://api.spotify.com/v1/search?{q}", {"Authorization": f"Bearer {token}"})["playlists"]
+        q = urllib.parse.urlencode({"q": '"Synced with Trackhop"', "type": "playlist", "limit": limit, "offset": offset})
+        try:
+            page = get(f"https://api.spotify.com/v1/search?{q}", {"Authorization": f"Bearer {token}"})["playlists"]
+        except RuntimeError as e:
+            if limit > 10 and "Invalid limit" in str(e):
+                limit = 10
+                continue
+            raise
         items = [p for p in page.get("items") or [] if p]
         for p in items:
             if PHRASE in (p.get("description") or "").lower():
                 seen.add(p["id"])
         if not page.get("next") or not items:
             break
-        offset += 50
+        offset += limit
         time.sleep(0.3)
     return len(seen)
 
@@ -88,7 +101,8 @@ def main(out):
     data = {**counts, "total": total, "checked": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
     json.dump(data, open(os.path.join(out, "public-playlists.json"), "w"), indent=1)
     # The README's badge reads this through shields.io's endpoint format.
-    json.dump({"schemaVersion": 1, "label": "public playlists synced", "message": f"{total:,}", "color": "7c3aed"},
+    # Rounded down with a "+": only public Spotify and YouTube playlists that keep the description count.
+    json.dump({"schemaVersion": 1, "label": "public playlists synced", "message": f"{total // 10 * 10:,}+" if total >= 10 else f"{total}", "color": "7c3aed"},
               open(os.path.join(out, "public-playlists-badge.json"), "w"))
 
 
