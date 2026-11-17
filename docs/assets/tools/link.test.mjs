@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseLink, display, plainTitle, titleKey, sameArtist, pickMatch, searchUrl, queryOf, buildServices, copyText, clock,
-  getJson, jsonp, lookup, spotifyBase, spotifyResult, SERVICES } from './link.js';
+  getJson, jsonp, lookup, spotifyBase, spotifyResult, SERVICES, matches, albumSong, spaced, coverSignature, coverDistance, pickCover,
+  COVER_GRID, COVER_SAME, COVER_MARGIN } from './link.js';
 import { ToolError } from './io.js';
 
 const refuses = (fn, code, detail) => assert.throws(fn, (e) => e instanceof ToolError && e.code === code && (detail == null || e.detail === detail));
@@ -311,19 +312,29 @@ const itunesSong = (id, name, artist, ms, album = 'Rumours') => ({ wrapperType: 
   trackTimeMillis: ms, releaseDate: '1977-02-04T08:00:00Z', artworkUrl100: 'https://is1-ssl.mzstatic.com/a/100x100bb.jpg', trackViewUrl: 'https://music.apple.com/us/album/x/1?i=' + id + '&uo=4' });
 const deezerSong = (id, title, artist, seconds) => ({ id, title, duration: seconds, artist: { name: artist }, album: { title: 'Rumours', cover_big: 'https://cdn-images.dzcdn.net/c.jpg' }, isrc: 'USWB10400046' });
 
-/** A net that answers by the first matching piece of the URL, and keeps what it was asked. */
-function fakeNet(routes) {
-  const asked = [];
+/** What is asked on top of the rest (MusicBrainz, a barcode, a Deezer song or album whole): a test that gives no answer for it gets "not found". */
+const OPTIONAL = /musicbrainz\.org|lookup\?upc=|api\.deezer\.com\/(track|album)\//;
+
+/**
+ * A net that answers by the first matching piece of the URL, and keeps what it was asked: in
+ * [asked], or in [extra] the optional requests the test has no answer for. [covers] maps a
+ * picture's URL to its signature; without it the net reads no pictures.
+ */
+function fakeNet(routes, covers) {
+  const asked = [], extra = [];
   const ask = (via) => async (url, opts) => {
-    asked.push(via + ' ' + url);
     for (const [piece, reply] of routes) {
       if (!url.includes(piece)) continue;
+      asked.push(via + ' ' + url);
       if (reply instanceof Error) throw reply;
       return typeof reply === 'function' ? reply(url, opts) : reply;
     }
+    if (OPTIONAL.test(url)) { extra.push(via + ' ' + url); throw new ToolError('not-found', 'optional'); }
     throw new Error('unexpected request ' + url);
   };
-  return { json: ask('fetch'), jsonp: ask('jsonp'), asked };
+  const net = { json: ask('fetch'), jsonp: ask('jsonp'), asked, extra, routes };
+  if (covers) net.cover = async (url) => { asked.push('cover ' + url); return covers[url] || null; };
+  return net;
 }
 const marks = (r) => Object.fromEntries(r.services.map((s) => [s.id, s.mark]));
 
@@ -424,9 +435,12 @@ test('from Spotify: only the title is known, so the artist is a best guess', asy
   const r = await lookup(parseLink('https://open.spotify.com/intl-it/track/0ofHAoxe9vBkTCp2UQIavz?si=1'), net);
   assert.deepEqual(net.asked, [
     'fetch https://open.spotify.com/oembed?url=https%3A%2F%2Fopen.spotify.com%2Ftrack%2F0ofHAoxe9vBkTCp2UQIavz',
-    'fetch https://itunes.apple.com/search?term=Dreams&entity=song&country=it&limit=25',
-    'jsonp https://api.deezer.com/search?q=Dreams&limit=10',
+    'fetch https://itunes.apple.com/search?term=Dreams&entity=song&country=it&limit=50',
+    'jsonp https://api.deezer.com/search?q=Dreams&limit=50',
   ]);
+  // MusicBrainz was asked first, and did not know the link.
+  assert.deepEqual(net.extra, ['fetch https://musicbrainz.org/ws/2/url?resource=https%3A%2F%2Fopen.spotify.com%2Ftrack%2F0ofHAoxe9vBkTCp2UQIavz&inc=recording-rels&fmt=json']);
+  assert.equal(r.fix, true);
   assert.equal(r.guess, true);
   assert.equal(r.title, 'Dreams - 2004 Remaster');
   // High in both catalogues, and there more than once: before the first of either list.
@@ -487,7 +501,7 @@ test('from Spotify: an album, and an artist only one catalogue has under that ti
     ['api.deezer.com/search/album', { data: [{ id: 12114240, title: 'The Dark Side of the Moon', nb_tracks: 10, artist: { name: 'Pink Floyd' } }] }],
   ]);
   const r = await lookup(parseLink('https://open.spotify.com/album/4LH4d3cOWNNsVw41Gqt2kv'), net);
-  assert.deepEqual(net.asked.slice(1), ['fetch https://itunes.apple.com/search?term=The+Dark+Side+of+the+Moon&entity=album&country=us&limit=25', 'jsonp https://api.deezer.com/search/album?q=The%20Dark%20Side%20of%20the%20Moon&limit=10']);
+  assert.deepEqual(net.asked.slice(1), ['fetch https://itunes.apple.com/search?term=The+Dark+Side+of+the+Moon&entity=album&country=us&limit=50', 'jsonp https://api.deezer.com/search/album?q=The%20Dark%20Side%20of%20the%20Moon&limit=50']);
   assert.equal(r.artist, 'Pink Floyd');
   assert.equal(r.services[0].url, 'https://music.apple.com/us/album/x/2');
   assert.equal(r.services[1].url, 'https://www.deezer.com/album/12114240');
@@ -529,4 +543,340 @@ test('from Spotify: a title no catalogue song has leaves the artist empty', asyn
   assert.equal(r.query, 'Zzyzx Qwv');
   assert.deepEqual(marks(r), { apple: 'search', deezer: 'search', spotify: 'exact', ytmusic: 'search', youtube: 'search', tidal: 'search', amazon: 'search', soundcloud: 'search' });
   await rejects(lookup(parseLink('https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC'), fakeNet([['open.spotify.com/oembed', {}]])), 'not-found', 'Spotify');
+});
+
+// ---- Covers ----
+
+/** A made-up cover, [size] pixels a side: coloured shapes placed by [seed], then [change](r, g, b, x, y) on every pixel. */
+function picture(seed, size, change = (r, g, b) => [r, g, b]) {
+  let state = seed;
+  const rnd = () => { state = (state * 1103515245 + 12345) % 2147483648; return state / 2147483648; };
+  const shapes = Array.from({ length: 7 }, () => ({ x: rnd(), y: rnd(), r: 0.1 + rnd() * 0.3, c: [rnd() * 255, rnd() * 255, rnd() * 255] }));
+  const back = [rnd() * 255, rnd() * 255, rnd() * 255];
+  const rgba = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let c = back;
+      for (const s of shapes) if (Math.hypot((x + 0.5) / size - s.x, (y + 0.5) / size - s.y) < s.r) c = s.c;
+      rgba.set([...change(c[0], c[1], c[2], x, y), 255], (y * size + x) * 4);
+    }
+  }
+  return coverSignature(rgba, size, size);
+}
+const noise = (amount, seed = 7) => { let s = seed; return (r, g, b) => [r, g, b].map((v) => { s = (s * 1103515245 + 12345) % 2147483648; return v + (s / 2147483648 - 0.5) * amount; }); };
+
+test('coverSignature: a 16 x 16 grid of colours; nothing for a flat or too small picture', () => {
+  const sig = picture(1, 300);
+  assert.equal(sig.length, COVER_GRID * COVER_GRID * 3);
+  const half = new Uint8ClampedArray(32 * 32 * 4);
+  for (let i = 0; i < 32 * 32; i++) half.set(i % 32 < 16 ? [200, 100, 0, 255] : [0, 100, 200, 255], i * 4);
+  const two = coverSignature(half, 32, 32);
+  assert.deepEqual([...two.slice(0, 3)], [200, 100, 0]);
+  assert.deepEqual([...two.slice(15 * 3, 16 * 3)], [0, 100, 200]);
+  // One flat colour (and the noise a guarded canvas hands out, which averages to one) is no cover.
+  assert.equal(coverSignature(new Uint8ClampedArray(64 * 64 * 4).fill(255), 64, 64), null);
+  assert.equal(picture(1, 64, () => noise(4)(128, 128, 128)), null);
+  assert.equal(coverSignature(new Uint8ClampedArray(8 * 8 * 4), 8, 8), null);
+  assert.equal(coverSignature(null, 64, 64), null);
+});
+
+test('coverDistance: the same artwork in another size, compression, tint or crop is close; another cover is far', () => {
+  const spotify = picture(1, 300);
+  assert.equal(coverDistance(spotify, spotify), 0);
+  // Deezer's 56 px and Apple's 100 px of the same file, with the grain of a JPEG.
+  assert.ok(coverDistance(spotify, picture(1, 56, noise(24))) < 0.05);
+  assert.ok(coverDistance(spotify, picture(1, 100, noise(24, 3))) < 0.05);
+  // Darker and warmer, as another mastering of the scan is.
+  assert.ok(coverDistance(spotify, picture(1, 100, (r, g, b) => [r * 0.8 + 20, g * 0.75, b * 0.7])) < COVER_SAME);
+  // Moved by a hundredth of its width: another crop.
+  const moved = picture(1, 300, (r, g, b) => [r, g, b]);
+  const shifted = coverSignature(shift(1, 300, 3), 300, 300);
+  assert.ok(coverDistance(moved, shifted) < COVER_SAME);
+  for (const other of [2, 3, 4, 5, 6, 7, 8, 9]) assert.ok(coverDistance(spotify, picture(other, 56)) > COVER_SAME * 2, 'cover ' + other);
+});
+
+/** picture(seed, size) as pixels, moved [by] pixels to the right and down. */
+function shift(seed, size, by) {
+  let state = seed;
+  const rnd = () => { state = (state * 1103515245 + 12345) % 2147483648; return state / 2147483648; };
+  const shapes = Array.from({ length: 7 }, () => ({ x: rnd(), y: rnd(), r: 0.1 + rnd() * 0.3, c: [rnd() * 255, rnd() * 255, rnd() * 255] }));
+  const back = [rnd() * 255, rnd() * 255, rnd() * 255];
+  const rgba = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let c = back;
+      for (const s of shapes) if (Math.hypot((x - by + 0.5) / size - s.x, (y - by + 0.5) / size - s.y) < s.r) c = s.c;
+      rgba.set([c[0], c[1], c[2], 255], (y * size + x) * 4);
+    }
+  }
+  return rgba;
+}
+
+test('pickCover: the same artwork, clearly; never a near miss, never one of two artists', () => {
+  const c = (artist, d) => ({ artist, d });
+  const own = c('Saint Asonia', 0.042);
+  assert.equal(pickCover([c('Poppy Fusée', 0.71), own, c('Rachel Platten', 0.64), c('Nobody', null)]), own);
+  // Another scan of the same cover, at the far end of what was measured.
+  assert.equal(pickCover([c('Rick Astley', 0.103), c('Addal', 0.56)]).artist, 'Rick Astley');
+  // The closest is not the same artwork: no match, however far the others are.
+  assert.equal(pickCover([c('Fleetwood Mac', 0.19), c('Shindy', 0.73)]), null);
+  assert.equal(pickCover([c('A', COVER_SAME + 0.001)]), null);
+  assert.equal(pickCover([c('A', COVER_SAME)]).artist, 'A');
+  // Two artists with the same artwork (a compilation, a tribute that copies it): ambiguous.
+  assert.equal(pickCover([c('Pink Floyd', 0.04), c('Tribute Band', 0.06)]), null);
+  assert.equal(pickCover([c('Queen', 0.096), c('Marc Martel', 0.18)]), null);
+  // The borrowed artwork is told from the original when the original is that much closer.
+  assert.equal(pickCover([c('Pink Floyd', 0.008), c('Ranjit Souri', 0.066)]).artist, 'Pink Floyd');
+  assert.equal(pickCover([c('Pink Floyd', 0.008), c('Ranjit Souri', 0.05)]), null);
+  // The album, its deluxe edition and its single share a cover: one artist, no doubt.
+  assert.equal(pickCover([c('Fleetwood Mac', 0.006), c('Fleetwood Mac', 0.007), c('The Fleetwood Mac', 0.19), c('Beck', 0.8)]).d, 0.006);
+  assert.equal(pickCover([c('A', null), c('B', null)]), null);
+  assert.equal(pickCover([]), null);
+  assert.equal(COVER_SAME, 0.14);
+  assert.equal(COVER_MARGIN, 0.05);
+});
+
+test('albumSong: the song in the same place on the album, else the only one with the title', () => {
+  const s = (track, title, seconds, disc = 1) => ({ title, track, disc, durationMs: seconds * 1000 });
+  const album = [s(1, 'Second Hand News', 176), s(2, 'Dreams', 258), s(3, 'Never Going Back Again', 134), s(1, 'Dreams (Live)', 250, 2), s(2, 'Dreams', 300, 2)];
+  assert.equal(albumSong({ title: 'Dreams - 2004 Remaster', track: 2, disc: 1, durationMs: 257000 }, album), album[1]);
+  assert.equal(albumSong({ title: 'Dreams', track: 2, disc: 2, durationMs: 300000 }, album), album[4]);
+  // The same place under another spelling counts when the length agrees.
+  assert.equal(albumSong({ title: 'Never Goin’ Back', track: 3, disc: 1, durationMs: 135000 }, album), album[2]);
+  assert.equal(albumSong({ title: 'Never Goin’ Back', track: 3, disc: 1, durationMs: 200000 }, album), null);
+  // No place known: the title alone, when one song has it; two need the length to tell them apart.
+  assert.equal(albumSong({ title: 'Second Hand News', durationMs: null }, album), album[0]);
+  assert.equal(albumSong({ title: 'Dreams', durationMs: null }, album), null);
+  assert.equal(albumSong({ title: 'Dreams', durationMs: 299000 }, album), album[4]);
+  assert.equal(albumSong({ title: 'Go Your Own Way', track: 5, durationMs: 1 }, album), null);
+  assert.equal(albumSong({ title: 'Dreams', track: 2 }, []), null);
+});
+
+test('matches: title and artist, the closest length first', () => {
+  const want = { kind: 'song', title: 'Dreams', artist: 'Fleetwood Mac', durationMs: 257000 };
+  const c = (id, title, artist, ms) => ({ id, title, artist, durationMs: ms });
+  const list = [c(1, 'Dreams', 'Fleetwood Mac', 300000), c(2, 'Dreams', 'Beck', 257000), c(3, 'Dreams (Remastered)', 'Fleetwood Mac', 258000), c(4, 'Dreams', 'Fleetwood Mac', null)];
+  assert.deepEqual(matches(want, list).map((x) => x.id), [3, 1, 4]);
+  assert.deepEqual(matches({ ...want, durationMs: null }, list).map((x) => x.id), [1, 3, 4]);
+});
+
+test('spaced: MusicBrainz is asked once a second at most, and never waited on for long', async () => {
+  let now = 1000;
+  const waits = [], sent = [];
+  const json = spaced(async (url) => { sent.push(url + ' @' + now); return 1; }, { now: () => now, wait: async (ms) => { waits.push(ms); now += ms; } });
+  await json('https://musicbrainz.org/ws/2/url?x=1');
+  await json('https://itunes.apple.com/lookup?id=1');
+  await json('https://musicbrainz.org/ws/2/recording/1');
+  assert.deepEqual(waits, [1100]);
+  assert.deepEqual(sent, ['https://musicbrainz.org/ws/2/url?x=1 @1000', 'https://itunes.apple.com/lookup?id=1 @1000', 'https://musicbrainz.org/ws/2/recording/1 @2100']);
+  // Three more at once: the second waits its second, the third and fourth would wait too long and are not sent.
+  now = 2200;
+  const still = spaced(async () => 1, { now: () => now, wait: async () => {} });
+  const all = await Promise.allSettled([1, 2, 3, 4, 5].map((n) => still('https://musicbrainz.org/ws/2/url?x=' + n, { name: 'MusicBrainz' })));
+  assert.deepEqual(all.map((x) => x.status), ['fulfilled', 'fulfilled', 'fulfilled', 'rejected', 'rejected']);
+  assert.equal(all[4].reason.code, 'no-answer');
+});
+
+test('getJson and jsonp: an aborted signal ends the request as "no answer"', async () => {
+  const gone = new AbortController();
+  gone.abort();
+  await rejects(getJson('https://x/', { signal: gone.signal, fetch: (url, { signal }) => (signal.aborted ? Promise.reject(new Error('aborted')) : Promise.resolve({ ok: true, status: 200, json: async () => 1 })) }), 'no-answer');
+  const later = new AbortController();
+  const hanging = getJson('https://x/', { signal: later.signal, fetch: (url, { signal }) => new Promise((ok, fail) => signal.addEventListener('abort', () => fail(new Error('aborted')))) });
+  later.abort();
+  await rejects(hanging, 'no-answer');
+  const page = fakePage();
+  await rejects(jsonp('https://api.deezer.com/track/1', { doc: page.doc, scope: page.scope, signal: gone.signal }), 'no-answer');
+  assert.equal(page.scripts.length, 0);
+  const mid = new AbortController();
+  const asked = jsonp('https://api.deezer.com/track/1', { doc: page.doc, scope: page.scope, signal: mid.signal, name: 'Deezer' });
+  mid.abort();
+  await rejects(asked, 'no-answer', 'Deezer');
+  assert.ok(page.scripts[0].removed);
+  await rejects(lookup(parseLink('https://www.deezer.com/track/5'), fakeNet([]), { signal: gone.signal }), 'no-answer');
+});
+
+// ---- The chains that make a button exact ----
+
+const SPOTIFY_ALBUM = 'https://open.spotify.com/album/4LH4d3cOWNNsVw41Gqt2kv';
+const SPOTIFY_SONG = 'https://open.spotify.com/track/0NWn0F8r2PHaqcMDnGDKvj';
+const itunesAlbum = (id, name, artist, n) => ({ wrapperType: 'collection', collectionId: id, collectionName: name, artistName: artist, trackCount: n, releaseDate: '1973-03-01T08:00:00Z',
+  artworkUrl100: 'https://is1-ssl.mzstatic.com/' + id + '/100x100bb.jpg', collectionViewUrl: 'https://music.apple.com/us/album/x/' + id + '?uo=4' });
+const placed = (song, disc, track, collectionId) => ({ ...song, discNumber: disc, trackNumber: track, collectionId });
+const dz = (id, title, artist, seconds, album) => ({ id, title, duration: seconds, artist: { name: artist }, album: { id: album.id, title: album.title, cover_small: 'https://cdn-images.dzcdn.net/' + album.cover + '/56.jpg', cover_big: 'https://cdn-images.dzcdn.net/' + album.cover + '/500.jpg' } });
+const note = (r, id) => { const s = r.services.find((x) => x.id === id); return s.mark + (s.note ? ' ' + s.note : ''); };
+
+test('from Spotify, an album MusicBrainz knows: its barcode opens the album on both catalogues', async () => {
+  const net = fakeNet([
+    ['open.spotify.com/oembed', { title: 'The Dark Side of the Moon', thumbnail_url: 'https://i.scdn.co/image/x' }],
+    ['musicbrainz.org/ws/2/url', { relations: [{ ended: true, release: { barcode: '5099902987620' } }, { ended: false, release: { barcode: '0886445613261', title: 'The Dark Side of the Moon' } }, { release: { barcode: null } }] }],
+    ['api.deezer.com/album/upc:886445613261', { id: 12114240, title: 'The Dark Side of the Moon', upc: '886445613261', nb_tracks: 10, release_date: '1973-03-01', artist: { name: 'Pink Floyd' }, cover_big: 'big' }],
+    ['lookup?upc=0886445613261', { results: [itunesAlbum(1065973699, 'The Dark Side of the Moon', 'Pink Floyd', 10)] }],
+    ['itunes.apple.com/search', { results: [itunesAlbum(1, 'The Dark Side of the Moon', 'Chimera', 2)] }],
+    ['api.deezer.com/search/album', { data: [] }],
+  ]);
+  const r = await lookup(parseLink(SPOTIFY_ALBUM), net);
+  assert.equal(net.asked[0], 'fetch https://musicbrainz.org/ws/2/url?resource=https%3A%2F%2Fopen.spotify.com%2Falbum%2F4LH4d3cOWNNsVw41Gqt2kv&inc=release-rels&fmt=json');
+  // The release whose link still stands is asked first; Deezer keeps the barcode without its zero, Apple takes it as it is.
+  assert.ok(net.asked.includes('jsonp https://api.deezer.com/album/upc:886445613261'));
+  assert.ok(net.asked.includes('fetch https://itunes.apple.com/lookup?upc=0886445613261&country=us'));
+  assert.ok(!net.asked.some((x) => x.includes('5099902987620')));
+  assert.equal(note(r, 'apple'), 'exact barcode');
+  assert.equal(note(r, 'deezer'), 'exact barcode');
+  assert.equal(r.services[0].url, 'https://music.apple.com/us/album/x/1065973699');
+  assert.equal(r.services[1].url, 'https://www.deezer.com/album/12114240');
+  assert.deepEqual([r.artist, r.count, r.year, r.guess, r.fix, r.art], ['Pink Floyd', 10, '1973', false, false, 'https://i.scdn.co/image/x']);
+  assert.deepEqual(r.alts, []);
+  // The visitor's own artist still comes first, and is a guess.
+  const typed = await lookup(parseLink(SPOTIFY_ALBUM), net, { artist: 'Chimera' });
+  assert.deepEqual([typed.artist, typed.guess, note(typed, 'apple')], ['Chimera', true, 'guess guessed']);
+});
+
+test('from Spotify, an album only one catalogue has under the barcode: the other goes by title, artist and songs', async () => {
+  const routes = (count) => [
+    ['open.spotify.com/oembed', { title: 'Rumours' }],
+    ['musicbrainz.org/ws/2/url', { relations: [{ release: { barcode: '603497925797' } }] }],
+    ['api.deezer.com/album/upc:603497925797', { id: 6237061, title: 'Rumours', upc: '603497925797', nb_tracks: 11, artist: { name: 'Fleetwood Mac' } }],
+    ['lookup?upc=', { results: [] }],
+    ['itunes.apple.com/search', { results: [itunesAlbum(5, 'Rumours', 'Fleetwood Mac', count), itunesAlbum(6, 'Rumours', 'Gully Bop', 11)] }],
+    ['api.deezer.com/search/album', { data: [] }],
+  ];
+  const same = await lookup(parseLink(SPOTIFY_ALBUM), fakeNet(routes(11)));
+  assert.deepEqual([note(same, 'deezer'), note(same, 'apple'), same.artist], ['exact barcode', 'exact same', 'Fleetwood Mac']);
+  const other = await lookup(parseLink(SPOTIFY_ALBUM), fakeNet(routes(31)));
+  assert.equal(note(other, 'apple'), 'guess differs');
+  // Both catalogues' searches silent, the barcode found: still a whole result.
+  const quietNet = fakeNet([...routes(11).slice(0, 4), ['itunes.apple.com/search', new ToolError('no-answer', 'Apple Music')], ['api.deezer.com/search', new ToolError('no-answer', 'Deezer')]]);
+  const alone = await lookup(parseLink(SPOTIFY_ALBUM), quietNet);
+  assert.deepEqual([note(alone, 'deezer'), note(alone, 'apple')], ['exact barcode', 'search']);
+});
+
+test('from Spotify, a song MusicBrainz knows: its ISRC opens Deezer, and the album’s barcode Apple', async () => {
+  const album = { id: 14996073, title: 'Shape of You', cover: 'soy' };
+  const net = fakeNet([
+    ['open.spotify.com/oembed', { title: 'Shape of You' }],
+    ['musicbrainz.org/ws/2/url', { relations: [{ recording: { id: 'd7500dd6' } }] }],
+    ['musicbrainz.org/ws/2/recording/d7500dd6?inc=isrcs', { isrcs: ['not-one', 'GBAHS1600463'] }],
+    ['api.deezer.com/track/isrc:GBAHS1600463', { ...dz(142986206, 'Shape of You', 'Ed Sheeran', 233, album), isrc: 'GBAHS1600463', track_position: 1, disk_number: 1 }],
+    ['api.deezer.com/album/14996073', { id: 14996073, title: 'Shape of You', upc: '190295854126' }],
+    ['lookup?upc=190295854126&entity=song', { results: [itunesAlbum(77, 'Shape of You - Single', 'Ed Sheeran', 1), placed(itunesSong(78, 'Shape of You', 'Ed Sheeran', 233712, 'Shape of You - Single'), 1, 1, 77)] }],
+    ['itunes.apple.com/search', { results: [] }],
+    ['api.deezer.com/search', { data: [dz(9, 'Shape of You', 'Someone Else', 200, { id: 1, title: 'Covers', cover: 'c' })] }],
+  ]);
+  const r = await lookup(parseLink(SPOTIFY_SONG), net);
+  assert.deepEqual([note(r, 'deezer'), note(r, 'apple')], ['exact isrc', 'exact barcode']);
+  assert.equal(r.services[0].url, 'https://music.apple.com/us/album/x/1?i=78');
+  assert.equal(r.services[1].url, 'https://www.deezer.com/track/142986206');
+  assert.deepEqual([r.artist, r.album, r.guess, r.fix], ['Ed Sheeran', 'Shape of You - Single', false, false]);
+  // MusicBrainz busy: the lookup goes on without it.
+  const busy = await lookup(parseLink(SPOTIFY_SONG), fakeNet([['musicbrainz.org', new ToolError('no-answer', 'MusicBrainz')], ...net.routes.filter((x) => !x[0].includes('musicbrainz'))]));
+  assert.deepEqual([busy.guess, busy.artist, note(busy, 'deezer')], [true, 'Someone Else', 'guess guessed']);
+});
+
+test('from Spotify, by the cover: the candidate with Spotify’s artwork is the song', async () => {
+  const single = { id: 10268286, title: 'Better Place', cover: 'single' }, own = { id: 10683608, title: 'Saint Asonia', cover: 'own' };
+  const covers = {
+    'https://i.scdn.co/image/better': picture(1, 300),
+    'https://cdn-images.dzcdn.net/own/56.jpg': picture(1, 56, noise(20)),
+    'https://cdn-images.dzcdn.net/poppy/56.jpg': picture(2, 56),
+    'https://cdn-images.dzcdn.net/rachel/56.jpg': picture(3, 56),
+    'https://is1-ssl.mzstatic.com/a/100x100bb.jpg': picture(4, 100),
+  };
+  const routes = (asonia) => [
+    ['open.spotify.com/oembed', { title: 'Better Place', thumbnail_url: 'https://i.scdn.co/image/better' }],
+    ['api.deezer.com/search?q=Better%20Place&', { data: [dz(1, 'Better Place', 'Poppy Fusée', 200, { id: 2, title: 'P', cover: 'poppy' }), dz(3, 'Better Place', 'Rachel Platten', 210, { id: 4, title: 'R', cover: 'rachel' }), asonia] }],
+    ['term=Better+Place&', { results: [itunesSong(31, 'Better Place', 'Poppy Fusée', 200000, 'P')] }],
+    ['term=Rachel+Platten', { results: [] }],
+    ['api.deezer.com/track/102829828', { ...dz(102829828, 'Better Place', 'Saint Asonia', 215, own), track_position: 1, disk_number: 1 }],
+    ['api.deezer.com/album/10683608', { id: 10683608, title: 'Saint Asonia', upc: '886445313543' }],
+    ['lookup?upc=886445313543&entity=song', { results: [placed(itunesSong(41, 'Better Place', 'Saint Asonia', 215500, 'Saint Asonia'), 1, 1, 40), placed(itunesSong(42, 'Blow Me Wide Open', 'Saint Asonia', 225000, 'Saint Asonia'), 1, 2, 40)] }],
+  ];
+  const net = fakeNet(routes(dz(102829828, 'Better Place', 'Saint Asonia', 215, own)), covers);
+  const r = await lookup(parseLink(SPOTIFY_SONG), net);
+  // Not the artist highest in the lists: the one whose cover Spotify shows.
+  assert.deepEqual([r.artist, r.album, r.guess, r.fix], ['Saint Asonia', 'Saint Asonia', false, true]);
+  assert.deepEqual(r.alts, ['Poppy Fusée', 'Rachel Platten']);
+  assert.deepEqual(r.services[1], { id: 'deezer', name: 'Deezer', url: 'https://www.deezer.com/track/102829828', mark: 'exact', note: 'cover' });
+  // Deezer's song says where on which album it is, the album its barcode, and Apple what has that barcode.
+  assert.deepEqual(r.services[0], { id: 'apple', name: 'Apple Music', url: 'https://music.apple.com/us/album/x/1?i=41', mark: 'exact', note: 'barcode' });
+  // Each picture is fetched once.
+  const pictures = net.asked.filter((x) => x.startsWith('cover '));
+  assert.equal(pictures.length, new Set(pictures).size);
+  assert.equal(pictures[0], 'cover https://i.scdn.co/image/better');
+
+  // The visitor says it is someone else: their artist, as a guess.
+  const typed = await lookup(parseLink(SPOTIFY_SONG), fakeNet(routes(dz(102829828, 'Better Place', 'Saint Asonia', 215, own)), covers), { artist: 'Rachel Platten' });
+  assert.deepEqual([typed.artist, typed.guess, note(typed, 'deezer')], ['Rachel Platten', true, 'guess guessed']);
+
+  // Apple does not know the barcode: its button is a search, since its title search had no Saint Asonia.
+  const noBarcode = await lookup(parseLink(SPOTIFY_SONG), fakeNet([...routes(dz(102829828, 'Better Place', 'Saint Asonia', 215, own)).slice(0, 6), ['lookup?upc=', { results: [] }], ['term=Saint+Asonia+Better+Place', { results: [] }]], covers));
+  assert.deepEqual([note(noBarcode, 'deezer'), note(noBarcode, 'apple')], ['exact cover', 'search']);
+
+  // No picture can be read (a guarded canvas, a host that is down): the page guesses as it did before.
+  const blind = await lookup(parseLink(SPOTIFY_SONG), fakeNet([...routes(dz(102829828, 'Better Place', 'Saint Asonia', 215, own)), ['api.deezer.com/search/album', { data: [] }]], {}));
+  assert.deepEqual([blind.artist, blind.guess, blind.fix, note(blind, 'deezer')], ['Poppy Fusée', true, true, 'guess guessed']);
+
+  // Two artists with the same artwork: nobody is picked.
+  const twice = await lookup(parseLink(SPOTIFY_SONG), fakeNet([...routes(dz(102829828, 'Better Place', 'Saint Asonia', 215, own)), ['api.deezer.com/search/album', { data: [] }]],
+    { ...covers, 'https://cdn-images.dzcdn.net/rachel/56.jpg': picture(1, 56, noise(30, 5)) }));
+  assert.deepEqual([twice.artist, twice.guess], ['Poppy Fusée', true]);
+
+  // Deezer's search shows the song on its single, with another cover: the artists' albums are looked
+  // through, and the song is taken from the album that has Spotify's cover.
+  const albums = fakeNet([
+    ...routes(dz(100280712, 'Better Place', 'Saint Asonia', 215, single)).slice(0, 3),
+    ['api.deezer.com/search/album?q=Saint%20Asonia', { data: [
+      { id: 10268286, title: 'Better Place', nb_tracks: 1, artist: { name: 'Saint Asonia' }, cover_small: 'https://cdn-images.dzcdn.net/single/56.jpg' },
+      { id: 10683608, title: 'Saint Asonia', nb_tracks: 2, artist: { name: 'Saint Asonia' }, cover_small: 'https://cdn-images.dzcdn.net/own/56.jpg' },
+      { id: 99, title: 'Saint Asonia Tribute', nb_tracks: 9, artist: { name: 'Someone' }, cover_small: 'https://cdn-images.dzcdn.net/own/56.jpg' }] }],
+    ['api.deezer.com/search/album', { data: [] }],
+    ['api.deezer.com/album/10683608', { id: 10683608, title: 'Saint Asonia', upc: '886445313543', nb_tracks: 2, release_date: '2015-07-31', cover_small: 'https://cdn-images.dzcdn.net/own/56.jpg',
+      tracks: { data: [{ id: 102829830, title: 'Blow Me Wide Open', duration: 225, artist: { name: 'Saint Asonia' } }, { id: 102829828, title: 'Better Place', duration: 215, artist: { name: 'Saint Asonia' } }] } }],
+    ['lookup?upc=886445313543&entity=song', { results: [placed(itunesSong(42, 'Blow Me Wide Open', 'Saint Asonia', 225000, 'Saint Asonia'), 1, 1, 40), placed(itunesSong(41, 'Better Place', 'Saint Asonia', 215500, 'Saint Asonia'), 1, 2, 40)] }],
+  ], covers);
+  const deep = await lookup(parseLink(SPOTIFY_SONG), albums);
+  assert.deepEqual([deep.artist, deep.album, deep.guess], ['Saint Asonia', 'Saint Asonia', false]);
+  assert.deepEqual([note(deep, 'deezer'), deep.services[1].url], ['exact cover', 'https://www.deezer.com/track/102829828']);
+  assert.deepEqual([note(deep, 'apple'), deep.services[0].url], ['exact barcode', 'https://music.apple.com/us/album/x/1?i=41']);
+});
+
+test('from Deezer: the album’s barcode opens Apple’s album, and the song in its place on it', async () => {
+  const album = { id: 6237061, title: 'Rumours', cover: 'rumours' };
+  const net = fakeNet([
+    ['api.deezer.com/track/63480987', { ...dz(63480987, 'Dreams (2004 Remaster)', 'Fleetwood Mac', 257, album), track_position: 2, disk_number: 1, isrc: 'USWB10400046' }],
+    ['api.deezer.com/album/6237061', { id: 6237061, title: 'Rumours', upc: '603497925797', nb_tracks: 11, artist: { name: 'Fleetwood Mac' } }],
+    ['lookup?upc=603497925797&entity=song', { results: [itunesAlbum(594061854, 'Rumours', 'Fleetwood Mac', 11), placed(itunesSong(594061855, 'Second Hand News', 'Fleetwood Mac', 176000), 1, 1, 594061854), placed(itunesSong(594061857, 'Dreams', 'Fleetwood Mac', 257800), 1, 2, 594061854)] }],
+    ['lookup?upc=603497925797&country', { results: [itunesAlbum(594061854, 'Rumours', 'Fleetwood Mac', 11)] }],
+  ]);
+  const song = await lookup(parseLink('https://www.deezer.com/track/63480987'), net);
+  assert.deepEqual(net.asked, ['jsonp https://api.deezer.com/track/63480987', 'jsonp https://api.deezer.com/album/6237061', 'fetch https://itunes.apple.com/lookup?upc=603497925797&entity=song&country=us']);
+  assert.deepEqual(song.services[0], { id: 'apple', name: 'Apple Music', url: 'https://music.apple.com/us/album/x/1?i=594061857', mark: 'exact', note: 'barcode' });
+  net.asked.length = 0;
+  const whole = await lookup(parseLink('https://www.deezer.com/album/6237061'), net);
+  assert.deepEqual(net.asked, ['jsonp https://api.deezer.com/album/6237061', 'fetch https://itunes.apple.com/lookup?upc=603497925797&country=us']);
+  assert.deepEqual(whole.services[0], { id: 'apple', name: 'Apple Music', url: 'https://music.apple.com/us/album/x/594061854', mark: 'exact', note: 'barcode' });
+});
+
+test('from Apple Music: Deezer’s barcode leading back to the pasted page is certain; the cover vouches for a song of another length', async () => {
+  const album = { id: 6237061, title: 'Rumours', cover: 'rumours' };
+  const apple = ['itunes.apple.com/lookup?id=', { results: [placed(itunesSong(594061857, 'Dreams', 'Fleetwood Mac', 257800), 1, 2, 594061854)] }];
+  const search = ['api.deezer.com/search', { data: [dz(63480987, 'Dreams (2004 Remaster)', 'Fleetwood Mac', 263, album)] }];
+  const whole = ['api.deezer.com/track/63480987', { ...dz(63480987, 'Dreams (2004 Remaster)', 'Fleetwood Mac', 263, album), track_position: 2, disk_number: 1 }];
+  const upc = ['api.deezer.com/album/6237061', { id: 6237061, upc: '603497925797' }];
+  const back = (id) => ['lookup?upc=603497925797&entity=song&country=gb', { results: [placed(itunesSong(id, 'Dreams', 'Fleetwood Mac', 257800), 1, 2, 594061854)] }];
+  const link = parseLink('https://music.apple.com/gb/album/dreams/594061854?i=594061857');
+  const sure = await lookup(link, fakeNet([apple, search, whole, upc, back(594061857)]));
+  assert.deepEqual(sure.services[1], { id: 'deezer', name: 'Deezer', url: 'https://www.deezer.com/track/63480987', mark: 'exact', note: 'barcode' });
+  // Apple has the barcode twice (two pressings): the pasted page being one of them is enough.
+  const two = ['lookup?upc=603497925797', { results: [placed(itunesSong(1, 'Dreams', 'Fleetwood Mac', 257800), 1, 2, 1483708628), placed(itunesSong(594061857, 'Dreams', 'Fleetwood Mac', 257800), 1, 2, 594061854)] }];
+  assert.equal(note(await lookup(link, fakeNet([apple, search, whole, upc, two])), 'deezer'), 'exact barcode');
+  // The barcode leads to another Apple page (another pressing): back to title, artist and length, which differs here.
+  const other = await lookup(link, fakeNet([apple, search, whole, upc, back(1)]));
+  assert.equal(note(other, 'deezer'), 'guess differs');
+  // ... unless the two covers are the same artwork.
+  const covers = { 'https://is1-ssl.mzstatic.com/a/100x100bb.jpg': picture(5, 100), 'https://cdn-images.dzcdn.net/rumours/56.jpg': picture(5, 56, noise(20)) };
+  const seen = await lookup(link, fakeNet([apple, search, whole, upc, back(1)], covers));
+  assert.equal(note(seen, 'deezer'), 'exact cover');
+  const unlike = await lookup(link, fakeNet([apple, search, whole, upc, back(1)], { ...covers, 'https://cdn-images.dzcdn.net/rumours/56.jpg': picture(6, 56) }));
+  assert.equal(note(unlike, 'deezer'), 'guess differs');
 });

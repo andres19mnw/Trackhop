@@ -1,5 +1,5 @@
 // /link: the page around link.js. The pasted link is looked up from this browser on the public
-// catalogues of Apple (iTunes), Deezer and Spotify, and nowhere else. Nothing is stored: no
+// catalogues of Apple (iTunes), Deezer, Spotify and MusicBrainz, and their cover pictures, and nowhere else. Nothing is stored: no
 // cookies, no storage, no statistics. The address bar gets ?u=<link>, so the result can be shared.
 import { parseLink, lookup, spotifyBase, spotifyResult, copyText, clock, display, serviceName, browserNet } from './link.js';
 import { ToolError } from './io.js';
@@ -25,6 +25,12 @@ const MARK_ICON = { exact: 'check', guess: 'guess', search: 'search' };
 const mark = (m) => el('span', { class: 'lk-mark' + (m === 'search' ? '' : ' ' + m) }, icon(MARK_ICON[m]), T.marks[m]);
 
 let run = 0;        // the lookup under way; a newer one makes the older one's answer void
+let going = null;   // its AbortController: a newer lookup also ends the older one's requests
+function fresh() {
+  if (going) going.abort();
+  going = new AbortController();
+  return going.signal;
+}
 let current = null; // { result, base } of what is shown
 
 // ---- Errors ----
@@ -99,10 +105,10 @@ function guessBox(result) {
     if (!artist || update.disabled) return;
     update.disabled = true;
     box.setAttribute('aria-busy', 'true');
-    const mine = ++run, base = current.base;
+    const mine = ++run, base = current.base, signal = fresh();
     try {
       if (navigator.onLine === false) throw new ToolError('offline');
-      const next = await spotifyResult(base, artist, browserNet);
+      const next = await spotifyResult(base, artist, browserNet, { signal });
       if (mine !== run) return;
       current = { result: next, base, artist };
       render(next, true);
@@ -128,7 +134,9 @@ function guessBox(result) {
       ...result.alts.map((name) => el('button', { type: 'button', text: name, onclick: () => again(name) }))));
   }
   parts.push(problem);
-  return el('div', { class: 'lk-guess' }, ...parts);
+  if (result.guess) return el('div', { class: 'lk-guess' }, ...parts);
+  // Found by its cover: the artist is not a guess, but the visitor can still say it is someone else.
+  return el('div', { class: 'lk-sure' }, ...parts.slice(2, -1), el('details', {}, el('summary', { text: T.fix_open }), fix), problem);
 }
 
 function group(id, title, sub, services) {
@@ -138,7 +146,8 @@ function group(id, title, sub, services) {
   return el('section', { class: 'lk-group', 'aria-labelledby': id }, h,
     el('ul', { class: 'lk-svcs' }, ...services.map((s) => {
       const name = el('span', { class: 'nm', text: s.name });
-      const note = s.note === 'guessed' ? s.label : s.note === 'pasted' ? T.notes.pasted : s.note ? T.notes[s.note][s.kind] : null;
+      const words = s.note ? T.notes[s.note] : null;
+      const note = s.note === 'guessed' ? s.label : words && typeof words === 'object' ? words[s.kind] : words;
       if (note) name.append(el('small', { text: note }));
       return el('li', {}, el('a', { class: 'lk-svc' + (s.mark === 'exact' ? ' exact' : ''), href: s.url, target: '_blank', rel: 'noopener noreferrer' },
         el('span', { class: 'ic' }, icon(s.mark === 'search' ? 'search' : 'open')), name, mark(s.mark)));
@@ -187,7 +196,7 @@ function render(result, refined) {
   }
 
   const song = el('article', { class: 'lk-song', 'aria-labelledby': 'lk-title' }, cover(result), meta);
-  if (result.guess) song.append(guessBox(result));
+  if (result.fix) song.append(guessBox(result));
   song.append(acts);
 
   const guessed = result.guess;
@@ -207,7 +216,7 @@ function render(result, refined) {
   status.textContent = fmt(T.found, { what });
   try { history.replaceState(null, '', pageUrl(result)); } catch (e) { /* a page opened from a file */ }
   // The field the visitor was in is gone: the keyboard goes on from the song's title.
-  if (refined) box.querySelector('#lk-artist').focus({ preventScroll: true });
+  if (refined && box.querySelector('#lk-artist')) box.querySelector('#lk-artist').focus({ preventScroll: true });
   else if (form.contains(focused)) title.focus();
 }
 
@@ -220,7 +229,7 @@ function busy(on) {
 }
 
 async function find(text, artist) {
-  const mine = ++run;
+  const mine = ++run, signal = fresh();
   clearError();
   let link;
   try {
@@ -234,10 +243,10 @@ async function find(text, artist) {
     if (navigator.onLine === false) throw new ToolError('offline');
     let next;
     if (link.service === 'spotify') {
-      const base = await spotifyBase(link, browserNet);
-      next = { base, artist: artist || '', result: await spotifyResult(base, artist, browserNet) };
+      const base = await spotifyBase(link, browserNet, { signal });
+      next = { base, artist: artist || '', result: await spotifyResult(base, artist, browserNet, { signal }) };
     } else {
-      next = { base: null, artist: '', result: await lookup(link, browserNet) };
+      next = { base: null, artist: '', result: await lookup(link, browserNet, { signal }) };
     }
     if (mine !== run) return;
     // Complete, or not at all: the page changes only here.
@@ -284,6 +293,7 @@ if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
 
 $('.lk-again').addEventListener('click', () => {
   run++;
+  fresh();
   current = null;
   busy(false);
   box.hidden = true;

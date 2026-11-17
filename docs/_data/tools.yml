@@ -83,8 +83,8 @@ en:
     reads_h: Links it can read
     apple: Apple Music or iTunes
     full: Full details
-    title_only: Title only
-    reads_note: One song or one album at a time. From a Spotify link the page only gets the title, so it makes a best guess and lets you correct the artist.
+    title_only: Title and cover
+    reads_note: One song or one album at a time. From a Spotify link the page only gets the title and the cover. It finds the artist by a barcode or by the cover where it can; where it can't, it makes a best guess and lets you correct the artist.
     goes_h: Where it can take you
     exact: Exact
     search: Search
@@ -92,7 +92,7 @@ en:
     legend_search: The button opens that service's search with the artist and title already typed in. Those services don't let a page look up a song without a sign-in.
     cta: Moving more than one song? The Trackhop app does this for whole playlists, and adds "Link for every service" to your share sheet.
     how_h: How it finds the song
-    how: "Your browser asks the music services' public catalogues about the link you pasted: who the song is by, which album it is on, how long it is. With that it builds one button per service."
+    how: "Your browser asks the music services' public catalogues about the link you pasted: who the song is by, which album it is on, how long it is. With that it builds one button per service. A button says Exact only when a barcode, an ISRC, the cover or the length shows it is the same thing, and it says which. For a Spotify link it also asks MusicBrainz, the open music encyclopedia, for the album's barcode."
     why_h: Why some buttons say Search
     why: Most services only let a page look up a song after you sign in, and this page never asks you to. For those it opens their own search with the artist and title filled in, and it says so on the button.
     stays_h: What stays with you
@@ -297,6 +297,10 @@ en:
         differs:
           song: Same title and artist, another length
           album: Same title and artist, another number of songs
+        barcode: Same barcode
+        isrc: Same ISRC
+        cover: Same title and cover
+      fix_open: Not right? Change the artist
       guess_h: Best guess from the title
       guess_p:
         song: "Spotify tells this page the song's title and nothing else. The artist shown is the most likely one for “{title}”. If it's a different song, put the right artist here."
@@ -433,8 +437,8 @@ it:
     reads_h: I link che sa leggere
     apple: Apple Music o iTunes
     full: Tutti i dettagli
-    title_only: Solo il titolo
-    reads_note: Un brano o un album alla volta. Da un link di Spotify la pagina riceve solo il titolo, quindi fa un'ipotesi e ti lascia correggere l'artista.
+    title_only: Titolo e copertina
+    reads_note: Un brano o un album alla volta. Da un link di Spotify la pagina riceve solo il titolo e la copertina. Dove può trova l'artista dal codice a barre o dalla copertina; dove non può fa un'ipotesi e ti lascia correggere l'artista.
     goes_h: Dove ti può portare
     exact: Esatto
     search: Ricerca
@@ -442,7 +446,7 @@ it:
     legend_search: Il pulsante apre la ricerca di quel servizio con artista e titolo già scritti. Quei servizi non lasciano cercare un brano a una pagina senza un accesso.
     cta: Devi spostare più di un brano? L'app Trackhop lo fa per playlist intere, e aggiunge "Link per ogni servizio" al menu di condivisione.
     how_h: Come trova il brano
-    how: "Il tuo browser chiede ai cataloghi pubblici dei servizi musicali notizie sul link che hai incollato: di chi è il brano, in quale album sta, quanto dura. Con questo prepara un pulsante per ogni servizio."
+    how: "Il tuo browser chiede ai cataloghi pubblici dei servizi musicali notizie sul link che hai incollato: di chi è il brano, in quale album sta, quanto dura. Con questo prepara un pulsante per ogni servizio. Un pulsante dice Esatto solo quando un codice a barre, un ISRC, la copertina o la durata mostrano che è la stessa cosa, e dice quale. Per un link di Spotify chiede anche a MusicBrainz, l'enciclopedia libera della musica, il codice a barre dell'album."
     why_h: Perché alcuni pulsanti dicono Ricerca
     why: Quasi tutti i servizi lasciano cercare un brano a una pagina solo dopo un accesso, e questa pagina non te lo chiede mai. Per quelli apre la loro ricerca con artista e titolo già scritti, e lo dice sul pulsante.
     stays_h: Cosa resta a te
@@ -647,6 +651,10 @@ it:
         differs:
           song: Stesso titolo e artista, durata diversa
           album: Stesso titolo e artista, numero di brani diverso
+        barcode: Stesso codice a barre
+        isrc: Stesso ISRC
+        cover: Stesso titolo e stessa copertina
+      fix_open: Non è questo? Cambia l'artista
       guess_h: Un'ipotesi a partire dal titolo
       guess_p:
         song: "Spotify dice a questa pagina il titolo del brano e nient'altro. L'artista che vedi è il più probabile per “{title}”. Se il brano è un altro, scrivi qui l'artista giusto."

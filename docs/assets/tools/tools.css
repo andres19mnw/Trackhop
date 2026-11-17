@@ -354,7 +354,7 @@ main.tool-wide { max-width: 1072px; }
 @media (max-width: 860px) {
   .lk-result { grid-template-columns: minmax(0, 1fr); }
   .lk-song { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 14px; align-items: center; padding: 14px; }
-  .lk-song .lk-acts, .lk-song .lk-guess { grid-column: 1 / -1; }
+  .lk-song .lk-acts, .lk-song .lk-guess, .lk-song .lk-sure { grid-column: 1 / -1; }
   .lk-side { display: contents; }
   .lk-main { order: 2; }
   .lk-copy { order: 3; }
@@ -390,6 +390,15 @@ main.tool-wide { max-width: 1072px; }
 .lk-alts span { font-weight: 700; margin-right: 2px; }
 .lk-alts button { font: inherit; font-size: 13.5px; font-weight: 600; line-height: 1.3; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--note); background: transparent; color: var(--note); cursor: pointer; }
 .lk-alts button:hover { background: var(--surface); }
+/* Found by the cover: the same correction, folded away and without the yellow */
+.lk-sure { display: flex; flex-direction: column; gap: 10px; }
+.lk-sure .lk-alts { color: var(--ink-2); }
+.lk-sure .lk-alts button { border-color: var(--line); color: var(--ink); }
+.lk-sure .lk-alts button:hover { border-color: var(--accent); }
+.lk-sure summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--link); border-radius: 6px; }
+.lk-sure .lk-fix { margin-top: 10px; }
+.lk-sure .lk-fix input { border-color: var(--line); }
+.lk .lk-sure .lk-fix .tool-btn { background: var(--accent); color: var(--accent-ink); }
 
 /* A link it cannot read, a service that does not answer */
 .lk-err { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: start; max-width: 760px; padding: 12px 14px; }
