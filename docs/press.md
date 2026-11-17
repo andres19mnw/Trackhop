@@ -46,7 +46,7 @@ with no account, no subscription and no server in between: everything runs on yo
 | Get it | [Google Play](https://play.google.com/store/apps/details?id=com.xlollx.songport), [F-Droid](https://f-droid.org/packages/com.xlollx.songport/), [GitHub](https://github.com/xlollx/Trackhop/releases/latest), [Obtainium](https://github.com/ImranR98/Obtainium), [Microsoft Store](https://apps.microsoft.com/detail/9PFX74Q2XN9P) (Desktop), [Huawei AppGallery](https://appgallery.huawei.com/app/C119677919) |
 | Services | Spotify, YouTube Music, Apple Music, TIDAL, Deezer, Amazon Music, SoundCloud, Qobuz, Navidrome/Subsonic, Jellyfin, Plex, Last.fm and ListenBrainz (as sources), playlist files |
 | Languages | English, Italian, Spanish, Portuguese, French, German, Polish, Russian, Turkish, Japanese, Korean, Chinese |
-| Website | [trackhop.org](https://trackhop.org) |
+| Website | [trackhop.org](https://trackhop.org) (trackhop.app is a different, unrelated service) |
 | Instagram | [@trackhop.app](https://www.instagram.com/trackhop.app/) |
 | Telegram | [t.me/trackhop_app](https://t.me/trackhop_app) |
 | Source code | [github.com/xlollx/Trackhop](https://github.com/xlollx/Trackhop) |

@@ -757,6 +757,9 @@ with one name confuse people. Your installed app updates normally and keeps all 
 name and the web addresses changed (github.com/xlollx/Trackhop, trackhop.org), and old
 links keep working.
 
+Not to be confused with **trackhop.app**, a separate link converter with a similar name: it is not
+ours and not related to this project. Trackhop's only website is [trackhop.org](https://trackhop.org).
+
 ## License, copyright and trademark
 
 Trackhop is free software: you can redistribute it and/or modify it under the terms of the GNU
