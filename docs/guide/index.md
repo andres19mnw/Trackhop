@@ -31,6 +31,9 @@ description (architecture, matching, services and their limits) stays in the
 - [Trackhop on iPhone and iPad](iphone): no App Store app; your own Trackhop server on the home screen, like an app ([Italiano](trackhop-su-iphone)).
 - [The trackhop command](cli): run syncs, read their results, add and remove tracks from a terminal or a script, with Desktop or Docker.
 
+**Tools on this site, nothing to install**
+- [Convert a playlist file](../convert): CSV, M3U, PLS, XSPF, JSPF, JSON, an Apple Music/iTunes library or a plain list into another format, in your browser ([Italiano](../it/convert)).
+
 **On your computer or server**
 - [Playlist sync for Windows](playlist-sync-windows), [for Mac](playlist-sync-mac), [for Linux](playlist-sync-linux): the desktop app, how to install it and what it does.
 - [Self-hosted playlist sync](self-hosted-playlist-sync): your Navidrome, Jellyfin or Plex in step with your streaming service.
@@ -98,6 +101,7 @@ description (architecture, matching, services and their limits) stays in the
 - [Alternativa gratuita a Soundiiz e TuneMyMusic](alternativa-soundiiz): niente account, niente limiti.
 - [Da Spotify ad Apple Music](trasferire-playlist-spotify-apple-music) e [da Spotify a YouTube Music](trasferire-playlist-spotify-youtube-music), gratis.
 - [Salvare Discover Weekly prima che cambi](salvare-discover-weekly) · [Backup automatico delle playlist](backup-playlist-spotify) · [Rimuovere i brani doppi](rimuovere-duplicati-playlist) · [Sistemare i brani in grigio](brani-non-riproducibili) · [Il tuo Wrapped, quando vuoi](wrapped-quando-vuoi) · [Senza abbonamento](senza-abbonamento).
+- Sul sito, senza installare niente: [convertire un file di playlist](../it/convert).
 
 **Maintaining it**
 - [Release process](release-process): version, changelogs, what CI does, F-Droid and Obtainium.

@@ -30,6 +30,9 @@
   </script>
   {%- endif %}
   <link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}?v={{ site.time | date: '%s' }}">
+  {%- if page.css %}
+  <link rel="stylesheet" href="{{ page.css | relative_url }}?v={{ site.time | date: '%s' }}">
+  {%- endif %}
 {% if page.i18n %}{% assign alts = site.data.i18n_pages[page.i18n] %}{% for a in alts %}
   <link rel="alternate" hreflang="{{ a[0] }}" href="https://trackhop.org{{ a[1] }}">{% endfor %}
   <link rel="alternate" hreflang="x-default" href="https://trackhop.org{{ alts.en }}">{% endif %}
@@ -114,6 +117,10 @@
       <a href="{{ '/guide/wrapped-anytime' | relative_url }}">Your Wrapped, whenever you want</a>
       </div>
       <div class="grp" data-lang="en">
+      <h4>Tools on this site</h4>
+      <a href="{{ '/convert' | relative_url }}">Convert a playlist file</a>
+      </div>
+      <div class="grp" data-lang="en">
       <h4>New in 2.0</h4>
       <a href="{{ '/guide/shared-playlists' | relative_url }}">A playlist shared by a group</a>
       <a href="{{ '/guide/phone-and-server' | relative_url }}">Your phone and your Trackhop server</a>
@@ -145,6 +152,7 @@
       <a href="{{ '/guide/rimuovere-duplicati-playlist' | relative_url }}">Rimuovere i brani doppi</a>
       <a href="{{ '/guide/brani-non-riproducibili' | relative_url }}">Sistemare i brani in grigio</a>
       <a href="{{ '/guide/wrapped-quando-vuoi' | relative_url }}">Il tuo Wrapped, quando vuoi</a>
+      <a href="{{ '/it/convert' | relative_url }}">Convertire un file di playlist (sul sito)</a>
       </div>
       <div class="grp" data-lang="es">
       <h4>En español</h4>

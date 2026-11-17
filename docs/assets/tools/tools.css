@@ -1,0 +1,111 @@
+/* The tools that run in the browser (/wrapped, /convert). Built on the tokens of site.css. */
+:root { --ok: #1b7f4b; --okbg: #e3f5ea; --bad: #a3261d; --badbg: #fde8e6; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --ok: #8fd6a4; --okbg: #1f3a29; --bad: #ffb4ab; --badbg: #44201c; }
+}
+:root[data-theme="dark"] { --ok: #8fd6a4; --okbg: #1f3a29; --bad: #ffb4ab; --badbg: #44201c; }
+
+.tool { display: flex; flex-direction: column; gap: 16px; }
+.tool > * { margin-top: 0; margin-bottom: 0; }
+.tool > h2 { margin-top: 20px; }
+.tool > ul { padding-left: 20px; }
+.tool [hidden] { display: none !important; }
+.tool-kicker { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; color: var(--ink-2); }
+.tool-kicker::before { content: ""; width: 22px; height: 22px; border-radius: 6px; background: var(--grad); }
+.prose .tool h1 { margin: 0; text-wrap: balance; }
+.tool-lead { color: var(--ink-2); }
+.tool-muted { color: var(--ink-3); font-size: 14px; line-height: 1.45; }
+
+/* Tabs: where the export comes from, and the years. */
+.tool-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tool-tab { font: inherit; font-size: 14.5px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; font-variant-numeric: tabular-nums; }
+.tool-tab:hover { border-color: var(--ink-3); }
+.tool-tab[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+/* Where the file is dropped. */
+.tool-drop { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 18px; text-align: center; border: 2px dashed var(--line); border-radius: var(--radius); background: var(--surface); }
+.tool-drop.over { border-color: var(--accent); background: var(--surface-2); }
+.tool-drop-title { font-size: 17px; }
+.tool-drop-how { max-width: 56ch; }
+.tool-priv { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; background: var(--okbg); color: var(--ok); font-size: 13px; font-weight: 600; text-align: left; }
+.tool-file { position: relative; }
+.tool-file input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.tool-file input::file-selector-button { cursor: pointer; }
+.tool-file:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.tool-btn { display: inline-block; font: inherit; font-size: 15px; font-weight: 600; line-height: 1.3; padding: 9px 18px; border: 0; border-radius: 999px; background: var(--accent); color: var(--accent-ink); text-decoration: none; cursor: pointer; text-align: center; }
+.tool-btn.ghost { background: var(--surface-2); color: var(--ink); }
+.tool-btn.small { font-size: 13.5px; padding: 5px 12px; }
+.tool-btn:hover { filter: brightness(1.08); }
+.tool-btn.ghost:hover { filter: brightness(.96); }
+.tool-btn[aria-disabled="true"], .tool-btn:disabled { opacity: .5; cursor: default; filter: none; }
+.tool :is(button, a, select, summary, input[type="checkbox"]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.tool-progress { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.tool-progress-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14.5px; }
+.tool-progress-text { min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.tool-progress progress { width: 100%; height: 8px; accent-color: var(--accent); }
+.tool-error, .tool-errors p { margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--badbg); color: var(--bad); font-size: 15px; }
+.tool-errors { display: flex; flex-direction: column; gap: 8px; }
+.tool-errors:empty { display: none; }
+
+/* Results */
+.tool-results { display: flex; flex-direction: column; gap: 16px; }
+.tool-figs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.tool-fig { padding: 12px 8px; border-radius: 12px; background: var(--surface-2); text-align: center; min-width: 0; }
+.tool-fig b { display: block; font-size: clamp(19px, 4.6vw, 24px); line-height: 1.25; font-variant-numeric: tabular-nums; }
+.tool-fig span { font-size: 13px; color: var(--ink-3); }
+.tool-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tool .card { display: flex; flex-direction: column; gap: 10px; padding: 16px; min-width: 0; }
+.prose .tool .card h2 { margin: 0; font-size: 16px; }
+.tool-bars { display: flex; flex-direction: column; gap: 8px; }
+.tool-bar { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; font-size: 14.5px; }
+.tool-bar .n { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tool-bar .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-bar .nm small { color: var(--ink-3); font-size: 13px; }
+.tool-bar .v { font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tool-bar .b { grid-column: 2 / 4; height: 8px; border-radius: 4px; background: var(--accent); min-width: 4px; }
+.tool-clock { display: flex; align-items: flex-end; gap: 2px; height: 96px; }
+.tool-clock i { flex: 1; min-height: 2px; background: var(--accent); opacity: .8; border-radius: 2px 2px 0 0; }
+.tool-clock i.top { opacity: 1; }
+.tool-hours { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tool-loudest { margin: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .tool-bar .b { transition: width .25s ease; }
+  .tool-clock i { transition: height .25s ease; }
+  .tool-drop { transition: border-color .15s, background-color .15s; }
+}
+
+.tool-share { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.tool-story { width: 168px; max-width: 45%; height: auto; aspect-ratio: 9 / 16; border-radius: 14px; box-shadow: var(--shadow); }
+.tool-share-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; flex: 1 1 180px; min-width: 0; }
+
+.tool-cta { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; padding: 14px 16px; border-radius: var(--radius); background: var(--surface-2); font-size: 15px; }
+.tool-cta span { flex: 1 1 220px; }
+
+/* Converter: one card per file. */
+.tool-files { display: flex; flex-direction: column; gap: 12px; }
+.tool-files:empty { display: none; }
+.tool-det { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.tool-det .ic { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); color: var(--ink-2); font: 600 11px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.tool-det > div { flex: 1; min-width: 0; }
+.tool-det b { display: block; overflow-wrap: anywhere; line-height: 1.3; }
+.tool-det .x { flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; color: var(--ink-3); font-size: 22px; line-height: 1; cursor: pointer; }
+.tool-det .x:hover { background: var(--surface-2); color: var(--ink); }
+.tool-sel { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 15px; }
+.tool-sel select { font: inherit; font-size: 15px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); max-width: 100%; }
+.tool-chk { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); font-size: 15px; cursor: pointer; min-width: 0; }
+.tool-chk input { flex: none; width: 17px; height: 17px; margin: 0; accent-color: var(--accent); }
+.tool-chk .t { min-width: 0; overflow-wrap: anywhere; }
+.tool-chk .t small { color: var(--ink-3); }
+.tool-chk .n { margin-left: auto; padding-left: 8px; color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tool-chk.lone { border-top: 0; padding: 0; }
+.tool-pick { border: 0; margin: 0; padding: 0; min-width: 0; max-height: 340px; overflow-y: auto; }
+.tool-pick legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.tool-pick h3 { margin: 10px 0 2px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
+.tool-pick-all { display: flex; gap: 6px; }
+
+@media (max-width: 560px) {
+  .tool-two { grid-template-columns: 1fr; }
+  .tool-figs { grid-template-columns: 1fr 1fr; }
+}

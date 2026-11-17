@@ -1,0 +1,256 @@
+# The texts of the two tools that run in the browser (/wrapped, /convert), per language.
+# "js" is handed to the page's script as it is; {name} is filled in there.
+en:
+  home: /
+  kicker: Trackhop · Tools
+  choose: Choose a file
+  cancel: Cancel
+  noscript: This tool runs in your browser and needs JavaScript. Nothing is sent anywhere either way.
+  get: Get Trackhop
+  wrapped:
+    h1: Your Wrapped, any time
+    lead: "From your own data export: top artists, songs and hours, year by year. Pick where your export comes from."
+    tabs: Where your export comes from
+    years: Year
+    priv: "Read on this page only: nothing is uploaded"
+    minutes: minutes
+    plays: plays
+    songs: songs
+    artists: artists
+    top_artists: Top artists
+    top_songs: Top songs
+    when: When you listen
+    save: Save my card
+    square: Square for posts
+    card_note: An image made on this page, ready for stories.
+    cta: Keep these playlists in step on every service, by themselves.
+    where_h: Where the file comes from
+    where:
+      - "<strong>Spotify</strong>: on spotify.com, <em>Account › Privacy › Download your data</em>, tick <em>Extended streaming history</em>. A link to <code>my_spotify_data.zip</code> arrives by e-mail in a few days. Drop the .zip as it is, or the <code>Streaming_History_Audio_….json</code> files inside it."
+      - "<strong>Apple Music</strong>: on privacy.apple.com, <em>Request a copy of your data › Apple Media Services information</em>. In the archive, open <em>Apple Music Activity</em> and drop <code>Apple Music Play Activity.csv</code> (the .zip it comes in works too)."
+      - "<strong>YouTube Music</strong>: on takeout.google.com, choose <em>YouTube and YouTube Music</em>, keep only <em>history</em> and set its format to <em>JSON</em> (it is HTML unless you change it). Drop <code>watch-history.json</code> or the Takeout .zip. Google gives the plays, not how long each lasted: this page counts plays there, not minutes."
+    stays_h: What happens to your file
+    stays: "Your browser opens it on this page and reads it there, a piece at a time, so a large history works too. It is not sent to Trackhop or to anyone else. The page has no account, no cookies and no statistics about who uses it; the card is drawn here and saved by you. Close the tab and nothing is left."
+    guide: 'The Trackhop app makes a card like this from your playlists, on any service: <a href="/guide/wrapped-anytime">Your Wrapped, whenever you want</a>.'
+  convert:
+    h1: Convert a playlist file
+    lead: CSV, M3U, PLS, XSPF, JSPF, JSON, an Apple Music/iTunes library, a Shazam export or a plain list. Any size.
+    drop: Drop a file here, or choose one
+    priv: "Converted on this page only: nothing is uploaded"
+    cta: Want it on Spotify, Apple Music or YouTube Music instead of a file?
+    reads_h: What it reads
+    reads:
+      - "<strong>CSV</strong>, with commas, semicolons or tabs: Trackhop's own, Exportify, TuneMyMusic, Soundiiz, the text export of Apple Music, and Shazam's library with its title line."
+      - "<strong>M3U and M3U8</strong> with or without <code>#EXTINF</code>, <strong>PLS</strong>, <strong>XSPF</strong>, <strong>JSPF</strong> and other <strong>JSON</strong>, <strong>OPML</strong> of podcast subscriptions."
+      - "<strong>An Apple Music or iTunes library</strong> (<em>File › Library › Export Library</em>): you pick which playlists to take. Folders are headings, smart playlists start unticked, the library's own lists are left out."
+      - "<strong>A plain list</strong>, one song a line: <code>Artist - Title</code>."
+    writes_h: What it writes
+    writes: "CSV (title, artist, album, duration, ISRC), M3U8, XSPF, JSPF or plain text. Several playlists come out as one .zip. The format is told from the file by the same rules the Trackhop app uses, so a file that converts here imports there."
+    stays_h: What happens to your file
+    stays: "Your browser reads it on this page, a piece at a time, and writes the new file there. It is not sent to Trackhop or to anyone else; there is no account, no cookies and no statistics about who uses the page. A file that is cut short or cannot be read gives a message and nothing to download."
+    guide: 'To move the playlist itself to another service, and keep it in step: <a href="/guide/export-playlist-csv">export and import with the app</a>.'
+  js:
+    lang: en
+    reading: "Reading {name}… {pct}%"
+    cancel: Cancel
+    choose: Choose a file
+    err_incomplete: "{name} ends before it should: the download or the copy was cut short. Nothing was taken from it. Get the file again and drop it here once more."
+    err_unreadable: "{name} cannot be read: it is damaged, or not a kind of file this page knows."
+    err_empty: "No songs were found in {name}."
+    err_unsupported: "This browser cannot open a .zip by itself. Unzip the archive and drop the files inside it, or use a current browser."
+    err_toobig: "The result is too large for one .zip. Take fewer playlists at a time."
+    wrapped:
+      sources:
+        spotify:
+          drop: Drop my_spotify_data.zip here
+          how: "Spotify › Account › Privacy › Download your data › Extended streaming history (it arrives by e-mail in a few days)"
+          wrong: "{name} is not Spotify's streaming history. Drop my_spotify_data.zip, or its Streaming_History_Audio_….json files."
+        apple:
+          drop: Drop Apple Music Play Activity.csv here
+          how: "privacy.apple.com › Request a copy of your data › Apple Media Services information › Apple Music Activity"
+          wrong: "{name} is not Apple Music's play activity. Drop Apple Music Play Activity.csv, or the .zip it came in."
+        youtube:
+          drop: Drop watch-history.json here
+          how: "takeout.google.com › YouTube and YouTube Music › history, format JSON. Takeout gives plays, not their length: plays are counted, not minutes"
+          wrong: "{name} is not a YouTube watch history in JSON. In Takeout, set the format of history to JSON and drop watch-history.json."
+      all: All time
+      minutes: minutes
+      plays: plays
+      songs: songs
+      artists: artists
+      min: min
+      plays_n: ["{n} play", "{n} plays"]
+      loudest: "Your loudest hour: {hour}."
+      top_song: "Top song: “{title}” ({plays})."
+      no_artists: This export has no artist names.
+      hours_label: "Listening by hour of the day, most at {hour}"
+      card_year: "My {year}"
+      card_all: My all time
+      card_top_artists: Top artists
+      card_top_song: Top song
+      file_story: "trackhop-wrapped-{label}-story.png"
+      file_square: "trackhop-wrapped-{label}-square.png"
+    convert:
+      formats:
+        csv: CSV
+        exportify: Exportify
+        shazam: Shazam export
+        m3u: M3U playlist
+        pls: PLS playlist
+        itunes_library: Apple Music library
+        itunes_playlist: Apple Music playlist
+        xspf: XSPF playlist
+        opml: Podcast subscriptions
+        json: JSON
+        jspf: JSPF playlist
+        text: Plain list
+      outputs:
+        csv: CSV
+        m3u8: M3U8
+        xspf: XSPF
+        jspf: JSPF
+        text: Text
+      songs_n: ["{n} song", "{n} songs"]
+      playlists_n: ["{n} playlist", "{n} playlists"]
+      into: Into
+      output_label: Format to convert into
+      mode_label: How the playlists come out
+      each: One file per playlist
+      one: All in one file
+      dedupe: Remove duplicates
+      dedupe_hint: same song twice in a list
+      smart: smart
+      all: All
+      none: None
+      pick: Playlists to take
+      download_file: "Download {name}"
+      download_zip: ["Download {n} file (.zip)", "Download {n} files (.zip)"]
+      nothing: Tick at least one playlist
+      remove: "Remove {name}"
+it:
+  home: /it/
+  kicker: Trackhop · Strumenti
+  choose: Scegli un file
+  cancel: Annulla
+  noscript: Questo strumento gira nel tuo browser e ha bisogno di JavaScript. In ogni caso non viene inviato niente.
+  get: Scarica Trackhop
+  wrapped:
+    h1: Il tuo Wrapped, quando vuoi
+    lead: "Dall'esportazione dei tuoi dati: artisti, brani e ore, anno per anno. Scegli da dove viene l'esportazione."
+    tabs: Da dove viene l'esportazione
+    years: Anno
+    priv: "Letto solo in questa pagina: non viene caricato niente"
+    minutes: minuti
+    plays: ascolti
+    songs: brani
+    artists: artisti
+    top_artists: Artisti più ascoltati
+    top_songs: Brani più ascoltati
+    when: Quando ascolti
+    save: Salva la mia scheda
+    square: Quadrata per i post
+    card_note: Un'immagine fatta in questa pagina, pronta per le storie.
+    cta: Tieni queste playlist allineate su ogni servizio, da sole.
+    where_h: Da dove si prende il file
+    where:
+      - "<strong>Spotify</strong>: su spotify.com, <em>Account › Privacy › Scarica i tuoi dati</em>, spunta <em>Cronologia di streaming estesa</em>. In qualche giorno arriva per e-mail il link a <code>my_spotify_data.zip</code>. Trascina lo .zip così com'è, oppure i file <code>Streaming_History_Audio_….json</code> che contiene."
+      - "<strong>Apple Music</strong>: su privacy.apple.com, <em>Richiedi una copia dei tuoi dati › Informazioni sui servizi multimediali Apple</em>. Nell'archivio apri <em>Apple Music Activity</em> e trascina <code>Apple Music Play Activity.csv</code> (va bene anche lo .zip in cui arriva)."
+      - "<strong>YouTube Music</strong>: su takeout.google.com scegli <em>YouTube e YouTube Music</em>, tieni solo la <em>cronologia</em> e imposta il formato <em>JSON</em> (è HTML se non lo cambi). Trascina <code>watch-history.json</code> o lo .zip di Takeout. Google dà gli ascolti, non la loro durata: qui la pagina conta gli ascolti, non i minuti."
+    stays_h: Cosa succede al tuo file
+    stays: "Lo apre il tuo browser in questa pagina e lo legge lì, un pezzo alla volta, così funziona anche una cronologia grande. Non viene inviato a Trackhop né a nessun altro. La pagina non ha account, cookie o statistiche su chi la usa; la scheda è disegnata qui e la salvi tu. Chiudi la scheda del browser e non resta niente."
+    guide: 'L''app Trackhop crea una scheda così dalle tue playlist, su qualsiasi servizio: <a href="/guide/wrapped-quando-vuoi">Il tuo Wrapped, quando vuoi</a>.'
+  convert:
+    h1: Convertire un file di playlist
+    lead: CSV, M3U, PLS, XSPF, JSPF, JSON, una libreria di Apple Music/iTunes, un'esportazione di Shazam o un elenco semplice. Di qualsiasi dimensione.
+    drop: Trascina qui un file, oppure sceglilo
+    priv: "Convertito solo in questa pagina: non viene caricato niente"
+    cta: Lo vuoi su Spotify, Apple Music o YouTube Music invece che in un file?
+    reads_h: Cosa legge
+    reads:
+      - "<strong>CSV</strong>, con virgole, punti e virgola o tabulazioni: quello di Trackhop, Exportify, TuneMyMusic, Soundiiz, l'esportazione in testo di Apple Music e la libreria di Shazam con la sua riga di titolo."
+      - "<strong>M3U e M3U8</strong> con o senza <code>#EXTINF</code>, <strong>PLS</strong>, <strong>XSPF</strong>, <strong>JSPF</strong> e altro <strong>JSON</strong>, <strong>OPML</strong> delle iscrizioni ai podcast."
+      - "<strong>Una libreria di Apple Music o iTunes</strong> (<em>File › Libreria › Esporta libreria</em>): scegli quali playlist prendere. Le cartelle fanno da intestazione, le playlist smart partono senza spunta, gli elenchi propri della libreria restano fuori."
+      - "<strong>Un elenco semplice</strong>, un brano per riga: <code>Artista - Titolo</code>."
+    writes_h: Cosa scrive
+    writes: "CSV (titolo, artista, album, durata, ISRC), M3U8, XSPF, JSPF o testo semplice. Più playlist escono in un unico .zip. Il formato è riconosciuto dal file con le stesse regole dell'app Trackhop: un file che si converte qui si importa lì."
+    stays_h: Cosa succede al tuo file
+    stays: "Lo legge il tuo browser in questa pagina, un pezzo alla volta, e lì scrive il nuovo file. Non viene inviato a Trackhop né a nessun altro; non ci sono account, cookie o statistiche su chi usa la pagina. Un file tagliato o illeggibile dà un messaggio e niente da scaricare."
+    guide: 'Per portare la playlist su un altro servizio e tenerla allineata: <a href="/guide/export-playlist-csv">esporta e importa con l''app</a> (in inglese).'
+  js:
+    lang: it
+    reading: "Lettura di {name}… {pct}%"
+    cancel: Annulla
+    choose: Scegli un file
+    err_incomplete: "{name} finisce prima del dovuto: il download o la copia si è interrotto. Non ne è stato preso niente. Scarica di nuovo il file e trascinalo qui un'altra volta."
+    err_unreadable: "{name} non si riesce a leggere: è danneggiato, oppure non è un tipo di file che questa pagina conosce."
+    err_empty: "In {name} non è stato trovato nessun brano."
+    err_unsupported: "Questo browser non apre da solo gli .zip. Decomprimi l'archivio e trascina i file che contiene, oppure usa un browser aggiornato."
+    err_toobig: "Il risultato è troppo grande per un solo .zip. Prendi meno playlist alla volta."
+    wrapped:
+      sources:
+        spotify:
+          drop: Trascina qui my_spotify_data.zip
+          how: "Spotify › Account › Privacy › Scarica i tuoi dati › Cronologia di streaming estesa (arriva per e-mail in qualche giorno)"
+          wrong: "{name} non è la cronologia di streaming di Spotify. Trascina my_spotify_data.zip, oppure i suoi file Streaming_History_Audio_….json."
+        apple:
+          drop: Trascina qui Apple Music Play Activity.csv
+          how: "privacy.apple.com › Richiedi una copia dei tuoi dati › Informazioni sui servizi multimediali Apple › Apple Music Activity"
+          wrong: "{name} non è l'attività di ascolto di Apple Music. Trascina Apple Music Play Activity.csv, oppure lo .zip in cui è arrivato."
+        youtube:
+          drop: Trascina qui watch-history.json
+          how: "takeout.google.com › YouTube e YouTube Music › cronologia, formato JSON. Takeout dà gli ascolti, non la loro durata: si contano gli ascolti, non i minuti"
+          wrong: "{name} non è una cronologia di YouTube in JSON. In Takeout imposta JSON come formato della cronologia e trascina watch-history.json."
+      all: Sempre
+      minutes: minuti
+      plays: ascolti
+      songs: brani
+      artists: artisti
+      min: min
+      plays_n: ["{n} ascolto", "{n} ascolti"]
+      loudest: "La tua ora più rumorosa: {hour}."
+      top_song: "Brano più ascoltato: «{title}» ({plays})."
+      no_artists: Questa esportazione non ha i nomi degli artisti.
+      hours_label: "Ascolti per ora del giorno, il massimo alle {hour}"
+      card_year: "Il mio {year}"
+      card_all: Da sempre
+      card_top_artists: Artisti più ascoltati
+      card_top_song: Brano più ascoltato
+      file_story: "trackhop-wrapped-{label}-storia.png"
+      file_square: "trackhop-wrapped-{label}-quadrata.png"
+    convert:
+      formats:
+        csv: CSV
+        exportify: Exportify
+        shazam: Esportazione di Shazam
+        m3u: Playlist M3U
+        pls: Playlist PLS
+        itunes_library: Libreria di Apple Music
+        itunes_playlist: Playlist di Apple Music
+        xspf: Playlist XSPF
+        opml: Iscrizioni ai podcast
+        json: JSON
+        jspf: Playlist JSPF
+        text: Elenco semplice
+      outputs:
+        csv: CSV
+        m3u8: M3U8
+        xspf: XSPF
+        jspf: JSPF
+        text: Testo
+      songs_n: ["{n} brano", "{n} brani"]
+      playlists_n: ["{n} playlist", "{n} playlist"]
+      into: In
+      output_label: Formato in cui convertire
+      mode_label: Come escono le playlist
+      each: Un file per playlist
+      one: Tutto in un file
+      dedupe: Togli i doppioni
+      dedupe_hint: lo stesso brano due volte in un elenco
+      smart: smart
+      all: Tutte
+      none: Nessuna
+      pick: Playlist da prendere
+      download_file: "Scarica {name}"
+      download_zip: ["Scarica {n} file (.zip)", "Scarica {n} file (.zip)"]
+      nothing: Spunta almeno una playlist
+      remove: "Togli {name}"
