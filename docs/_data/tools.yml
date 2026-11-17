@@ -9,21 +9,43 @@ en:
   get: Get Trackhop
   wrapped:
     h1: Your Wrapped, any time
-    lead: "From your own data export: top artists, songs and hours, year by year. Pick where your export comes from."
+    lead: "Your year in music, from your own data export: who you played most, when you listen, and the days that stood out."
     tabs: Where your export comes from
     years: Year
     priv: "Read on this page only: nothing is uploaded"
-    minutes: minutes
-    plays: plays
-    songs: songs
-    artists: artists
+    another: Choose another file
+    gets_label: What you will see
+    gets:
+      - Your top artist
+      - Minutes, month by month
+      - Top songs
+      - Your listening clock
+      - First song of the year
+      - Longest streak
+      - A card to share
+    top_eyebrow: The ones you kept coming back to
+    top_h: Your top five
     top_artists: Top artists
     top_songs: Top songs
-    when: When you listen
-    save: Save my card
-    square: Square for posts
-    card_note: An image made on this page, ready for stories.
-    cta: Keep these playlists in step on every service, by themselves.
+    clock_eyebrow: Your listening clock
+    clock_h: When the music is on
+    pattern: Your pattern
+    parts_label: Share of listening by part of the day
+    weekday_h: By day of the week
+    numbers: See the hours as numbers
+    mom_eyebrow: Days that stood out
+    card_eyebrow: Take it with you
+    card_h: Your card
+    look: Pick a look
+    looks:
+      beam: Beam
+      violet: Violet
+      paper: Paper
+      night: Night
+    card_note: "Both images are drawn on this page and saved by you. They show only what you see here: your total, top artists, top songs and listening clock."
+    save_story: Save for stories
+    save_square: Save square for posts
+    cta: Trackhop keeps your playlists in step on every service, by themselves.
     where_h: Where the file comes from
     where:
       - "<strong>Spotify</strong>: on spotify.com, <em>Account › Privacy › Download your data</em>, tick <em>Extended streaming history</em>. A link to <code>my_spotify_data.zip</code> arrives by e-mail in a few days. Drop the .zip as it is, or the <code>Streaming_History_Audio_….json</code> files inside it."
@@ -62,32 +84,109 @@ en:
     wrapped:
       sources:
         spotify:
+          name: Spotify
           drop: Drop my_spotify_data.zip here
           how: "Spotify › Account › Privacy › Download your data › Extended streaming history (it arrives by e-mail in a few days)"
           wrong: "{name} is not Spotify's streaming history. Drop my_spotify_data.zip, or its Streaming_History_Audio_….json files."
         apple:
+          name: Apple Music
           drop: Drop Apple Music Play Activity.csv here
           how: "privacy.apple.com › Request a copy of your data › Apple Media Services information › Apple Music Activity"
           wrong: "{name} is not Apple Music's play activity. Drop Apple Music Play Activity.csv, or the .zip it came in."
         youtube:
+          name: YouTube Music
           drop: Drop watch-history.json here
           how: "takeout.google.com › YouTube and YouTube Music › history, format JSON. Takeout gives plays, not their length: plays are counted, not minutes"
           wrong: "{name} is not a YouTube watch history in JSON. In Takeout, set the format of history to JSON and drop watch-history.json."
       all: All time
-      minutes: minutes
+      and: and
+      loaded_one: "{source} · {year}"
+      loaded_range: "{source} · {from} to {to}"
+      minutes_n: ["{n} minute", "{n} minutes"]
+      plays_n: ["{n} play", "{n} plays"]
+      times_n: ["{n} time", "{n} times"]
+      songs_n: ["{n} song", "{n} songs"]
+      artists_n: ["{n} artist", "{n} artists"]
+      min_short: "{n} min"
+      hm: "{h} h {m} min"
       plays: plays
       songs: songs
       artists: artists
-      min: min
-      plays_n: ["{n} play", "{n} plays"]
-      loudest: "Your loudest hour: {hour}."
-      top_song: "Top song: “{title}” ({plays})."
+      hero_year: "Your {year} belonged to"
+      hero_all: "All this time, your number one was"
+      hero_time: "You spent <b>{minutes}</b> with them."
+      hero_plays: "You played them <b>{times}</b>."
+      hero_days: "That is {duration} of music."
+      hero_share: "One minute in every {n} you listened was theirs."
+      hero_share_plays: "One play in every {n} was theirs."
+      hero_half: "More than half of your listening was theirs."
+      fact_plays: ["<b>{n}</b> play", "<b>{n}</b> plays"]
+      fact_songs: ["<b>{n}</b> song", "<b>{n}</b> different songs"]
+      fact_song: "Most played: <b>{title}</b>"
+      range: "{from} to {to}"
+      min_eyebrow: "All together, {range}"
+      unit_minutes: minutes of music
+      unit_plays: ["play", "plays"]
+      as_time: "Played end to end, that is {duration}."
+      months_h: Month by month
+      years_h: Year by year
+      top_month: "<b>{Month}</b> was your biggest month: {amount}."
+      top_year: "<b>{year}</b> was your biggest year: {amount}."
+      per_day: "That is about {amount} a day."
+      still: "{Month} is still filling up."
+      most: "{text} (the most)"
+      five_share: "Together they are {pct}% of your listening."
+      five_rest: ["One more artist has the rest.", "The other {n} artists share the rest."]
+      song_times: "You played “{title}” {times}."
+      song_week: ["That is about once a week.", "That is about {n} times a week."]
+      song_month: ["That is about once a month.", "That is about {n} times a month."]
       no_artists: This export has no artist names.
-      hours_label: "Listening by hour of the day, most at {hour}"
-      card_year: "My {year}"
-      card_all: My all time
+      types: ["Morning listener", "Afternoon listener", "Evening listener", "Night listener"]
+      parts: ["Morning", "Afternoon", "Evening", "Night"]
+      part_most: "{name} (most)"
+      hours_range: "{from} to {to}"
+      loudest_line: "Your loudest hour is <b>{hour}</b>."
+      part_line: "{pct}% of your listening lands between {from} and {to}."
+      weekday_line: "{Weekday} is the day you listen most."
+      loudest: loudest hour
+      dial_minutes: "Minutes listened in each hour of the day. The loudest hour is {hour}."
+      dial_plays: "Plays in each hour of the day. The loudest hour is {hour}."
+      hour: Hour
+      col_minutes: Minutes
+      col_plays: Plays
+      mom_h_year: Moments from your year
+      mom_h_all: Moments from all your years
+      first_k: First song of the year
+      first_k_all: The first song in this history
+      first_d: "{artist}, on {date} at {time}."
+      first_d_bare: "On {date} at {time}."
+      first_new_year: The year had a soundtrack from day one.
+      day_k: Most-played day
+      day_d: "{duration} of music and {plays} in one day."
+      day_d_plays: "{plays} in one day."
+      streak_k: Longest streak
+      streak_v: ["{n} day", "{n} days in a row"]
+      streak_d: "From {from} to {to}, not one day without music."
+      month_k: Top month
+      month_d: "{minutes} and {plays}."
+      month_d_plays: "{plays}."
+      days_k: Days with music
+      days_v: "{n} of {total}"
+      days_d: "You pressed play on about {n} days out of 10."
+      days_every: Not one day without music.
+      days_all_d: "Out of the {total} days between your first play here and your last."
+      card_year: "My {year} in music"
+      card_all: "My music, all time"
+      card_minutes: minutes listened
+      card_plays: ["play", "plays"]
+      card_top_artist: Top artist
+      card_together: "{amount} together"
       card_top_artists: Top artists
-      card_top_song: Top song
+      card_top_songs: Top songs
+      card_streak: "{n} days in a row, my longest streak"
+      card_alt_story: "Story card: {text}"
+      card_alt_square: "Square card: {text}"
+      card_alt_clock: "the listening clock with its peak at {hour}"
       file_story: "trackhop-wrapped-{label}-story.png"
       file_square: "trackhop-wrapped-{label}-square.png"
     convert:
@@ -136,21 +235,43 @@ it:
   get: Scarica Trackhop
   wrapped:
     h1: Il tuo Wrapped, quando vuoi
-    lead: "Dall'esportazione dei tuoi dati: artisti, brani e ore, anno per anno. Scegli da dove viene l'esportazione."
+    lead: "Il tuo anno in musica, dall'esportazione dei tuoi dati: chi hai ascoltato di più, quando ascolti e i giorni che hanno lasciato il segno."
     tabs: Da dove viene l'esportazione
     years: Anno
     priv: "Letto solo in questa pagina: non viene caricato niente"
-    minutes: minuti
-    plays: ascolti
-    songs: brani
-    artists: artisti
+    another: Scegli un altro file
+    gets_label: Cosa vedrai
+    gets:
+      - Il tuo artista dell'anno
+      - I minuti, mese per mese
+      - I brani più ascoltati
+      - Il tuo orologio degli ascolti
+      - Il primo brano dell'anno
+      - La serie più lunga
+      - Una scheda da condividere
+    top_eyebrow: Quelli a cui torni sempre
+    top_h: I tuoi primi cinque
     top_artists: Artisti più ascoltati
     top_songs: Brani più ascoltati
-    when: Quando ascolti
-    save: Salva la mia scheda
-    square: Quadrata per i post
-    card_note: Un'immagine fatta in questa pagina, pronta per le storie.
-    cta: Tieni queste playlist allineate su ogni servizio, da sole.
+    clock_eyebrow: Il tuo orologio degli ascolti
+    clock_h: Quando c'è la musica
+    pattern: Il tuo ritmo
+    parts_label: Quota degli ascolti per parte della giornata
+    weekday_h: Per giorno della settimana
+    numbers: Vedi le ore in numeri
+    mom_eyebrow: Giorni che hanno lasciato il segno
+    card_eyebrow: Portala con te
+    card_h: La tua scheda
+    look: Scegli uno stile
+    looks:
+      beam: Raggio
+      violet: Viola
+      paper: Carta
+      night: Notte
+    card_note: "Le due immagini sono disegnate in questa pagina e le salvi tu. Mostrano solo quello che vedi qui: il tuo totale, gli artisti e i brani più ascoltati e l'orologio degli ascolti."
+    save_story: Salva per le storie
+    save_square: Salva quadrata per i post
+    cta: Trackhop tiene le tue playlist allineate su ogni servizio, da sole.
     where_h: Da dove si prende il file
     where:
       - "<strong>Spotify</strong>: su spotify.com, <em>Account › Privacy › Scarica i tuoi dati</em>, spunta <em>Cronologia di streaming estesa</em>. In qualche giorno arriva per e-mail il link a <code>my_spotify_data.zip</code>. Trascina lo .zip così com'è, oppure i file <code>Streaming_History_Audio_….json</code> che contiene."
@@ -189,32 +310,109 @@ it:
     wrapped:
       sources:
         spotify:
+          name: Spotify
           drop: Trascina qui my_spotify_data.zip
           how: "Spotify › Account › Privacy › Scarica i tuoi dati › Cronologia di streaming estesa (arriva per e-mail in qualche giorno)"
           wrong: "{name} non è la cronologia di streaming di Spotify. Trascina my_spotify_data.zip, oppure i suoi file Streaming_History_Audio_….json."
         apple:
+          name: Apple Music
           drop: Trascina qui Apple Music Play Activity.csv
           how: "privacy.apple.com › Richiedi una copia dei tuoi dati › Informazioni sui servizi multimediali Apple › Apple Music Activity"
           wrong: "{name} non è l'attività di ascolto di Apple Music. Trascina Apple Music Play Activity.csv, oppure lo .zip in cui è arrivato."
         youtube:
+          name: YouTube Music
           drop: Trascina qui watch-history.json
           how: "takeout.google.com › YouTube e YouTube Music › cronologia, formato JSON. Takeout dà gli ascolti, non la loro durata: si contano gli ascolti, non i minuti"
           wrong: "{name} non è una cronologia di YouTube in JSON. In Takeout imposta JSON come formato della cronologia e trascina watch-history.json."
-      all: Sempre
-      minutes: minuti
+      all: Da sempre
+      and: e
+      loaded_one: "{source} · {year}"
+      loaded_range: "{source} · dal {from} al {to}"
+      minutes_n: ["{n} minuto", "{n} minuti"]
+      plays_n: ["{n} ascolto", "{n} ascolti"]
+      times_n: ["{n} volta", "{n} volte"]
+      songs_n: ["{n} brano", "{n} brani"]
+      artists_n: ["{n} artista", "{n} artisti"]
+      min_short: "{n} min"
+      hm: "{h} h {m} min"
       plays: ascolti
       songs: brani
       artists: artisti
-      min: min
-      plays_n: ["{n} ascolto", "{n} ascolti"]
-      loudest: "La tua ora più rumorosa: {hour}."
-      top_song: "Brano più ascoltato: «{title}» ({plays})."
+      hero_year: "Il tuo {year} è stato di"
+      hero_all: "Da sempre, più di chiunque altro, ascolti"
+      hero_time: "Avete passato insieme <b>{minutes}</b>."
+      hero_plays: "Hai fatto partire la sua musica <b>{times}</b>."
+      hero_days: "Fanno {duration} di musica."
+      hero_share: "Un minuto ogni {n} che hai ascoltato era suo."
+      hero_share_plays: "Un ascolto ogni {n} era suo."
+      hero_half: "Più di metà dei tuoi ascolti era sua."
+      fact_plays: ["<b>{n}</b> ascolto", "<b>{n}</b> ascolti"]
+      fact_songs: ["<b>{n}</b> brano", "<b>{n}</b> brani diversi"]
+      fact_song: "Il più ascoltato: <b>{title}</b>"
+      range: "{from} – {to}"
+      min_eyebrow: "In tutto, {range}"
+      unit_minutes: minuti di musica
+      unit_plays: ["ascolto", "ascolti"]
+      as_time: "Uno dopo l'altro, fanno {duration}."
+      months_h: Mese per mese
+      years_h: Anno per anno
+      top_month: "<b>{Month}</b> è stato il tuo mese più pieno: {amount}."
+      top_year: "Il <b>{year}</b> è stato il tuo anno più pieno: {amount}."
+      per_day: "Sono circa {amount} al giorno."
+      still: "{Month} è ancora in corso."
+      most: "{text} (il massimo)"
+      five_share: "Insieme sono il {pct}% dei tuoi ascolti."
+      five_rest: ["Il resto è di un altro artista.", "Gli altri {n} artisti si dividono il resto."]
+      song_times: "Hai ascoltato «{title}» {times}."
+      song_week: ["Circa una volta a settimana.", "Circa {n} volte a settimana."]
+      song_month: ["Circa una volta al mese.", "Circa {n} volte al mese."]
       no_artists: Questa esportazione non ha i nomi degli artisti.
-      hours_label: "Ascolti per ora del giorno, il massimo alle {hour}"
-      card_year: "Il mio {year}"
-      card_all: Da sempre
-      card_top_artists: Artisti più ascoltati
-      card_top_song: Brano più ascoltato
+      types: ["Ascolti di mattina", "Ascolti di pomeriggio", "Ascolti di sera", "Ascolti di notte"]
+      parts: ["Mattina", "Pomeriggio", "Sera", "Notte"]
+      part_most: "{name} (di più)"
+      hours_range: "{from} – {to}"
+      loudest_line: "L'ora in cui ascolti di più: le <b>{hour}</b>."
+      part_line: "Il {pct}% dei tuoi ascolti cade tra le {from} e le {to}."
+      weekday_line: "Il giorno in cui ascolti di più è {weekday}."
+      loudest: l'ora più piena
+      dial_minutes: "Minuti ascoltati in ogni ora del giorno. L'ora più piena: le {hour}."
+      dial_plays: "Ascolti in ogni ora del giorno. L'ora più piena: le {hour}."
+      hour: Ora
+      col_minutes: Minuti
+      col_plays: Ascolti
+      mom_h_year: Momenti del tuo anno
+      mom_h_all: Momenti di tutti i tuoi anni
+      first_k: Il primo brano dell'anno
+      first_k_all: Il primo brano di questa cronologia
+      first_d: "{artist}, {date} alle {time}."
+      first_d_bare: "{Date} alle {time}."
+      first_new_year: L'anno ha avuto una colonna sonora dal primo giorno.
+      day_k: Il giorno con più musica
+      day_d: "{duration} di musica e {plays} in un giorno solo."
+      day_d_plays: "{plays} in un giorno solo."
+      streak_k: La serie più lunga
+      streak_v: ["{n} giorno", "{n} giorni di fila"]
+      streak_d: "{from} – {to}: nemmeno un giorno senza musica."
+      month_k: Il mese più pieno
+      month_d: "{minutes} e {plays}."
+      month_d_plays: "{plays}."
+      days_k: Giorni con la musica
+      days_v: "{n} su {total}"
+      days_d: "Hai fatto partire la musica circa {n} giorni su 10."
+      days_every: Nemmeno un giorno senza musica.
+      days_all_d: "Sui {total} giorni tra il tuo primo ascolto qui e l'ultimo."
+      card_year: "Il mio {year} in musica"
+      card_all: "La mia musica, da sempre"
+      card_minutes: minuti di ascolto
+      card_plays: ["ascolto", "ascolti"]
+      card_top_artist: Al primo posto
+      card_together: "{amount} insieme"
+      card_top_artists: Artisti
+      card_top_songs: Brani
+      card_streak: "{n} giorni di fila, la mia serie più lunga"
+      card_alt_story: "Scheda per le storie: {text}"
+      card_alt_square: "Scheda quadrata: {text}"
+      card_alt_clock: "l'orologio degli ascolti, con il massimo alle {hour}"
       file_story: "trackhop-wrapped-{label}-storia.png"
       file_square: "trackhop-wrapped-{label}-quadrata.png"
     convert:

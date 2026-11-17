@@ -9,7 +9,8 @@ export function fmt(text, values = {}) {
   return text.replace(/\{(\w+)\}/g, (m, k) => (values[k] != null ? String(values[k]) : m));
 }
 
-const numbers = new Intl.NumberFormat(strings.lang);
+// Always grouped: Italian leaves four-digit numbers whole (9008 beside 53.704), which reads as a mistake in a row of figures.
+const numbers = new Intl.NumberFormat(strings.lang, { useGrouping: 'always' });
 export const num = (n) => numbers.format(n);
 
 export function el(tag, attrs = {}, ...children) {

@@ -1,24 +1,36 @@
 {%- comment -%}
-  /wrapped: listening statistics from a data export, read in the browser (assets/tools/wrapped-ui.js).
+  /wrapped: a year of listening from a data export, read in the browser (assets/tools/wrapped-ui.js).
   The texts are in _data/tools.yml, by the page's language. No request leaves this page.
 {%- endcomment -%}
 {%- assign lang = page.lang | default: 'en' -%}
 {%- assign s = site.data.tools[lang] -%}
 {%- assign w = s.wrapped -%}
-<div class="tool" id="wrapped-tool">
-  <p class="tool-kicker">{{ s.kicker }}</p>
-  <h1>{{ w.h1 }}</h1>
-  <p class="tool-lead">{{ w.lead }}</p>
-  <div class="tool-tabs" role="tablist" aria-label="{{ w.tabs }}" data-tabs="source">
-    <button type="button" role="tab" class="tool-tab" data-value="spotify" aria-selected="true" aria-controls="wrapped-drop">Spotify</button>
-    <button type="button" role="tab" class="tool-tab" data-value="apple" aria-selected="false" aria-controls="wrapped-drop" tabindex="-1">Apple Music</button>
-    <button type="button" role="tab" class="tool-tab" data-value="youtube" aria-selected="false" aria-controls="wrapped-drop" tabindex="-1">YouTube Music</button>
+{%- capture lock -%}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>{%- endcapture -%}
+{%- capture down -%}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>{%- endcapture -%}
+{%- capture tick -%}<svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>{%- endcapture -%}
+<div class="tool wr" id="wrapped-tool">
+  <div class="wr-intro">
+    <p class="tool-kicker">{{ s.kicker }}</p>
+    <h1>{{ w.h1 }}</h1>
+    <p class="tool-lead">{{ w.lead }}</p>
   </div>
-  <div class="tool-drop" id="wrapped-drop" role="tabpanel">
-    <strong class="tool-drop-title"></strong>
-    <span class="tool-muted tool-drop-how"></span>
-    <label class="tool-btn ghost tool-file"><input type="file" multiple><span>{{ s.choose }}</span></label>
-    <span class="tool-priv"><span aria-hidden="true">●</span> {{ w.priv }}</span>
+
+  <div class="wr-empty">
+    <div class="tool-tabs" role="tablist" aria-label="{{ w.tabs }}" data-tabs="source">
+      <button type="button" role="tab" class="tool-tab" data-value="spotify" aria-selected="true" aria-controls="wrapped-drop">Spotify</button>
+      <button type="button" role="tab" class="tool-tab" data-value="apple" aria-selected="false" aria-controls="wrapped-drop" tabindex="-1">Apple Music</button>
+      <button type="button" role="tab" class="tool-tab" data-value="youtube" aria-selected="false" aria-controls="wrapped-drop" tabindex="-1">YouTube Music</button>
+    </div>
+    <div class="tool-drop wr-drop" id="wrapped-drop" role="tabpanel">
+      <span class="wr-art"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M24 6v22M15 20l9 9 9-9"/><path d="M8 32v6a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4v-6"/></svg></span>
+      <strong class="tool-drop-title"></strong>
+      <span class="tool-muted tool-drop-how"></span>
+      <div class="wr-acts">
+        <label class="tool-btn tool-file"><input type="file" multiple><span>{{ s.choose }}</span></label>
+        <span class="tool-priv">{{ lock }}{{ w.priv }}</span>
+      </div>
+    </div>
+    <ul class="wr-gets" aria-label="{{ w.gets_label }}">{% for item in w.gets %}<li>{{ item }}</li>{% endfor %}</ul>
   </div>
   <noscript><p class="tool-error">{{ s.noscript }}</p></noscript>
   <div class="tool-progress" hidden>
@@ -26,42 +38,163 @@
     <progress max="1" value="0"></progress>
   </div>
   <p class="tool-error" role="alert" hidden></p>
-  <section class="tool-results" hidden>
-    <div class="tool-tabs" role="tablist" aria-label="{{ w.years }}" data-tabs="year"></div>
-    <div class="tool-figs">
-      <div class="tool-fig" data-fig="minutes"><b></b><span>{{ w.minutes }}</span></div>
-      <div class="tool-fig" data-fig="plays"><b></b><span>{{ w.plays }}</span></div>
-      <div class="tool-fig" data-fig="songs"><b></b><span>{{ w.songs }}</span></div>
-      <div class="tool-fig" data-fig="artists"><b></b><span>{{ w.artists }}</span></div>
+
+  <div class="wr-loaded" hidden>
+    <div class="wr-file">
+      <span class="wr-file-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>
+      <div><b data-t="file"></b><span data-t="file-sub"></span></div>
     </div>
-    <div class="tool-two">
-      <div class="card"><h2>{{ w.top_artists }}</h2><div class="tool-bars" data-bars="artists"></div></div>
-      <div class="card"><h2>{{ w.top_songs }}</h2><div class="tool-bars" data-bars="songs"></div></div>
-    </div>
-    <div class="card">
-      <h2>{{ w.when }}</h2>
-      <div class="tool-clock" role="img"></div>
-      <div class="tool-hours" aria-hidden="true"><span>0</span><span>6</span><span>12</span><span>18</span><span>23</span></div>
-      <p class="tool-muted tool-loudest"></p>
-    </div>
-    <div class="tool-share">
-      <canvas class="tool-story" width="1080" height="1920"></canvas>
-      <div class="tool-share-actions">
-        <a class="tool-btn" data-save="story" role="button">{{ w.save }}</a>
-        <a class="tool-btn ghost" data-save="square" role="button">{{ w.square }}</a>
-        <span class="tool-muted">{{ w.card_note }}</span>
+    <span class="tool-priv">{{ lock }}{{ w.priv }}</span>
+    <button class="tool-btn ghost small" type="button" data-act="another" aria-controls="wrapped-drop" aria-expanded="false">{{ w.another }}</button>
+  </div>
+  <div class="tool-tabs" role="tablist" aria-label="{{ w.years }}" data-tabs="year" hidden></div>
+
+  <div class="wr-story" hidden>
+    <section class="wr-chapter" data-ch="artist" aria-labelledby="wr-c-artist">
+      <div class="wr-hero">
+        <p class="wr-eyebrow wr-rise" id="wr-c-artist" data-t="hero-eyebrow"></p>
+        <p class="wr-name wr-rise" style="--i:1" data-t="hero-name"></p>
+        <p class="wr-line wr-rise" style="--i:2" data-t="hero-line"></p>
+        <ul class="wr-facts wr-rise" style="--i:3" data-t="hero-facts"></ul>
       </div>
-    </div>
-  </section>
+    </section>
+
+    <section class="wr-chapter" data-ch="minutes" aria-labelledby="wr-c-min">
+      <div class="wr-minutes">
+        <div>
+          <p class="wr-eyebrow wr-rise" id="wr-c-min" data-t="min-eyebrow"></p>
+          <p class="wr-big wr-rise" style="--i:1" data-t="big"></p>
+          <p class="wr-unit wr-rise" style="--i:2" data-t="unit"></p>
+          <p class="wr-as wr-rise" style="--i:2" data-t="as"></p>
+          <dl class="wr-trio wr-rise" style="--i:3" data-t="trio"></dl>
+        </div>
+        <div class="wr-panel wr-rise" style="--i:2">
+          <h3 data-t="months-h"></h3>
+          <ol class="wr-cols" data-t="months"></ol>
+          <p class="wr-cap" data-t="months-cap"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="wr-chapter" data-ch="top" aria-labelledby="wr-c-top">
+      <div class="wr-head">
+        <p class="wr-eyebrow">{{ w.top_eyebrow }}</p>
+        <h2 id="wr-c-top">{{ w.top_h }}</h2>
+      </div>
+      <div class="wr-two">
+        <div class="wr-panel wr-rise" data-t="artists-panel">
+          <h3>{{ w.top_artists }}</h3>
+          <ol class="wr-rank" data-t="artists"></ol>
+          <p class="wr-cap" data-t="artists-cap"></p>
+        </div>
+        <div class="wr-panel wr-rise" style="--i:1">
+          <h3>{{ w.top_songs }}</h3>
+          <ol class="wr-rank" data-t="songs"></ol>
+          <p class="wr-cap" data-t="songs-cap"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="wr-chapter" data-ch="clock" aria-labelledby="wr-c-clock">
+      <div class="wr-head">
+        <p class="wr-eyebrow">{{ w.clock_eyebrow }}</p>
+        <h2 id="wr-c-clock">{{ w.clock_h }}</h2>
+      </div>
+      <div class="wr-clock">
+        <figure class="wr-rise" data-t="dial-box">
+          <svg class="wr-dial" viewBox="0 0 320 320" role="img" aria-labelledby="wr-dial-t"><title id="wr-dial-t"></title></svg>
+        </figure>
+        <div class="wr-clock-text">
+          <div class="wr-rise" style="--i:1" data-t="type-box">
+            <p class="wr-eyebrow">{{ w.pattern }}</p>
+            <p class="wr-type" data-t="type"></p>
+          </div>
+          <p class="wr-rise" style="--i:2" data-t="clock-line"></p>
+          <ol class="wr-parts wr-rise" style="--i:3" data-t="parts" aria-label="{{ w.parts_label }}"></ol>
+          <div class="wr-panel wr-rise" style="--i:4" data-t="weekdays-panel">
+            <h3>{{ w.weekday_h }}</h3>
+            <ol class="wr-cols short" data-t="weekdays"></ol>
+          </div>
+          <details class="wr-numbers" data-t="numbers">
+            <summary>{{ w.numbers }}</summary>
+            <div data-t="hours-table"></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="wr-chapter" data-ch="moments" aria-labelledby="wr-c-mom">
+      <div class="wr-head">
+        <p class="wr-eyebrow">{{ w.mom_eyebrow }}</p>
+        <h2 id="wr-c-mom" data-t="mom-h"></h2>
+      </div>
+      <div class="wr-moments">
+        <article class="wr-moment wide first wr-rise" data-m="first">
+          <span class="wr-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>
+          <p class="k"></p><p class="v"></p><p class="d"></p>
+        </article>
+        <article class="wr-moment wide wr-rise" style="--i:1" data-m="day">
+          <span class="wr-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/><path d="M12 13.2l1 2 2.2.3-1.6 1.5.4 2.2-2-1.1-2 1.1.4-2.2-1.6-1.5 2.2-.3z" fill="currentColor" stroke="none"/></svg></span>
+          <p class="k"></p><p class="v"></p><p class="d"></p>
+        </article>
+        <article class="wr-moment wr-rise" style="--i:2" data-m="streak">
+          <span class="wr-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8.5 12h7"/></svg></span>
+          <p class="k"></p><p class="v"></p><p class="d"></p>
+        </article>
+        <article class="wr-moment wr-rise" style="--i:3" data-m="month">
+          <span class="wr-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></span>
+          <p class="k"></p><p class="v"></p><p class="d"></p>
+        </article>
+        <article class="wr-moment wr-rise" style="--i:4" data-m="days">
+          <span class="wr-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4M9 15l2 2 4-4"/></svg></span>
+          <p class="k"></p><p class="v"></p><p class="d"></p>
+        </article>
+      </div>
+    </section>
+
+    <section class="wr-chapter" data-ch="card" aria-labelledby="wr-c-card">
+      <div class="wr-head">
+        <p class="wr-eyebrow">{{ w.card_eyebrow }}</p>
+        <h2 id="wr-c-card">{{ w.card_h }}</h2>
+      </div>
+      <div class="wr-share">
+        <div class="wr-share-side wr-rise">
+          <fieldset class="wr-themes">
+            <legend>{{ w.look }}</legend>
+            {%- assign looks = "beam,violet,paper,night" | split: "," -%}
+            {%- for look in looks %}
+            <label class="wr-theme"><input type="radio" name="wr-look" value="{{ look }}"{% if forloop.first %} checked{% endif %}><span class="wr-sw {{ look }}"></span>{{ w.looks[look] }}{{ tick }}</label>
+            {%- endfor %}
+          </fieldset>
+          <p class="tool-muted">{{ w.card_note }}</p>
+        </div>
+        <div class="wr-canvases wr-rise" style="--i:1">
+          <figure>
+            <canvas class="wr-story-c" data-card="story" width="1080" height="1920" role="img"></canvas>
+            <button class="tool-btn" type="button" data-save="story" disabled>{{ down }}{{ w.save_story }}</button>
+            <figcaption>1080 × 1920, PNG</figcaption>
+          </figure>
+          <figure>
+            <canvas class="wr-square-c" data-card="square" width="1080" height="1080" role="img"></canvas>
+            <button class="tool-btn ghost" type="button" data-save="square" disabled>{{ down }}{{ w.save_square }}</button>
+            <figcaption>1080 × 1080, PNG</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <div class="tool-cta"><span>{{ w.cta }}</span><a class="tool-btn" href="{{ s.home | relative_url }}">{{ s.get }}</a></div>
 
-  <h2>{{ w.where_h }}</h2>
-  <ul>{% for item in w.where %}
-    <li>{{ item }}</li>{% endfor %}
-  </ul>
-  <h2>{{ w.stays_h }}</h2>
-  <p>{{ w.stays }}</p>
-  <p>{{ w.guide }}</p>
+  <div class="wr-about">
+    <h2>{{ w.where_h }}</h2>
+    <ul>{% for item in w.where %}
+      <li>{{ item }}</li>{% endfor %}
+    </ul>
+    <h2>{{ w.stays_h }}</h2>
+    <p>{{ w.stays }}</p>
+    <p>{{ w.guide }}</p>
+  </div>
 </div>
 <script type="application/json" id="tool-strings">{{ s.js | jsonify }}</script>
 <script type="module" src="{{ '/assets/tools/wrapped-ui.js' | relative_url }}?v={{ site.time | date: '%s' }}"></script>
