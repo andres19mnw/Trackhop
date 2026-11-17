@@ -62,6 +62,18 @@
    <div class="drawer-panel">
     <div class="drawer-head"><strong>All pages</strong><select class="lang" aria-label="Language of the pages"><option value="en">English</option><option value="it">Italiano</option><option value="es">Español</option><option value="pt">Português</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="pl">Polski</option><option value="ru">Русский</option><option value="tr">Türkçe</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="zh">中文</option></select><button class="close" type="button" aria-label="Close">×</button></div>
     <nav class="drawer-nav">
+      <div class="tools-strip" data-tools="en">
+        <h4>Tools on this site, nothing to install</h4>
+        <a href="{{ '/link' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2"/></svg></span><span><b>A link for every service</b><small>Open a song or album on any service</small></span></a>
+        <a href="{{ '/convert' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></svg></span><span><b>Convert a playlist file</b><small>CSV, M3U, XSPF, iTunes library and more</small></span></a>
+        <a href="{{ '/wrapped' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M10 20V5M15 20v-7M20 20V9"/></svg></span><span><b>Your Wrapped, any time</b><small>From your own data export</small></span></a>
+      </div>
+      <div class="tools-strip" data-tools="it">
+        <h4>Strumenti sul sito, senza installare</h4>
+        <a href="{{ '/it/link' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2"/></svg></span><span><b>Un link per ogni servizio</b><small>Apri un brano o un album su ogni servizio</small></span></a>
+        <a href="{{ '/it/convert' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></svg></span><span><b>Convertire un file di playlist</b><small>CSV, M3U, XSPF, libreria iTunes e altri</small></span></a>
+        <a href="{{ '/it/wrapped' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M10 20V5M15 20v-7M20 20V9"/></svg></span><span><b>Il tuo Wrapped, quando vuoi</b><small>Dal tuo export dei dati</small></span></a>
+      </div>
       <div class="grp" data-lang="en">
       <h4>Get Trackhop</h4>
       <a href="{{ '/' | relative_url }}">Android app</a>
@@ -117,12 +129,6 @@
       <a href="{{ '/guide/wrapped-anytime' | relative_url }}">Your Wrapped, whenever you want</a>
       </div>
       <div class="grp" data-lang="en">
-      <h4>Tools on this site</h4>
-      <a href="{{ '/wrapped' | relative_url }}">Your Wrapped, from your data export</a>
-      <a href="{{ '/convert' | relative_url }}">Convert a playlist file</a>
-      <a href="{{ '/link' | relative_url }}">A link for every service</a>
-      </div>
-      <div class="grp" data-lang="en">
       <h4>New in 2.0</h4>
       <a href="{{ '/guide/shared-playlists' | relative_url }}">A playlist shared by a group</a>
       <a href="{{ '/guide/phone-and-server' | relative_url }}">Your phone and your Trackhop server</a>
@@ -154,9 +160,6 @@
       <a href="{{ '/guide/rimuovere-duplicati-playlist' | relative_url }}">Rimuovere i brani doppi</a>
       <a href="{{ '/guide/brani-non-riproducibili' | relative_url }}">Sistemare i brani in grigio</a>
       <a href="{{ '/guide/wrapped-quando-vuoi' | relative_url }}">Il tuo Wrapped, quando vuoi</a>
-      <a href="{{ '/it/wrapped' | relative_url }}">Il tuo Wrapped, dai tuoi dati (sul sito)</a>
-      <a href="{{ '/it/convert' | relative_url }}">Convertire un file di playlist (sul sito)</a>
-      <a href="{{ '/it/link' | relative_url }}">Un link per ogni servizio (sul sito)</a>
       </div>
       <div class="grp" data-lang="es">
       <h4>En español</h4>
@@ -252,6 +255,11 @@
         var own = d.querySelector('.grp[data-lang="' + l + '"]');
         if (own && l !== 'en') own.parentNode.insertBefore(own, own.parentNode.firstChild);
         more.hidden = l === 'en';
+        var navEl = d.querySelector('.drawer-nav');
+        Array.prototype.slice.call(d.querySelectorAll('.tools-strip')).reverse().forEach(function (t) {
+          t.hidden = t.getAttribute('data-tools') !== (l === 'it' ? 'it' : 'en');
+          navEl.insertBefore(t, navEl.firstChild);
+        });
       }
       sel.addEventListener('change', function () { try { localStorage.setItem('menuLang', sel.value); } catch (e) {} lang_(sel.value); });
       more.addEventListener('click', function () { d.querySelectorAll('.grp[data-lang="en"]').forEach(function (g) { g.hidden = false; }); more.hidden = true; });
