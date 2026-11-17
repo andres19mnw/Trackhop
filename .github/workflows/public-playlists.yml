@@ -1,0 +1,47 @@
+# Counts the public playlists that carry "Synced with Trackhop" (Spotify and YouTube, their official
+# search APIs) into the badges branch: public-playlists.json for the site and the README. Counts only.
+name: Public playlists
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: badges-public-playlists
+  cancel-in-progress: false
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Count
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          if [ -z "$SPOTIFY_CLIENT_SECRET" ] && [ -z "$YOUTUBE_API_KEY" ]; then
+            echo "::notice::No SPOTIFY_CLIENT_SECRET or YOUTUBE_API_KEY yet: nothing to count."; exit 0
+          fi
+          python3 scripts/public_playlists.py out
+      - name: Into the badges branch
+        run: |
+          [ -f out/public-playlists.json ] || exit 0
+          for try in 1 2 3 4; do
+            rm -rf badges
+            git init -q badges; cd badges
+            git fetch -q --depth=1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" badges && git checkout -q -B badges FETCH_HEAD
+            cp ../out/public-playlists.json ../out/public-playlists-badge.json .
+            git add public-playlists.json public-playlists-badge.json
+            git diff --cached --quiet && { echo "No change."; exit 0; }
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Public playlists"
+            git push -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" badges && exit 0
+            cd ..; sleep $((try * 5))
+          done
+          exit 1
