@@ -34,17 +34,25 @@ def spotify():
                 b"grant_type=client_credentials")["access_token"]
     seen = set()
     offset = 0
+    # Apps in Spotify's development mode get smaller pages: 50 when allowed, else 10.
+    limit = 50
     # Spotify's search stops at offset 1000; only playlists whose description really says it count.
     while offset < 1000:
-        q = urllib.parse.urlencode({"q": '"Synced with Trackhop"', "type": "playlist", "limit": 50, "offset": offset})
-        page = get(f"https://api.spotify.com/v1/search?{q}", {"Authorization": f"Bearer {token}"})["playlists"]
+        q = urllib.parse.urlencode({"q": '"Synced with Trackhop"', "type": "playlist", "limit": limit, "offset": offset})
+        try:
+            page = get(f"https://api.spotify.com/v1/search?{q}", {"Authorization": f"Bearer {token}"})["playlists"]
+        except RuntimeError as e:
+            if limit > 10 and "Invalid limit" in str(e):
+                limit = 10
+                continue
+            raise
         items = [p for p in page.get("items") or [] if p]
         for p in items:
             if PHRASE in (p.get("description") or "").lower():
                 seen.add(p["id"])
         if not page.get("next") or not items:
             break
-        offset += 50
+        offset += limit
         time.sleep(0.3)
     return len(seen)
 
