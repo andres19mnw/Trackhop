@@ -306,5 +306,30 @@
     <p class="support">Trackhop is free, with nothing locked. If it saves you time, you can <a href="https://ko-fi.com/xlollx" target="_blank" rel="noopener">buy me a coffee</a> (card or PayPal) or <a href="https://github.com/sponsors/xlollx" target="_blank" rel="noopener">sponsor it on GitHub</a>.</p>
     <p>Trackhop is free software under AGPL-3.0-only. It is not affiliated with any music service; their names are used only to indicate compatibility.</p>
   </footer>
+  <script>
+  (function () {
+    var src = '{{ "/assets/v/v.js" | relative_url }}?v={{ site.time | date: "%s" }}';
+    function go() { import(src).then(function (m) { m.open(); }).catch(function () {}); }
+    var typed = '';
+    document.addEventListener('keydown', function (e) {
+      var t = e.target;
+      if (e.ctrlKey || e.metaKey || e.altKey || !e.key || e.key.length !== 1) return;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      typed = (typed + e.key.toLowerCase()).slice(-5);
+      if (typed === 'vanni') { typed = ''; go(); }
+    });
+    var brand = document.querySelector('.top .brand'), taps = 0, last = 0;
+    var home = '{{ "/" | relative_url }}';
+    if (brand) brand.addEventListener('click', function (e) {
+      if (location.pathname !== home) return;
+      e.preventDefault();
+      var now = Date.now();
+      taps = now - last < 1500 ? taps + 1 : 1;
+      last = now;
+      if (taps === 1) window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (taps >= 5) { taps = 0; go(); }
+    });
+  })();
+  </script>
 </body>
 </html>
