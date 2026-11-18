@@ -276,6 +276,29 @@ open class FileStore(dir: File) {
         update { d -> d.copy(ignoredTracks = d.ignoredTracks + srcTrackIds.map { cacheKey(srcProvider, it, dstProvider) }) }
     }
 
+    /** Undo an ignore by its exact stored key (an older key may use a connector id instead of a family). */
+    fun removeIgnoredKeys(keys: Collection<String>) {
+        if (keys.isEmpty()) return
+        val removed = keys.toSet()
+        update { d -> d.copy(ignoredTracks = d.ignoredTracks - removed, missCache = d.missCache - removed) }
+    }
+
+    /** All known matches: "family:srcId>dstFamily" -> dst track id. Empty values left by older builds are not matches. */
+    fun allMatches(): Map<String, String> = data.matchCache.filterValues { it.isNotBlank() }
+
+    /** One manual match by its exact stored key. */
+    fun putMatch(key: String, dstTrackId: String) {
+        if (key.isBlank() || dstTrackId.isBlank()) return
+        update { d -> d.copy(matchCache = d.matchCache + (key to dstTrackId), missCache = d.missCache - key) }
+    }
+
+    /** Remove several manual matches (and their missed-search memories) in one write. */
+    fun removeMatches(keys: Collection<String>) {
+        if (keys.isEmpty()) return
+        val removed = keys.toSet()
+        update { d -> d.copy(matchCache = d.matchCache - removed, missCache = d.missCache - removed) }
+    }
+
     /** The source tracks (of [srcProvider]) whose match on [dstProvider] is [dstTrackId]. */
     fun sourcesMatchedTo(srcProvider: String, dstProvider: String, dstTrackId: String): List<String> {
         val prefix = family(srcProvider) + ":"

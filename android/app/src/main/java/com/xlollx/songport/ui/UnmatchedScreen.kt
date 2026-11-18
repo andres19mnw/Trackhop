@@ -244,6 +244,7 @@ fun UnmatchedScreen(reportId: String, onClose: () -> Unit) {
                         selected = ("r-" + review.source.id in selection).takeIf { selecting }, onLongPress = { pick("r-" + review.source.id) },
                         onKeep = { engine.confirmMatch(reportId, review) },
                         onDiscard = { discarding = listOf(review) },
+                        onIgnore = { engine.ignore(job, reportId, review.source) },
                         search = { q -> engine.searchOnTarget(job, q, review.source) },
                         webSearchUrl = webSearch, openTrack = openTrack, askAi = askFor(review.source),
                         onReplace = { chosen -> engine.replaceMatch(job, reportId, review, chosen) },
@@ -287,7 +288,7 @@ private fun SectionTitle(text: String, onSelectAll: (() -> Unit)? = null) {
 @OptIn(ExperimentalFoundationApi::class)
 fun CollapsibleRow(
     track: Track, expanded: Boolean, onToggle: () -> Unit, absent: Boolean = false,
-    trailing: @Composable () -> Unit = {}, below: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null, below: (@Composable () -> Unit)? = null,
     /** Picked or not while rows are being selected; null when they are not. */
     selected: Boolean? = null, onLongPress: (() -> Unit)? = null,
     content: @Composable () -> Unit,
@@ -310,7 +311,7 @@ fun CollapsibleRow(
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
-                trailing()
+                trailing?.invoke()
                 if (selected == null) Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (selected == null) below?.invoke()
@@ -337,6 +338,8 @@ fun ReviewRow(
     askAi: (suspend (List<Track>) -> com.xlollx.songport.ai.AiClient.Suggestion)? = null,
     /** The match is wrong and no other is wanted (issue #26); null where nothing was written yet. */
     onDiscard: (() -> Unit)? = null,
+    /** Ignore this source track for good, like a not-found track, without touching the target. */
+    onIgnore: (() -> Unit)? = null,
     selected: Boolean? = null,
     onLongPress: (() -> Unit)? = null,
 ) {
@@ -356,6 +359,7 @@ fun ReviewRow(
         if (!changing) {
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 if (onDiscard != null) TextButton(onClick = onDiscard) { Text(stringResource(R.string.review_discard)) }
+                if (onIgnore != null) TextButton(onClick = onIgnore) { Text(stringResource(R.string.unmatched_ignore)) }
                 TextButton(onClick = { changing = true }) { Text(stringResource(R.string.review_change)) }
                 TextButton(onClick = onKeep) { Text(stringResource(R.string.review_keep)) }
             }
@@ -404,16 +408,22 @@ private fun UnmatchedRow(
                         accepting = false
                     }
                 }) { Text(stringResource(R.string.unmatched_add)) }
+                TextButton(onClick = onIgnore) { Text(stringResource(R.string.unmatched_ignore)) }
             }
         }
     } else null
-    CollapsibleRow(track = track, expanded = expanded, onToggle = onToggle, absent = absent, below = proposal, selected = selected, onLongPress = onLongPress) {
+    // Cuando no hay proposal, el botón Ignore va a la derecha de la fila cerrada para que
+    // siempre sea accesible (no hace falta abrir la fila ni esperar a una búsqueda).
+    val trailing: (@Composable () -> Unit)? = if (proposal == null) {
+        { TextButton(onClick = onIgnore) { Text(stringResource(R.string.unmatched_ignore)) } }
+    } else null
+    CollapsibleRow(track = track, expanded = expanded, onToggle = onToggle, absent = absent, below = proposal, trailing = trailing, selected = selected, onLongPress = onLongPress) {
         MatchSearch(
             initialQuery = if (track.artists.isEmpty()) track.title else "${track.artistLine} - ${track.title}",
             targetName = dstName,
             pickLabel = stringResource(R.string.unmatched_add),
             search = search, onPick = onPick, onError = onError, autoSearch = true, webSearchUrl = webSearchUrl, openTrack = openTrack, askAi = askAi,
-            extraActions = { busy -> TextButton(enabled = !busy, onClick = onIgnore) { Text(stringResource(R.string.unmatched_ignore)) } },
+            extraActions = { _ -> TextButton(enabled = true, onClick = onIgnore) { Text(stringResource(R.string.unmatched_ignore)) } },
         )
     }
 }

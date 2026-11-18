@@ -1294,4 +1294,157 @@ class SyncEngine(
     }
 
     private fun dropUnmatched(reportId: String, track: Track) = dropUnmatched(reportId, listOf(track))
+
+    // ------------------------------------------------------------------ Track Sync: matches, ignored, links
+
+    /** Every cached match, across all syncs: the screen groups them by service pair. */
+    fun allMatches(): Map<String, String> = store.allMatches()
+
+    /** Every source track ignored on any destination service: the raw "family:srcId>dstFamily" keys. */
+    fun allIgnored(): List<String> = store.data.ignoredTracks.toList()
+
+    /**
+     * The provider that serves a family ("spotify", "youtube"...). A match found through a bridge
+     * belongs to the service, not the connector: prefer a connected account, then any instance.
+     */
+    private fun providerForFamily(service: String): MusicProvider? {
+        val family = FileStore.family(service)
+        val candidates = Providers.all().filter { FileStore.family(it.serviceId) == family }
+        return candidates.firstOrNull { runCatching { it.isConnected(env) }.getOrDefault(false) }
+            ?: candidates.firstOrNull { it.slot.isEmpty() }
+            ?: candidates.firstOrNull()
+    }
+
+    private fun familyName(service: String): String = providerForFamily(service)?.displayName ?: FileStore.family(service)
+
+    /**
+     * Track metadata for a row. A connected service reads it from its catalogue; when its API
+     * cannot, the public page of the track is enough for a title and an artist. Null only means
+     * "the id is all we have", never that the row is invalid.
+     */
+    suspend fun lookupTrack(providerId: String, trackId: String): Track? {
+        if (providerId.isBlank() || trackId.isBlank()) return null
+        providerForFamily(providerId)?.let { provider ->
+            runCatching { provider.track(env, trackId) }.getOrNull()
+                ?.takeIf { it.title.isNotBlank() }
+                ?.let { return it }
+        }
+        val family = FileStore.family(providerId)
+        val url = TrackLinks.url(family, trackId) ?: return null
+        val ref = TrackLinks.parse(url) ?: return null
+        return TrackLookup.describe(ref, url)
+    }
+
+    /**
+     * Validates a pasted link and translates it to [destinationProvider], where needed, through
+     * song.link. Both the service and the track id are returned before anything is saved.
+     */
+    suspend fun resolveTrackLink(destinationProvider: String, text: String): TrackSync.ResolvedLink {
+        val original = text.trim()
+        if (original.isBlank()) throw ProviderException(str("track_sync_link_invalid"))
+        val followed = resolveShortLink(original)
+        val link = followed ?: original
+        val ref = TrackLinks.parse(link) ?: throw ProviderException(str("track_sync_link_invalid"))
+        if (ref.service !in TrackLinks.SERVICES) throw ProviderException(str("track_sync_link_invalid"))
+
+        val destination = FileStore.family(destinationProvider)
+        val resolved = if (TrackLinks.matches(ref.service, destination)) ref
+            else TrackLinks.viaOdesli(link, destination)
+                ?: throw ProviderException(str("link_other_service", familyName(destination)))
+        if (resolved.trackId.isBlank()) throw ProviderException(str("track_sync_link_invalid"))
+
+        val fromProvider = providerForFamily(destination)?.let { provider ->
+            runCatching { provider.track(env, resolved.trackId) }.getOrNull()?.takeIf { it.title.isNotBlank() }
+        }
+        val track = fromProvider ?: TrackLookup.describe(
+            resolved,
+            TrackLinks.url(resolved.service, resolved.trackId) ?: link,
+        )
+        return TrackSync.ResolvedLink(
+            sourceService = ref.service,
+            sourceTrackId = ref.trackId,
+            destinationService = destination,
+            destinationTrackId = resolved.trackId,
+            track = track,
+        )
+    }
+
+    /**
+     * Saves the source -> destination relation in the match cache. It replaces every key with the
+     * same identity, so an older key that used a connector id does not leave a duplicate; no
+     * playlist is written and the whole sync is not run again. With [restoreIgnored], the same
+     * record also leaves the global ignore set and every sync that ignored it.
+     */
+    fun assignMatch(
+        sourceProvider: String,
+        sourceTrackId: String,
+        destinationProvider: String,
+        destinationTrackId: String,
+        restoreIgnored: Boolean = false,
+    ) {
+        if (sourceTrackId.isBlank() || destinationTrackId.isBlank()) return
+        val source = FileStore.family(sourceProvider)
+        val destination = FileStore.family(destinationProvider)
+        val identity = "$source:$sourceTrackId>$destination"
+        val canonical = FileStore.cacheKey(source, sourceTrackId, destination)
+        val oldKeys = (store.data.matchCache.keys + store.data.missCache.keys)
+            .filter { it == canonical || TrackSync.parseKey(it)?.identity == identity }
+            .toSet()
+        val oldIgnored = if (restoreIgnored) {
+            store.data.ignoredTracks.filter { it == canonical || TrackSync.parseKey(it)?.identity == identity }.toSet()
+        } else emptySet()
+
+        store.update { data ->
+            data.copy(
+                matchCache = data.matchCache - oldKeys + (canonical to destinationTrackId),
+                missCache = data.missCache - oldKeys - setOf(canonical),
+                ignoredTracks = if (restoreIgnored) data.ignoredTracks - oldIgnored - setOf(canonical) else data.ignoredTracks,
+            )
+        }
+
+        if (restoreIgnored) {
+            store.data.jobs
+                .filter {
+                    FileStore.family(it.source.provider) == source &&
+                        FileStore.family(it.target.provider) == destination &&
+                        sourceTrackId in it.ignoredSourceIds
+                }
+                .forEach { job ->
+                    store.upsertJob(job.copy(ignoredSourceIds = job.ignoredSourceIds - sourceTrackId))
+                }
+        }
+    }
+
+    /** Remove a match: the next sync searches the source track again on that destination. */
+    fun removeMatch(sourceProvider: String, sourceTrackId: String, destinationProvider: String) {
+        val identity = "${FileStore.family(sourceProvider)}:$sourceTrackId>${FileStore.family(destinationProvider)}"
+        val keys = store.data.matchCache.keys.filter { TrackSync.parseKey(it)?.identity == identity }.toSet()
+        if (keys.isNotEmpty()) store.removeMatches(keys)
+    }
+
+    /**
+     * Undo an ignore across the route: the source track leaves the global set and every sync's
+     * ignored list, so future runs search it again. Historical reports are not rewritten.
+     */
+    fun restoreIgnored(sourceProvider: String, sourceTrackId: String, destinationProvider: String) {
+        if (sourceTrackId.isBlank()) return
+        val source = FileStore.family(sourceProvider)
+        val destination = FileStore.family(destinationProvider)
+        val identity = "$source:$sourceTrackId>$destination"
+        val canonical = FileStore.cacheKey(source, sourceTrackId, destination)
+        // Ignored and missed searches for this route all go: the next run must try the track again.
+        val keys = (store.data.ignoredTracks + store.data.missCache.keys)
+            .filter { it == canonical || TrackSync.parseKey(it)?.identity == identity }
+            .toSet() + canonical
+        store.removeIgnoredKeys(keys)
+        store.data.jobs
+            .filter {
+                FileStore.family(it.source.provider) == source &&
+                    FileStore.family(it.target.provider) == destination &&
+                    sourceTrackId in it.ignoredSourceIds
+            }
+            .forEach { job ->
+                store.upsertJob(job.copy(ignoredSourceIds = job.ignoredSourceIds - sourceTrackId))
+            }
+    }
 }

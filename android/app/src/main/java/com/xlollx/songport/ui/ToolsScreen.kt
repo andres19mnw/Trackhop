@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -106,6 +107,7 @@ private enum class Tool(val icon: androidx.compose.ui.graphics.vector.ImageVecto
     DEDUPE(Icons.Filled.CleaningServices, R.string.tools_dedupe_title, R.string.tools_row_dedupe, true),
     SCAN(Icons.Filled.ContentCopy, R.string.tools_scan_title, R.string.tools_row_scan, true),
     STATS(Icons.Filled.Insights, R.string.stats_title, R.string.stats_row_desc, false),
+    TRACK_SYNC(Icons.Filled.SyncAlt, R.string.track_sync_title, R.string.track_sync_row_desc, false),
     UNPLAYABLE(Icons.Filled.MusicOff, R.string.tools_unplayable_title, R.string.tools_row_unplayable, true);
 
     /** Works on the service chosen at the top of the list (Transfer picks its own two). */
@@ -127,7 +129,7 @@ private enum class Tool(val icon: androidx.compose.ui.graphics.vector.ImageVecto
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun ToolsScreen(snackbar: SnackbarHostState, onManageFiles: () -> Unit = {}, onTransfer: () -> Unit = {}, onSyncStarted: () -> Unit = {}, onManage: (MusicProvider) -> Unit = {}, onScan: (MusicProvider) -> Unit = {}, onUnplayable: (MusicProvider) -> Unit = {}, onSubpage: (Boolean) -> Unit = {}, onGoToAccounts: () -> Unit = {}, onStats: () -> Unit = {}, onBackup: () -> Unit = {}, openDedupe: String? = null, onDedupeOpened: () -> Unit = {}, openAiSetup: Boolean = false, onAiSetupOpened: () -> Unit = {}) {
+fun ToolsScreen(snackbar: SnackbarHostState, onManageFiles: () -> Unit = {}, onTransfer: () -> Unit = {}, onSyncStarted: () -> Unit = {}, onManage: (MusicProvider) -> Unit = {}, onScan: (MusicProvider) -> Unit = {}, onUnplayable: (MusicProvider) -> Unit = {}, onSubpage: (Boolean) -> Unit = {}, onGoToAccounts: () -> Unit = {}, onStats: () -> Unit = {}, onBackup: () -> Unit = {}, onTrackSync: () -> Unit = {}, openDedupe: String? = null, onDedupeOpened: () -> Unit = {}, openAiSetup: Boolean = false, onAiSetupOpened: () -> Unit = {}) {
     val ctx = LocalContext.current
     val connected = Providers.connectors().filter { it.requiresAuth && it.isConnected(ctx) }
     var selectedId by rememberSaveable { mutableStateOf(connected.firstOrNull()?.id) }
@@ -224,6 +226,7 @@ fun ToolsScreen(snackbar: SnackbarHostState, onManageFiles: () -> Unit = {}, onT
 
         PrefSection(stringResource(R.string.tools_section_music), accent = JobColor.BLUE, description = stringResource(R.string.tools_section_music_desc)) {
             ToolRow(Tool.STATS, provider) { onStats() }
+            ToolRow(Tool.TRACK_SYNC, provider) { onTrackSync() }
             ToolRow(Tool.MANAGE, provider) { onManage(it!!) }
             ToolRow(Tool.SCAN, provider) { onScan(it!!) }
         }

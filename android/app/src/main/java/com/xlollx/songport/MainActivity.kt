@@ -106,6 +106,7 @@ import com.xlollx.songport.ui.UnplayableScreen
 import com.xlollx.songport.ui.SyncsScreen
 import com.xlollx.songport.ui.twinOriginal
 import com.xlollx.songport.ui.ToolsScreen
+import com.xlollx.songport.ui.TrackSyncScreen
 import com.xlollx.songport.ui.UnmatchedScreen
 import com.xlollx.songport.ui.FilesScreen
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -312,6 +313,7 @@ private fun MainScreen(
     // "Trackhop in numbers", from the Tools list or the Syncs header.
     var statsOpen by rememberSaveable { mutableStateOf(false) }
     var backupOpen by rememberSaveable { mutableStateOf(false) }
+    var trackSyncOpen by rememberSaveable { mutableStateOf(false) }
     // "Did you know?": widgets, shortcuts and automation (Syncs pill, Settings › Help).
     var tipsOpen by rememberSaveable { mutableStateOf(false) }
     // From that page to the automation switch in Settings.
@@ -563,6 +565,7 @@ private fun MainScreen(
         transferOpen -> "transfer"
         statsOpen -> "stats"
         backupOpen -> "backup"
+        trackSyncOpen -> "trackSync"
         tipsOpen -> "tips"
         current != null -> "edit:" + current.id
         else -> null
@@ -607,6 +610,7 @@ private fun MainScreen(
                 transferOpen -> TransferScreen(onClose = { transferOpen = false }, onDone = { transferOpen = false; tab = MainActivity.TAB_SYNCS })
                 statsOpen -> com.xlollx.songport.ui.StatsScreen(data, onClose = { statsOpen = false })
                 backupOpen -> com.xlollx.songport.ui.BackupScreen(onClose = { backupOpen = false })
+                trackSyncOpen -> TrackSyncScreen(onClose = { trackSyncOpen = false })
                 tipsOpen -> com.xlollx.songport.ui.TipsScreen(data, onClose = { tipsOpen = false }, onOpenAutomation = {
                     tipsOpen = false; tab = MainActivity.TAB_SETTINGS; focusAutomation = true
                 })
@@ -785,7 +789,7 @@ private fun MainScreen(
                         snackScope.launch { snackbar.showSnackbar(ctx.getString(R.string.discover_compat_shared_made)) }
                     },
                 )
-                MainActivity.TAB_TOOLS -> ToolsScreen(snackbar, onManageFiles = { filesOpen = true }, onTransfer = { transferOpen = true }, onSyncStarted = { tab = MainActivity.TAB_SYNCS }, onManage = { manageProvider = it }, onScan = { scanProvider = it }, onUnplayable = { unplayableProvider = it }, onSubpage = { toolSubpage = it }, onGoToAccounts = { tab = MainActivity.TAB_ACCOUNTS }, onStats = { statsOpen = true }, onBackup = { backupOpen = true }, openDedupe = dedupeFor, onDedupeOpened = { dedupeFor = null }, openAiSetup = aiSetupAsked, onAiSetupOpened = { aiSetupAsked = false })
+                MainActivity.TAB_TOOLS -> ToolsScreen(snackbar, onManageFiles = { filesOpen = true }, onTransfer = { transferOpen = true }, onSyncStarted = { tab = MainActivity.TAB_SYNCS }, onManage = { manageProvider = it }, onScan = { scanProvider = it }, onUnplayable = { unplayableProvider = it }, onSubpage = { toolSubpage = it }, onGoToAccounts = { tab = MainActivity.TAB_ACCOUNTS }, onStats = { statsOpen = true }, onBackup = { backupOpen = true }, onTrackSync = { trackSyncOpen = true }, openDedupe = dedupeFor, onDedupeOpened = { dedupeFor = null }, openAiSetup = aiSetupAsked, onAiSetupOpened = { aiSetupAsked = false })
                 else -> SettingsScreen(data, store, snackbar, onSetup = { wizardFor = it }, onOpenLog = { logOpen = true }, onHowTo = { howToOpen = true }, onBackup = { backupOpen = true }, onWhatsNew = { whatsNewAsked = true },
                     onTips = { tipsOpen = true }, focusAutomation = focusAutomation, onAutomationFocused = { focusAutomation = false })
             } } }
