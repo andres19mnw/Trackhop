@@ -20,6 +20,28 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.TabletAndroid
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.SyncAlt
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.NewReleases
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Podcasts
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.Celebration
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Inventory2
@@ -104,6 +126,60 @@ object WhatsNew {
      */
     val releases: List<Release> by lazy {
         listOf(
+            // 2.0: the work planned as 1.17 and the features planned as 1.18 (until then behind the release
+            // switch, com.xlollx.songport.Features), shipped together the day Trackhop arrived on Google Play.
+            // There was no 1.17 release: its highlights are here. The switch's features show only where it is
+            // on (every build from 2.0; a -PV2=false build shows them only with the developer preview).
+            Release(
+                "2.0",
+                listOf(
+                    Item(Icons.Filled.Celebration, JobColor.YELLOW, R.string.whats_new_20_celebrate_title, R.string.whats_new_20_celebrate_body),
+                    Item(Icons.Filled.Brush, JobColor.PINK, R.string.whats_new_117_look_title, R.string.whats_new_117_look_body),
+                    Item(Icons.Filled.BarChart, JobColor.PURPLE, R.string.whats_new_20_wrapped_title, R.string.whats_new_20_wrapped_body, shown = v2),
+                    Item(Icons.Filled.NewReleases, JobColor.ORANGE, R.string.whats_new_118_releases_title, R.string.whats_new_118_releases_body, shown = v2),
+                    Item(Icons.Filled.Event, JobColor.RED, R.string.whats_new_118_concerts_title, R.string.whats_new_118_concerts_body, shown = v2),
+                    Item(Icons.Filled.Mic, JobColor.PINK, R.string.whats_new_118_setlists_title, R.string.whats_new_118_setlists_body, shown = v2),
+                    Item(Icons.Filled.Album, JobColor.BLUE, R.string.whats_new_118_records_title, R.string.whats_new_118_records_body, shown = v2),
+                    Item(Icons.Filled.NotificationsActive, JobColor.YELLOW, R.string.whats_new_20_alerts_title, R.string.whats_new_20_alerts_body, shown = v2),
+                    Item(Icons.Filled.Groups, JobColor.TEAL, R.string.whats_new_119_shared_title, R.string.whats_new_119_shared_body, shown = v2),
+                    Item(Icons.Filled.QrCode2, JobColor.BLUE, R.string.whats_new_119_invite_title, R.string.whats_new_119_invite_body, shown = v2),
+                    Item(Icons.Filled.Dns, JobColor.GREEN, R.string.whats_new_119_handover_title, R.string.whats_new_119_handover_body, shown = v2),
+                    Item(Icons.Filled.Cloud, JobColor.GREEN, R.string.whats_new_119_server_title, R.string.whats_new_119_server_body, shown = v2),
+                    Item(Icons.Filled.Podcasts, JobColor.PURPLE, R.string.whats_new_20_podcasts_title, R.string.whats_new_20_podcasts_body, shown = v2),
+                    Item(Icons.Filled.Image, JobColor.PINK, R.string.whats_new_20_covers_title, R.string.whats_new_20_covers_body, shown = v2),
+                    Item(Icons.Filled.LibraryMusic, JobColor.TEAL, R.string.whats_new_20_library_title, R.string.whats_new_20_library_body, shown = v2),
+                    Item(Icons.Filled.Lock, JobColor.ORANGE, R.string.whats_new_20_backup_title, R.string.whats_new_20_backup_body, shown = v2),
+                    Item(Icons.Filled.TabletAndroid, JobColor.BLUE, R.string.whats_new_117_wide_title, R.string.whats_new_117_wide_body),
+                    Item(Icons.Filled.Star, JobColor.YELLOW, R.string.whats_new_117_organise_title, R.string.whats_new_117_organise_body),
+                    Item(Icons.Filled.SyncAlt, JobColor.TEAL, R.string.whats_new_117_twoway_title, R.string.whats_new_117_twoway_body),
+                    Item(Icons.Filled.Devices, JobColor.PURPLE, R.string.whats_new_117_devices_title, R.string.whats_new_117_devices_body),
+                    Item(Icons.Filled.Dns, JobColor.GREEN, R.string.whats_new_117_server_title, R.string.whats_new_117_server_body),
+                    Item(Icons.Filled.LibraryMusic, JobColor.TEAL, R.string.whats_new_117_library_title, R.string.whats_new_117_library_body),
+                    Item(Icons.Filled.Mic, JobColor.RED, R.string.whats_new_117_live_title, R.string.whats_new_117_live_body),
+                    // The 2.0 text names the New releases messages too; the 1.17 one, without them, where the switch is off.
+                    Item(Icons.Filled.Campaign, JobColor.ORANGE, R.string.whats_new_118_notify_title, R.string.whats_new_118_notify_body, shown = v2),
+                    Item(Icons.Filled.Campaign, JobColor.ORANGE, R.string.whats_new_117_notify_title, R.string.whats_new_117_notify_body, shown = { !com.xlollx.songport.Features.v2 }),
+                    // The web sign-ins (YouTube Music, Spotify web) are built in only in the GitHub and F-Droid builds.
+                    Item(Icons.Filled.Autorenew, JobColor.RED, R.string.whats_new_117_sessions_title, R.string.whats_new_117_sessions_body,
+                        shown = { com.xlollx.songport.providers.BridgePlugin.builtIn }),
+                ),
+            ),
+            Release(
+                "1.16",
+                listOf(
+                    Item(Icons.Filled.Brush, JobColor.PURPLE, R.string.whats_new_116_style_title, R.string.whats_new_116_style_body),
+                    Item(Icons.Filled.ViewAgenda, JobColor.GREEN, R.string.whats_new_116_cards_title, R.string.whats_new_116_cards_body),
+                    Item(Icons.Filled.FolderOpen, JobColor.TEAL, R.string.whats_new_116_files_title, R.string.whats_new_116_files_body),
+                    Item(Icons.Filled.Favorite, JobColor.PINK, R.string.whats_new_116_lastfm_title, R.string.whats_new_116_lastfm_body),
+                    Item(Icons.Filled.Visibility, JobColor.BLUE, R.string.whats_new_116_preview_title, R.string.whats_new_116_preview_body),
+                    // Start over is offered on the web sign-ins, there only where they are (built in, or the plugin has them).
+                    Item(Icons.Filled.RestartAlt, JobColor.ORANGE, R.string.whats_new_116_restart_title, R.string.whats_new_116_restart_body,
+                        shown = { c -> anghamiAvailable(c) }),
+                    // Only where Trackhop checks GitHub itself: stores and updaters tell about their own versions.
+                    Item(Icons.Filled.NotificationsActive, JobColor.YELLOW, R.string.whats_new_116_update_title, R.string.whats_new_116_update_body,
+                        shown = { c -> com.xlollx.songport.update.AppUpdates.configurable && !com.xlollx.songport.update.AppUpdates.handledElsewhere(c) }),
+                ),
+            ),
             Release(
                 "1.15",
                 listOf(
@@ -208,6 +284,9 @@ object WhatsNew {
         )
     }
 
+    /** The release switch's features are offered on this phone (com.xlollx.songport.Features). */
+    private val v2: (android.content.Context) -> Boolean = { com.xlollx.songport.Features.v2 }
+
     private fun anghamiAvailable(ctx: android.content.Context): Boolean =
         com.xlollx.songport.providers.BridgePlugin.builtIn || (com.xlollx.songport.providers.BridgePlugin.installed(ctx) &&
             runCatching { com.xlollx.songport.providers.BridgePlugin.call(ctx, "anghami.status")?.containsKey("connected") == true }.getOrDefault(false))
@@ -295,7 +374,7 @@ fun WhatsNewSheet(releases: List<WhatsNew.Release>, onClose: () -> Unit) {
     }
 }
 
-/** A compact [HeroHeader]: the mark's tile, the title (a heading for TalkBack) and one line under it. */
+/** A compact header on the beam: the mark's tile, the title (a heading for TalkBack) and one line under it. */
 @Composable
 private fun WhatsNewHeader(version: String) {
     Box(

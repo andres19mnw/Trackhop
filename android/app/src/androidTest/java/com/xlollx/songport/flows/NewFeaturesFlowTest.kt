@@ -19,6 +19,8 @@ import com.xlollx.songport.model.PlaylistRef
 import com.xlollx.songport.model.Schedule
 import com.xlollx.songport.model.SyncJob
 import com.xlollx.songport.model.SyncReport
+import com.xlollx.songport.model.Track
+import com.xlollx.songport.providers.MusicProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -53,13 +55,14 @@ class NewFeaturesFlowTest : FlowTest() {
         launch(tabIntent(MainActivity.TAB_SYNCS))
         waitText("Road Trip")
         clickDesc(s(R.string.more_actions))
-        click(s(R.string.job_color))
+        click(s(R.string.job_style))
         waitNode("the colour swatches", hasContentDescription(s(R.string.job_color_default)))
         click(s(R.string.color_teal))
+        click(s(R.string.save))
         waitFor("teal stored") { store.data.jobs.single().color == "teal" }
         // Opened again, the picker has Teal ticked.
         clickDesc(s(R.string.more_actions))
-        click(s(R.string.job_color))
+        click(s(R.string.job_style))
         compose.onAllNodes(hasContentDescription(s(R.string.color_teal)) and hasClickAction()).onFirst().assertIsSelected()
         click(s(R.string.cancel))
     }
@@ -138,14 +141,41 @@ class NewFeaturesFlowTest : FlowTest() {
         // With two syncs or more, the pinned "Sync all" pill.
         assertTrue(exists(s(R.string.sync_all)))
         snapshot("sync-all-pill")
-        // By word.
-        val field = compose.onAllNodes(hasSetTextAction() and hasText(s(R.string.syncs_find_hint))).onFirst()
-        scrollTo(field).performTextReplacement("Road")
+        // By word: the search is a field in the top bar, beside the mark, saying how many syncs it looks through.
+        val hint = plural(R.plurals.syncs_find_n, 6, 6)
+        val fields = { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size }
+        assertEquals("the search field in the bar", 1, fields())
+        val field = { compose.onAllNodes(hasSetTextAction() and hasContentDescription(s(R.string.syncs_find_hint))).onFirst() }
+        assertTrue("the field says how many syncs it searches", compose.onAllNodes(hasSetTextAction() and hasText(hint)).fetchSemanticsNodes().size == 1)
+        val bar = compose.onAllNodes(hasContentDescription("Trackhop")).onFirst().fetchSemanticsNode().boundsInRoot
+        val box = field().fetchSemanticsNode().boundsInRoot
+        assertTrue("the field beside the mark, in the bar", box.left >= bar.right && box.center.y in bar.top..bar.bottom)
+        // The pill and the chips are still there, in their one row under the status line.
+        assertTrue(exists(s(R.string.sync_all)))
+        field().performTextReplacement("Road")
         waitText(plural(R.plurals.filter_shown, 6, 1, 6))
         assertTrue(exists("Road Trip"))
         assertFalse(exists("Chill Evening"))
+        snapshot("home-search-open")
+        // Turned on its side and back: the field still there, with what was typed and what it found.
+        rotate(android.app.UiAutomation.ROTATION_FREEZE_90)
+        waitFor("the search field on its side, with its words") { compose.onAllNodes(hasSetTextAction() and hasText("Road")).fetchSemanticsNodes().size == 1 }
+        waitText(plural(R.plurals.filter_shown, 6, 1, 6))
+        assertFalse(exists("Chill Evening"))
+        snapshot("home-search-open-landscape")
+        rotate(android.app.UiAutomation.ROTATION_FREEZE_0)
+        waitFor("the search field upright again, with its words") { compose.onAllNodes(hasSetTextAction() and hasText("Road")).fetchSemanticsNodes().size == 1 }
+        // The field's own "Clear search": the words go, every sync is back, the field stays.
+        clickDesc(s(R.string.syncs_find_clear))
+        waitText("Chill Evening")
+        waitGone(plural(R.plurals.filter_shown, 6, 1, 6))
+        waitFor("the field empty again") { compose.onAllNodes(hasSetTextAction() and hasText(hint)).fetchSemanticsNodes().size == 1 }
+        // Typed again and cleared with the list's "Clear": every sync back, nothing left in the field.
+        field().performTextReplacement("Road")
+        waitText(plural(R.plurals.filter_shown, 6, 1, 6))
         click(s(R.string.filter_clear))
         waitText("Chill Evening")
+        waitFor("the field empty after Clear") { compose.onAllNodes(hasSetTextAction() and hasText(hint)).fetchSemanticsNodes().size == 1 }
         // By colour: only the teal ones.
         click(s(R.string.filter_color, s(R.string.color_teal)))
         waitText(plural(R.plurals.filter_shown, 6, 2, 6))
@@ -175,5 +205,27 @@ class NewFeaturesFlowTest : FlowTest() {
         // No sync of the Shazam playlist yet: the sheet suggests one.
         waitText(s(R.string.shazam_share_hint_button))
         assertEquals(0, store.data.jobs.size)
+    }
+
+    @Test
+    fun savedAlbumsAreTidiedFromManagePlaylists() {
+        FakeWorld.savedAlbums = true
+        FakeWorld.playlists.getValue("spotify") += FakeWorld.FakePlaylist(MusicProvider.ALBUMS_ID, "", mutableListOf(
+            Track(id = "album1", title = "First Light", artists = listOf("The Fake Band")),
+            Track(id = "album2", title = "Second Wind", artists = listOf("The Fake Band")),
+        ))
+        launch(tabIntent(MainActivity.TAB_TOOLS))
+        waitText(s(R.string.tools_manage_title))
+        click(s(R.string.tools_manage_title))
+        // The saved albums open on a tap, above the playlists.
+        waitText("Road Trip")
+        click(s(R.string.saved_albums))
+        waitText("Second Wind")
+        click("First Light")
+        click(s(R.string.library_remove_n, 1))
+        waitText(s(R.string.library_remove_confirm, 1, s(R.string.saved_albums), "Spotify"))
+        click(s(R.string.remove))
+        waitText(s(R.string.tracks_removed, 1))
+        assertEquals(listOf("album2"), FakeWorld.playlists.getValue("spotify").first { it.id == MusicProvider.ALBUMS_ID }.tracks.map { it.id })
     }
 }

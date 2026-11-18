@@ -29,11 +29,11 @@ condividere.
 ## In cosa è diverso dallo Spotify Wrapped?
 
 Lo Spotify Wrapped conta quello che hai **ascoltato** durante l'anno, dai dati di ascolto di Spotify.
-Trackhop non vede i tuoi ascolti: legge **quello che tieni**, i brani che ti piacciono e le playlist
-che hai creato, e fa la scheda da lì. Quindi non sostituisce il riepilogo di fine anno: è un
-ritratto della tua libreria, disponibile quando vuoi e su qualsiasi servizio. Il vantaggio è che
-funziona allo stesso modo sui servizi che un Wrapped non ce l'hanno, e se ne usi più di uno può
-metterli insieme in un'unica scheda.
+Trackhop legge **quello che tieni**, i brani che ti piacciono e le playlist che hai creato, e fa la
+scheda da lì. Quindi non sostituisce il riepilogo di fine anno: è un ritratto della tua libreria,
+disponibile quando vuoi e su qualsiasi servizio. Il vantaggio è che funziona allo stesso modo sui
+servizi che un Wrapped non ce l'hanno, e se ne usi più di uno può metterli insieme in un'unica
+scheda.
 
 ## Come creo la mia scheda Wrapped?
 
@@ -49,6 +49,27 @@ metterli insieme in un'unica scheda.
 
 Una libreria grande richiede un po' di tempo; la pagina mostra quanti brani ha trovato finora.
 
+## Da quello che ascolti davvero
+
+Da Trackhop 2.0 la scheda nasce da quello che **ascolti** davvero, quando un servizio
+collegato lo sa. Trackhop sceglie il migliore che hai:
+
+1. **Last.fm** o **ListenBrainz**: ogni ascolto contato (scrobble), per l'**ultimo mese**, **6
+   mesi** o **12 mesi**.
+2. **Il tuo server** (Navidrome e gli altri server Subsonic, Jellyfin, Emby, Plex, Lyrion): ogni
+   ascolto che ha servito, contato brano per brano.
+3. **Spotify**: i tuoi brani e artisti più ascoltati negli stessi tre periodi, in ordine di Spotify
+   (senza il numero di ascolti).
+4. **Deezer**: i tuoi brani e artisti come li ordina Deezer.
+5. **YouTube Music** (versione GitHub e F-Droid): i tuoi ascolti recenti, un'indicazione più debole,
+   perché non tiene il conto degli ascolti.
+6. **Apple Music**: i tuoi ascolti recenti e Replay.
+
+La scheda aggiunge allora i tuoi **brani più ascoltati** del periodo con le copertine e, con Last.fm,
+la **scoperta del periodo**: l'artista che hai ascoltato di più e che non c'era nel periodo
+precedente. In **Basato su** scegli da dove leggere e il periodo; **Playlist** tiene la scheda di
+oggi, fatta da quello che tieni. La scheda dice sempre da dove viene.
+
 ## Tiene le schede vecchie?
 
 Sì. Ogni scheda che crei finisce nella **Cronologia** qui sotto, con la data in cui è stata
@@ -60,7 +81,8 @@ di musica nuova, età musicale e decenni si spostano spesso più di quanto pensi
 
 No. La scheda viene calcolata sul telefono da quello che i tuoi servizi già restituiscono a
 Trackhop. Trackhop non ha un server; non esce niente dal telefono a meno che non condivida tu
-l'immagine.
+l'immagine. Quando il servizio non dice quando sono usciti i brani, i titoli vengono cercati in modo
+anonimo nel catalogo pubblico di Deezer.
 
 ## Altro nella scheda Scopri
 

@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -71,10 +72,11 @@ fun MakePlaylistCard(provider: MusicProvider, snackbar: SnackbarHostState) {
     var op by remember(provider.id) { mutableStateOf(Op.COPY) }
     // Per unire ne servono piu' di una; per il resto la prima e' quella che conta.
     var picked by remember(provider.id) { mutableStateOf<List<Playlist>>(emptyList()) }
-    var name by remember(provider.id) { mutableStateOf("") }
-    var nameEdited by remember(provider.id) { mutableStateOf(false) }
-    var dropDuplicates by remember { mutableStateOf(true) }
-    var splitSize by remember { mutableStateOf("50") }
+    // What was typed and chosen survives a rotation.
+    var name by rememberSaveable(provider.id) { mutableStateOf("") }
+    var nameEdited by rememberSaveable(provider.id) { mutableStateOf(false) }
+    var dropDuplicates by rememberSaveable { mutableStateOf(true) }
+    var splitSize by rememberSaveable { mutableStateOf("50") }
     var sortKey by remember { mutableStateOf(PlaylistOps.SortKey.ARTIST) }
     var busy by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf<Progress?>(null) }
@@ -133,31 +135,10 @@ fun MakePlaylistCard(provider: MusicProvider, snackbar: SnackbarHostState) {
                     }
                 }
                 if (picked.isEmpty() || op == Op.MERGE) {
-                    var expanded by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                        OutlinedTextField(
-                            value = "",
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text(stringResource(if (picked.isEmpty()) R.string.editor_playlist else R.string.tools_make_add_playlist)) },
-                            placeholder = { Text(stringResource(R.string.editor_choose_playlist)) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                        )
-                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                            items.filter { p -> picked.none { it.id == p.id } }.forEach { p ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(p.name)
-                                            if (p.trackCount >= 0) Text(stringResource(R.string.tracks_count, p.trackCount), style = MaterialTheme.typography.bodySmall)
-                                        }
-                                    },
-                                    onClick = { picked = picked + p; expanded = false },
-                                )
-                            }
-                        }
-                    }
+                    PlaylistChoice(
+                        stringResource(if (picked.isEmpty()) R.string.editor_playlist else R.string.tools_make_add_playlist),
+                        items.filter { p -> picked.none { it.id == p.id } }, null, provider, onPick = { picked = picked + it },
+                    )
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -225,7 +206,7 @@ fun MakePlaylistCard(provider: MusicProvider, snackbar: SnackbarHostState) {
                             lists = null
                             lists = try { provider.playlists(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { emptyList() }
                         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
-                            snackbar.showSnackbar(e.message ?: ctx.getString(R.string.error_generic))
+                            snackbar.showSnackbar(e.userMessage(ctx))
                         }
                         busy = false
                     }

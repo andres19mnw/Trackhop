@@ -105,16 +105,137 @@ class LastFmContractTest : ContractTest() {
         assertEquals("rj", next().query("user"))
     }
 
-    @Test fun writesAreRefusedWithoutARequest() = runBlocking {
+    /** Signed in with the user name only (as before #51): loving asks for the password, without a request. */
+    @Test fun writesAreRefusedWithoutASession() = runBlocking {
         signIn()
-        try { lf.addTracks(env, MusicProvider.LIKED_ID, listOf(Track("a", "b"))); fail() } catch (e: ProviderException) { }
+        try { lf.addTracks(env, MusicProvider.LIKED_ID, listOf(Track("a", "b"))); fail() } catch (e: ProviderException) { assertEquals("lastfm_needs_password", e.message) }
+        assertEquals(false, lf.canLove(env))
+        assertEquals("lastfm_needs_password", lf.libraryEntries(env, asTarget = true).single().description)
         noMoreRequests()
+    }
+
+    // ---------------------------------------------------------------- loving (#51)
+
+    private fun posted(r: okhttp3.mockwebserver.RecordedRequest): Map<String, String> =
+        r.body.readUtf8().split("&").associate { kv -> kv.substringBefore("=").let { java.net.URLDecoder.decode(it, "UTF-8") } to java.net.URLDecoder.decode(kv.substringAfter("="), "UTF-8") }
+
+    private fun withSession() {
+        BuildDefaults.values = mapOf("LASTFM_API_KEY" to "LFKEY", "LASTFM_SHARED_SECRET" to "SECRET")
+        env.tokens.set("lastfm", Tokens("RJ", userName = "RJ", extra = mapOf("sk" to "SK1")))
+    }
+
+    /** The reference's rule, checked against a digest worked out by hand: md5("api_keyxxmethodauth.getSessiontokenyyilovecher"). */
+    @Test fun signatureFollowsTheReference() {
+        val sig = LastFmProvider.signature(mapOf("method" to "auth.getSession", "token" to "yy", "api_key" to "xx", "format" to "json"), "ilovecher")
+        val expected = java.security.MessageDigest.getInstance("MD5").digest("api_keyxxmethodauth.getSessiontokenyyilovecher".toByteArray()).joinToString("") { "%02x".format(it) }
+        assertEquals(expected, sig)
+        assertEquals(32, sig.length)
+    }
+
+    @Test fun passwordGetsASessionAndIsNotKept() = runBlocking {
+        BuildDefaults.values = mapOf("LASTFM_API_KEY" to "LFKEY", "LASTFM_SHARED_SECRET" to "SECRET")
+        json("""{"user":{"name":"RJ"}}""")
+        json("""{"session":{"name":"RJ","key":"d580d57f32848f5dcf574d1ce18d78b2","subscriber":0}}""")
+        lf.login(env, "", "rj", "hunter2")
+        val t = env.tokens.get("lastfm")!!
+        assertEquals("RJ", t.userName)
+        assertEquals("d580d57f32848f5dcf574d1ce18d78b2", t.extra["sk"])
+        assertTrue("password kept: $t", !t.toString().contains("hunter2"))
+        assertTrue(lf.canLove(env))
+        assertEquals("user.getinfo", next().query("method"))
+        val r = next()
+        assertCall(r, "POST", "ws.audioscrobbler.com", "/2.0/")
+        val f = posted(r)
+        assertEquals("auth.getMobileSession", f["method"]); assertEquals("rj", f["username"]); assertEquals("hunter2", f["password"])
+        assertEquals("json", f["format"]); assertEquals("LFKEY", f["api_key"])
+        assertEquals(LastFmProvider.signature(f - "api_sig", "SECRET"), f["api_sig"])
+        noMoreRequests()
+    }
+
+    @Test fun wrongPasswordIsSaidAndNothingIsSaved() = runBlocking {
+        BuildDefaults.values = mapOf("LASTFM_API_KEY" to "LFKEY", "LASTFM_SHARED_SECRET" to "SECRET")
+        json("""{"user":{"name":"RJ"}}""")
+        json("""{"error":4,"message":"Authentication Failed - You do not have permissions to access the service"}""", 403)
+        try { lf.login(env, "", "rj", "nope"); fail() } catch (e: ProviderException) { assertTrue(e.message!!.startsWith("Last.fm: Authentication Failed")) }
+        assertEquals(null, env.tokens.get("lastfm"))
+    }
+
+    @Test fun noSharedSecretNoSessionCall() = runBlocking {
+        BuildDefaults.values = mapOf("LASTFM_API_KEY" to "LFKEY")
+        json("""{"user":{"name":"RJ"}}""")
+        try { lf.login(env, "", "rj", "hunter2"); fail() } catch (e: ProviderException) { assertEquals("lastfm_no_secret", e.message) }
+        next(); noMoreRequests()
+    }
+
+    @Test fun lovesAndUnlovesEachTrackSigned() = runBlocking {
+        withSession()
+        json("{}"); json("{}"); json("{}")
+        lf.addTracks(env, MusicProvider.LIKED_ID, listOf(Track("x", "Get Lucky", listOf("Daft Punk", "Pharrell")), Track("y", UNICODE, listOf("Måneskin"))))
+        lf.removeTracks(env, MusicProvider.LIKED_ID, listOf(Track("z", "Zitti e buoni", listOf("Måneskin"))))
+        val a = posted(next()); val b = posted(next()); val c = posted(next())
+        assertEquals(listOf("track.love", "Get Lucky", "Daft Punk", "SK1"), listOf(a["method"], a["track"], a["artist"], a["sk"]))
+        assertEquals(LastFmProvider.signature(a - "api_sig", "SECRET"), a["api_sig"])
+        assertEquals(UNICODE, b["track"])
+        assertEquals(LastFmProvider.signature(b - "api_sig", "SECRET"), b["api_sig"])
+        assertEquals(listOf("track.unlove", "Zitti e buoni"), listOf(c["method"], c["track"]))
+        assertEquals(listOf(300L), pauses)
+        noMoreRequests()
+    }
+
+    @Test fun onlyLovedTracksCanBeWritten() = runBlocking {
+        withSession()
+        try { lf.addTracks(env, LastFmProvider.TOP_MONTH_ID, listOf(Track("a", "b"))); fail() } catch (e: ProviderException) { }
+        try { lf.createPlaylist(env, "Mine", ""); fail() } catch (e: ProviderException) { }
+        assertEquals(false, lf.playlists(env).single().ownedByMe)
+        assertEquals("lastfm_loved_target_desc", lf.libraryEntries(env, asTarget = true).single().description)
+        noMoreRequests()
+    }
+
+    /** A session revoked on last.fm (error 9): dropped, so the account is read-only again and says how to love. */
+    @Test fun anEndedSessionIsDropped() = runBlocking {
+        withSession()
+        json("""{"error":9,"message":"Invalid session key - Please re-authenticate"}""", 403)
+        try { lf.addTracks(env, MusicProvider.LIKED_ID, listOf(Track("a", "b", listOf("c")))); fail() } catch (e: ProviderException) { assertEquals("lastfm_session_expired", e.message) }
+        assertEquals(false, lf.canLove(env))
+        assertEquals("RJ", env.tokens.get("lastfm")!!.userName)
+    }
+
+    @Test fun aRateLimitIsWaitedOutOnce() = runBlocking {
+        withSession()
+        json("""{"error":29,"message":"Rate Limit Exceeded"}""")
+        json("{}")
+        lf.addTracks(env, MusicProvider.LIKED_ID, listOf(Track("a", "b", listOf("c"))))
+        assertEquals(listOf(5_000L), pauses)
+        next(); next(); noMoreRequests()
+    }
+
+    @Test fun searchGivesLastFmsSpellingWithTheLovedListsIds() = runBlocking {
+        signIn()
+        json("""{"results":{"opensearch:totalResults":"2","trackmatches":{"track":[
+            {"name":"Get Lucky (feat. Pharrell Williams)","artist":"Daft Punk","url":"https://www.last.fm/music/Daft+Punk/_/Get+Lucky","listeners":"1","mbid":""},
+            {"name":"Get Lucky","artist":"Daft Punk","url":"https://www.last.fm/music/Daft+Punk/_/Get+Lucky+(Radio+Edit)","listeners":"1","mbid":"7b2c8d6e-1111-4222-8333-944455556666"}]}}}""")
+        val hits = lf.search(env, Track("s", "Get Lucky", listOf("Daft Punk", "Pharrell Williams")))
+        assertEquals(listOf("https://www.last.fm/music/Daft+Punk/_/Get+Lucky", "7b2c8d6e-1111-4222-8333-944455556666"), hits.map { it.id })
+        assertEquals(listOf("Daft Punk"), hits[0].artists)
+        val r = next()
+        assertEquals(listOf("track.search", "Get Lucky", "Daft Punk"), listOf(r.query("method"), r.query("track"), r.query("artist")))
+    }
+
+    /** One match comes as an object (XML-born JSON), as in the loved list. */
+    @Test fun searchWithOneMatch() = runBlocking {
+        signIn()
+        json("""{"results":{"trackmatches":{"track":{"name":"Zitti e buoni","artist":"Måneskin","url":"u","mbid":""}}}}""")
+        assertEquals(listOf("Zitti e buoni"), lf.search(env, Track("s", "Zitti e buoni", listOf("Måneskin"))).map { it.title })
     }
 }
 
 /** ListenBrainz (listenbrainz.readthedocs.io), shapes per the reference. */
 class ListenBrainzContractTest : ContractTest() {
     private val lb = ListenBrainzProvider()
+
+    // The playlists made for the user are 1.18's (Features): on here, off in withoutTheSwitch….
+    @org.junit.Before fun v2On() { com.xlollx.songport.Features.build = true }
+    @org.junit.After fun v2Off() { com.xlollx.songport.Features.build = false }
     private val host = "api.listenbrainz.org"
     private fun mbid(i: Int) = "00000000-0000-4000-8000-" + i.toString().padStart(12, '0')
 
@@ -127,12 +248,84 @@ class ListenBrainzContractTest : ContractTest() {
         signIn()
         json("""{"count":50,"offset":0,"playlist_count":50,"playlists":[${(0 until 50).joinToString(",") { plEntry(it) }}]}""")
         json("""{"count":0,"offset":50,"playlist_count":50,"playlists":[]}""")
+        json("""{"count":0,"offset":0,"playlist_count":0,"playlists":[]}""")
         assertEquals(50, lb.playlists(env).size)
         val r = next()
         assertCall(r, "GET", host, "/1/user/rj%20%C3%BC/playlists")
         assertEquals("50", r.query("count")); assertEquals("0", r.query("offset"))
         assertEquals("50", next().query("offset"))
+        assertCall(next(), "GET", host, "/1/user/rj%20%C3%BC/playlists/createdfor")
         noMoreRequests()
+    }
+
+    /** A playlist made for rj: [patch] its kind, [date] when it was made, [expires] when it goes. */
+    private fun madeFor(i: Int, title: String, patch: String?, date: String, expires: String = "2099-01-01T00:00:00.000000"): String {
+        val algorithm = patch?.let { ",\"algorithm_metadata\":{\"source_patch\":\"$it\"}" } ?: ""
+        return "{\"playlist\":{\"identifier\":\"https://listenbrainz.org/playlist/${mbid(i)}\",\"title\":${q(title)},\"creator\":\"listenbrainz\",\"date\":\"$date\"," +
+            "\"annotation\":\"<p>Fresh <b>music</b> for you</p>\",\"extension\":{\"https://musicbrainz.org/doc/jspf#playlist\":{\"additional_metadata\":{\"expires_at\":\"$expires\"$algorithm}," +
+            "\"created_for\":\"rj\",\"public\":true}},\"track\":[]}}"
+    }
+
+    @Test fun playlistsMadeForTheUserAreListedOncePerKindTheLatest() = runBlocking {
+        signIn()
+        json("""{"count":1,"offset":0,"playlist_count":1,"playlists":[${plEntry(0)}]}""")
+        json("""{"count":5,"offset":0,"playlist_count":5,"playlists":[
+            ${madeFor(1, "Weekly Jams for rj, week of 2026-11-03 Mon", "weekly-jams", "2026-11-03T05:00:00+00:00")},
+            ${madeFor(2, "Weekly Jams for rj, week of 2026-11-10 Mon", "weekly-jams", "2026-11-10T05:00:00+00:00")},
+            ${madeFor(3, "Weekly Exploration for rj, week of 2026-11-10 Mon", "weekly-exploration", "2026-11-10T04:00:00+00:00")},
+            ${madeFor(4, "Top Discoveries of 2019 for rj", "top-discoveries", "2020-01-01T00:00:00+00:00", expires = "2020-02-01T00:00:00.000000")},
+            ${madeFor(5, "Daily Jams for rj, 2026-11-12 Thu", null, "2026-11-12T05:00:00+00:00")}]}""")
+        val ps = lb.playlists(env)
+        assertEquals(listOf(mbid(0), "createdfor:daily-jams", "createdfor:weekly-jams", "createdfor:weekly-exploration"), ps.map { it.id })
+        assertEquals(listOf("List 0", "Daily Jams", "Weekly Jams", "Weekly Exploration"), ps.map { it.name })
+        assertEquals(false, ps[2].ownedByMe)
+        assertEquals("Fresh music for you", ps[2].description)
+        next()
+        val r = next()
+        assertCall(r, "GET", host, "/1/user/rj%20%C3%BC/playlists/createdfor")
+        assertEquals(null, r.getHeader("Authorization"))
+        noMoreRequests()
+    }
+
+    @Test fun withoutTheSwitchThePlaylistsMadeForTheUserAreNotListedButStillRead() = runBlocking {
+        com.xlollx.songport.Features.build = false
+        signIn()
+        json("""{"count":1,"offset":0,"playlist_count":1,"playlists":[${plEntry(0)}]}""")
+        assertEquals(listOf(mbid(0)), lb.playlists(env).map { it.id })
+        next()
+        noMoreRequests()
+        // A sync made on a test build goes on reading its kind.
+        json("""{"count":1,"offset":0,"playlist_count":1,"playlists":[${madeFor(2, "Weekly Jams for rj, week of 2026-11-10 Mon", "weekly-jams", "2026-11-10T05:00:00+00:00")}]}""")
+        json("""{"playlist":{"identifier":"https://listenbrainz.org/playlist/${mbid(2)}","title":"Weekly Jams","track":[{"identifier":["https://musicbrainz.org/recording/${mbid(10)}"],"title":"One","creator":"A"}]}}""")
+        assertEquals(listOf(mbid(10)), lb.tracks(env, "createdfor:weekly-jams").map { it.id })
+    }
+
+    @Test fun aKindMadeForTheUserReadsItsLatestPlaylist() = runBlocking {
+        signIn()
+        json("""{"count":2,"offset":0,"playlist_count":2,"playlists":[
+            ${madeFor(1, "Weekly Jams for rj, week of 2026-11-03 Mon", "weekly-jams", "2026-11-03T05:00:00+00:00")},
+            ${madeFor(2, "Weekly Jams for rj, week of 2026-11-10 Mon", "weekly-jams", "2026-11-10T05:00:00+00:00")}]}""")
+        json("""{"playlist":{"identifier":"https://listenbrainz.org/playlist/${mbid(2)}","title":"Weekly Jams","track":[
+            {"identifier":["https://musicbrainz.org/recording/${mbid(10)}"],"title":"One","creator":"A"}]}}""")
+        val ts = lb.tracks(env, "createdfor:weekly-jams")
+        assertEquals(listOf(mbid(10)), ts.map { it.id })
+        assertCall(next(), "GET", host, "/1/user/rj%20%C3%BC/playlists/createdfor")
+        assertCall(next(), "GET", host, "/1/playlist/${mbid(2)}")
+        noMoreRequests()
+    }
+
+    @Test fun aKindNoLongerMadeIsAnErrorNotAnEmptySource() = runBlocking {
+        signIn()
+        json("""{"count":0,"offset":0,"playlist_count":0,"playlists":[]}""")
+        try { lb.tracks(env, "createdfor:weekly-jams"); fail() } catch (e: ProviderException) { assertTrue(e.message, e.message!!.contains("weekly-jams")) }
+    }
+
+    @Test fun playlistsMadeForTheUserNotAnsweringLeaveTheListAsItWas() = runBlocking {
+        signIn()
+        json("""{"count":1,"offset":0,"playlist_count":1,"playlists":[${plEntry(0)}]}""")
+        json("""{"error":"down"}""", 503)
+        assertEquals(listOf(mbid(0)), lb.playlists(env).map { it.id })
+        assertEquals(1, env.logs.count { "made for the user not read" in it || "created for the user not read" in it })
     }
 
     @Test fun jspfTracksWithBothIdentifierShapes() = runBlocking {

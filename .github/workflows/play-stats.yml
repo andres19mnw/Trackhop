@@ -1,0 +1,80 @@
+# Google Play installs: once a day, the install statistics Google Play writes to the developer
+# account's Cloud Storage bucket (Play Console › Download reports › Statistics) are read with the
+# store service account (PLAY_SERVICE_ACCOUNT_JSON, the one play.yml uses); the totals go to play.json
+# in the "badges" branch, read by the evening check. Never public on the site.
+# Needs: the account's bucket ("Copy Cloud Storage URI" on that page; the variable PLAY_REPORTS_BUCKET
+# overrides the one written here) and, in Play Console › Users and permissions, "View app information and download bulk reports" for
+# the service account. Google writes the files a day or two late.
+name: Google Play stats
+
+on:
+  schedule:
+    - cron: "47 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KEY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      BUCKET: ${{ vars.PLAY_REPORTS_BUCKET || 'gs://pubsite_prod_8032636398523049686' }}
+      PACKAGE: com.xlollx.songport
+    steps:
+      - name: Read the reports
+        run: |
+          [ -n "$KEY" ] && [ -n "$BUCKET" ] || { echo "::notice::No PLAY_REPORTS_BUCKET or service account: skipped."; exit 0; }
+          printf '%s' "$KEY" > key.json
+          gcloud auth activate-service-account --key-file=key.json -q >/dev/null
+          rm -f key.json
+          mkdir -p out
+          # This month and the one before (the first days of a month are still in the last file).
+          for m in "$(date -u -d '-1 month' +%Y%m)" "$(date -u +%Y%m)"; do
+            gsutil -q cp "${BUCKET%/}/stats/installs/installs_${PACKAGE}_${m}_overview.csv" "out/$m.csv" 2>err.txt \
+              || echo "::warning::$m: $(head -c 300 err.txt)"
+          done
+          ls out/*.csv >/dev/null 2>&1 || { echo "::warning::No install report yet (new apps get theirs after a few days; check the bucket and the bulk reports permission)."; exit 0; }
+          python3 - <<'PY'
+          import csv, glob, io, json, datetime
+          rows = []
+          for f in sorted(glob.glob("out/*.csv")):
+              raw = open(f, "rb").read()
+              text = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8-sig")
+              rows += [r for r in csv.DictReader(io.StringIO(text)) if r.get("Date")]
+          rows.sort(key=lambda r: r["Date"])
+          def num(r, k):
+              try: return int(float((r.get(k) or "0").replace(",", "")))
+              except ValueError: return 0
+          sums = ["Daily Device Installs", "Daily Device Uninstalls", "Daily User Installs", "Daily User Uninstalls", "Install events", "Update events", "Uninstall events"]
+          last = rows[-1] if rows else {}
+          out = {
+              "checked": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "first_day": rows[0]["Date"] if rows else None,
+              "last_day": last.get("Date"),
+              "days": len(rows),
+              "totals": {k: sum(num(r, k) for r in rows) for k in sums},
+              "active_devices": num(last, "Active Device Installs"),
+              "total_user_installs": num(last, "Total User Installs"),
+              "last": {k: last.get(k) for k in last},
+          }
+          json.dump(out, open("out/play.json", "w"), indent=1)
+          print(json.dumps(out, indent=1)[:3000])
+          PY
+      - name: Into the badges branch
+        run: |
+          [ -f out/play.json ] || exit 0
+          for try in 1 2 3 4; do
+            rm -rf badges
+            git init -q badges 2>/dev/null; cd badges
+            git fetch -q --depth=1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" badges && git checkout -q -B badges FETCH_HEAD
+            cp ../out/play.json .
+            git add play.json
+            git diff --cached --quiet && { echo "No change."; exit 0; }
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Google Play stats"
+            git push -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" badges && exit 0
+            cd ..; sleep $((try * 5))
+          done
+          exit 1

@@ -60,11 +60,11 @@ class RadioSyncFlowTest : FlowTest() {
         field(R.string.radio_stream_address).performTextInput(STREAM)
         field(R.string.radio_station_name).performTextInput(STATION)
         click(s(R.string.radio_use_stream))
-        // The station chosen, the way to another, and the days and hours in place of the schedule.
-        waitText(STREAM)
-        waitText(s(R.string.radio_another))
+        // The station chosen (the sheet closes on it: the field shows it), the way to another, and the days and hours in place of the schedule.
+        waitFor("the station in the source field") { compose.onAllNodes(hasText(STATION) and hasText(STREAM) and hasText(s(R.string.share_sheet_change))).fetchSemanticsNodes().isNotEmpty() }
         waitText(s(R.string.radio_days))
         assertFalse(exists(s(R.string.editor_mirror)))
+        chooseTarget("Deezer")
         click(s(R.string.save))
 
         waitFor("the radio sync saved") { store.data.jobs.size == 1 }
@@ -77,6 +77,7 @@ class RadioSyncFlowTest : FlowTest() {
         assertEquals(RADIO_DEFAULT_END, radio.endMinute)
         assertEquals(LocalFilesProvider.id, job.source.provider)
         assertEquals("Radio - $STATION", job.source.playlistName)
+        assertEquals("deezer", job.target.provider)
         assertTrue("radio syncs listen on Wi-Fi by default", job.wifiOnly)
         assertEquals(Schedule.MANUAL, job.schedule)
         assertFalse(job.mirrorRemovals)
@@ -103,12 +104,14 @@ class RadioSyncFlowTest : FlowTest() {
         waitText(s(R.string.empty_syncs_title))
         click(s(R.string.new_sync))
         waitText(s(R.string.editor_title_new))
+        // A target chosen first: what is missing is the station alone.
+        chooseTarget("Deezer")
         clickRadioTile()
         waitText(s(R.string.radio_stream_label))
         field(R.string.radio_stream_address).performTextInput("not a stream")
         click(s(R.string.radio_use_stream))
         waitText(s(R.string.radio_stream_invalid))
-        // Nothing chosen yet: saving says what is missing.
+        // No station chosen yet: saving says what is missing.
         click(s(R.string.save))
         waitText(s(R.string.editor_error_incomplete))
         assertTrue(store.data.jobs.isEmpty())
@@ -116,6 +119,7 @@ class RadioSyncFlowTest : FlowTest() {
 
     /** The Radio tile is last in the source row, off screen on a phone: the row scrolls to it first. */
     private fun clickRadioTile() {
+        openSourcePicker()
         val tile = hasText(s(R.string.editor_source_radio))
         compose.onAllNodes(androidx.compose.ui.test.hasScrollToNodeAction()).fetchSemanticsNodes().indices.forEach { i ->
             runCatching { compose.onAllNodes(androidx.compose.ui.test.hasScrollToNodeAction())[i].performScrollToNode(tile) }

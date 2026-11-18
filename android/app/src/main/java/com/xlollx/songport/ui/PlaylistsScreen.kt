@@ -18,7 +18,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.Podcasts
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,6 +58,7 @@ import com.xlollx.songport.R
 import com.xlollx.songport.data.Store
 import com.xlollx.songport.model.Playlist
 import com.xlollx.songport.providers.LocalFilesProvider
+import com.xlollx.songport.platform.env
 import com.xlollx.songport.providers.MusicProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -74,8 +79,9 @@ fun PlaylistsScreen(provider: MusicProvider, onClose: () -> Unit) {
     var lists by remember { mutableStateOf<List<Playlist>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var version by remember { mutableIntStateOf(0) }
-    var renaming by remember { mutableStateOf<Playlist?>(null) }
-    var expanding by remember { mutableStateOf<Playlist?>(null) }
+    // The playlist open, being renamed or being extended is still so after a rotation.
+    var renaming by rememberSaveable(stateSaver = PlaylistSaver) { mutableStateOf<Playlist?>(null) }
+    var expanding by rememberSaveable(stateSaver = PlaylistSaver) { mutableStateOf<Playlist?>(null) }
     val aiReady = remember { com.xlollx.songport.ai.AiClient.config(ctx)?.complete == true } || com.xlollx.songport.ai.NanoAi.state.offered
     expanding?.let { pl ->
         AiExpandPlaylistDialog(provider, pl, onClose = { expanding = null }) { added, missing, alreadyThere ->
@@ -90,9 +96,9 @@ fun PlaylistsScreen(provider: MusicProvider, onClose: () -> Unit) {
             version++
         }
     }
-    var deleting by remember { mutableStateOf<Playlist?>(null) }
+    var deleting by rememberSaveable(stateSaver = PlaylistSaver) { mutableStateOf<Playlist?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var viewing by remember { mutableStateOf<Playlist?>(null) }
+    var viewing by rememberSaveable(stateSaver = PlaylistSaver) { mutableStateOf<Playlist?>(null) }
     var choosingFormat by remember { mutableStateOf<Playlist?>(null) }
     viewing?.let { pl ->
         PlaylistTracksScreen(provider, pl, onClose = { viewing = null }, onChanged = { version++ })
@@ -102,9 +108,10 @@ fun PlaylistsScreen(provider: MusicProvider, onClose: () -> Unit) {
 
     LaunchedEffect(version) {
         lists = null; error = null
-        lists = try { provider.playlists(ctx).filter { it.ownedByMe } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message ?: ctx.getString(R.string.error_generic); emptyList() }
+        // Saved albums, followed artists and podcasts first, where the service can write them; then the own playlists.
+        lists = try { provider.libraryEntries(ctx, asTarget = true).filter { it.id in MANAGED_LIBRARY } + provider.playlists(ctx).filter { it.ownedByMe } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.userMessage(ctx); emptyList() }
     }
-    fun fail(e: Exception) { scope.launch { snackbar.showSnackbar(e.message ?: ctx.getString(R.string.error_generic)) } }
+    fun fail(e: Exception) { scope.launch { snackbar.showSnackbar(e.userMessage(ctx)) } }
 
     // Export: the format is asked in a dialog, the tracks are read when the file destination is chosen.
     var exporting by remember { mutableStateOf<Playlist?>(null) }
@@ -115,20 +122,22 @@ fun PlaylistsScreen(provider: MusicProvider, onClose: () -> Unit) {
         scope.launch {
             try {
                 val tracks = provider.tracks(ctx, pl.id)
-                withContext(Dispatchers.IO) { ctx.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(fmt.encode(pl.name, tracks)) } }
+                val text = LocalFilesProvider.encodeLooked(ctx.env, fmt, pl.name, tracks).first
+                withContext(Dispatchers.IO) { ctx.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(text) } }
                 snackbar.showSnackbar(ctx.getString(R.string.tools_export_done, tracks.size))
             } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { fail(e) }
         }
     }
 
     choosingFormat?.let { pl ->
-        ExportFormatDialog(onDismiss = { choosingFormat = null }) { fmt -> choosingFormat = null; exporting = pl; export(fmt, pl.name) }
+        ExportFormatDialog(onDismiss = { choosingFormat = null }, formats = LocalFilesProvider.Export.forShows(LocalFilesProvider.Export.isShows(pl.id))) { fmt -> choosingFormat = null; exporting = pl; export(fmt, pl.name) }
     }
 
     renaming?.let { pl ->
-        var name by remember(pl.id) { mutableStateOf(pl.name) }
-        AlertDialog(
-            onDismissRequest = { renaming = null },
+        var name by rememberSaveable(pl.id) { mutableStateOf(pl.name) }
+        val close = rememberDiscardGuard(name.trim() != pl.name) { renaming = null }
+        FitDialog(
+            onDismissRequest = close,
             title = { Text(stringResource(R.string.manage_rename)) },
             text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text(stringResource(R.string.manage_rename_title)) }, modifier = Modifier.fillMaxWidth()) },
             confirmButton = {
@@ -138,7 +147,7 @@ fun PlaylistsScreen(provider: MusicProvider, onClose: () -> Unit) {
                         try {
                             provider.renamePlaylist(ctx, pl.id, name.trim())
                             // Syncs show the playlist by the name they saved: keep it current.
-                            store.data.jobs.filter { j -> (j.source.provider == provider.id && j.source.playlistId == pl.id) || (j.target.provider == provider.id && j.target.playlistId == pl.id) }
+                            store.data.syncs.filter { j -> (j.source.provider == provider.id && j.source.playlistId == pl.id) || (j.target.provider == provider.id && j.target.playlistId == pl.id) }
                                 .forEach { j ->
                                     val srcHit = j.source.provider == provider.id && j.source.playlistId == pl.id
                                     val dstHit = j.target.provider == provider.id && j.target.playlistId == pl.id
@@ -159,8 +168,8 @@ fun PlaylistsScreen(provider: MusicProvider, onClose: () -> Unit) {
         )
     }
     deleting?.let { pl ->
-        val used = store.data.jobs.count { j -> (j.source.provider == provider.id && j.source.playlistId == pl.id) || (j.target.provider == provider.id && j.target.playlistId == pl.id) }
-        AlertDialog(
+        val used = store.data.syncs.count { j -> (j.source.provider == provider.id && j.source.playlistId == pl.id) || (j.target.provider == provider.id && j.target.playlistId == pl.id) }
+        FitDialog(
             onDismissRequest = { deleting = null },
             title = { Text(stringResource(R.string.delete)) },
             text = {
@@ -197,6 +206,7 @@ fun PlaylistsScreen(provider: MusicProvider, onClose: () -> Unit) {
         }
     }
 
+    val rich = richMotion()
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -216,14 +226,26 @@ fun PlaylistsScreen(provider: MusicProvider, onClose: () -> Unit) {
         val all = lists
         when {
             all == null -> SkeletonRows(12, leading = 44.dp, modifier = Modifier.padding(padding).padding(top = 8.dp))
+            error != null && isNetText(ctx, error) -> NetErrorState(error, onRetry = { version++ }, modifier = Modifier.padding(padding))
             error != null -> Text(error!!, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(padding).padding(24.dp))
             all.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding).padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.manage_none), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             else -> LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(all, key = { it.id }) { pl ->
-                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                        Row(Modifier.padding(start = 14.dp, top = 4.dp, bottom = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val library = MusicProvider.isLibrary(pl.id)
+                    val removable = provider.canRemoveTracks && provider.canWrite
+                    Card((if (rich) Modifier.animateItem() else Modifier).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                        Row(
+                            // A library list opens on a tap: removing from it is all there is to do there.
+                            (if (library && removable) Modifier.clickable(enabled = !busy) { viewing = pl } else Modifier)
+                                .padding(start = 14.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (library) {
+                                Icon(libraryIcon(pl.id), null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(12.dp))
+                            }
                             Column(Modifier.weight(1f)) {
                                 Text(pl.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 val sub = listOfNotNull(
@@ -236,6 +258,11 @@ fun PlaylistsScreen(provider: MusicProvider, onClose: () -> Unit) {
                             Box {
                                 IconButton(enabled = !busy, onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.more_actions)) }
                                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                    if (library) {
+                                        if (removable) DropdownMenuItem(text = { Text(stringResource(R.string.remove) + "…") }, onClick = { menu = false; viewing = pl })
+                                        ExportMenuItem { menu = false; choosingFormat = pl }
+                                        return@DropdownMenu
+                                    }
                                     if (provider.canRenamePlaylists) DropdownMenuItem(text = { Text(stringResource(R.string.manage_rename)) }, onClick = { menu = false; renaming = pl })
                                     // Both entries when the listing does not say which state the playlist is in.
                                     if (provider.canSetVisibility && pl.isPublic != true) DropdownMenuItem(text = { Text(stringResource(R.string.manage_make_public)) }, onClick = { menu = false; setVisibility(pl, true) })
@@ -255,4 +282,13 @@ fun PlaylistsScreen(provider: MusicProvider, onClose: () -> Unit) {
             }
         }
     }
+}
+
+/** The library lists this screen manages: what is saved or followed, not liked songs or plays. */
+private val MANAGED_LIBRARY = setOf(MusicProvider.ALBUMS_ID, MusicProvider.ARTISTS_ID, MusicProvider.PODCASTS_ID)
+
+private fun libraryIcon(id: String) = when (id) {
+    MusicProvider.ALBUMS_ID -> Icons.Filled.Album
+    MusicProvider.ARTISTS_ID -> Icons.Filled.Person
+    else -> Icons.Filled.Podcasts
 }

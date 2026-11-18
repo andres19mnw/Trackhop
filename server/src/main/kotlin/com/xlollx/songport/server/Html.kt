@@ -22,6 +22,9 @@ object Html {
         DESKTOP("Trackhop Desktop", "https://trackhop.org/guide/desktop", ""),
     }
 
+    /** The index of every guide page, with a search box at its top: the footer's way to the help. */
+    const val GUIDES = "https://trackhop.org/guide/"
+
     /** The Trackhop mark (the app's ic_brand_mark), white, for the header's tile. */
     private const val MARK = """<svg viewBox="0 0 66 66" aria-hidden="true"><g transform="translate(-21 -21)" fill="#fff" stroke="#fff" stroke-linecap="round"><path d="M30.6,40.5 A27,27 0 0 1 77.4,40.5" fill="none" stroke-width="5.5"/><path d="M77.4,67.5 A27,27 0 0 1 30.6,67.5" fill="none" stroke-width="5.5"/><path d="M81.85,36.2 L71.45,42.2 L81.4,47.4 Z" stroke="none"/><path d="M26.15,71.8 L36.55,65.8 L26.6,60.6 Z" stroke="none"/><g transform="translate(2.1 1.5)"><path d="M54.08,61.11 A7,5.6 -20 1 1 40.92,65.89 A7,5.6 -20 1 1 54.08,61.11 Z" stroke="none"/><path d="M52.6,62.5 L52.6,37.5" fill="none" stroke-width="3.6"/><path d="M52.6,37.2 C58.5,38.6 63.4,42.4 63.2,49.6 C61.6,45.2 58,42.9 52.6,42.6 Z" stroke="none"/></g></g></svg>"""
 
@@ -120,22 +123,51 @@ object Html {
 <html lang="en"${if (theme == "light" || theme == "dark") " data-theme=\"$theme\"" else ""}><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#141218">
-${refreshSeconds?.let { """<meta http-equiv="refresh" content="$it">""" } ?: ""}
+${refreshSeconds?.let { """<noscript><meta http-equiv="refresh" content="$it"></noscript>""" } ?: ""}
 <title>${h(title)} · Trackhop</title>
 <link rel="stylesheet" href="/style.css">
 ${if (edition == Edition.DESKTOP) DESKTOP_LINKS else Pwa.HEAD}
 </head><body>
 <header class="top"><a class="brand" href="/"><span class="tile">$MARK</span>Trackhop${if (edition.stage.isNotEmpty()) """ <span class="${edition.stage}">${edition.stage}</span>""" else ""}</a>
-${if (showNav) "<nav>${nav(path, account)}</nav>" else ""}</header>
+${if (showNav) "<nav>${nav(path, account)}</nav>" else ""}${supportMenu()}</header>
 $banner${if (edition.stage.isEmpty()) "" else """<p class="alpha-note">${if (edition.stage == "beta") "<strong>Beta.</strong> ${h(edition.product)} works for everyday use but is still young: things can change between releases." else "<strong>Alpha.</strong> ${h(edition.product)} is an early test version: things can break or change between releases."} Keep a copy of the data folder and <a href="https://trackhop.org/guide/reporting-a-problem">report what goes wrong</a>.</p>"""}
 <main${if (wide) " class=\"wide\"" else ""}>
 ${backTo(path)?.let { """<a class="back" href="${h(it)}">‹ Back</a>""" } ?: ""}
 <h1>${h(title)}</h1>
 $body
 </main>
-<footer><a class="coffee" href="https://ko-fi.com/xlollx" target="_blank" rel="noopener">☕ Buy me a coffee</a> <span class="muted">Optional: nothing is unlocked, everything stays free.</span><br>
-${h(edition.product)} ${h(version)}${if (edition.stage.isNotEmpty()) " · ${edition.stage}" else ""} · <a href="${edition.guide}">Guide</a> · <a href="https://github.com/xlollx/Trackhop" title="Free software under the AGPL-3.0: this is its source code">Source code</a> · Trackhop by xlollx · <a href="https://github.com/sponsors/xlollx" target="_blank" rel="noopener">Sponsor</a>${if (edition == Edition.DESKTOP) " · " + postButton("/quit", "Quit Trackhop", "link", confirm = "Stop Trackhop? Scheduled syncs run only while it is running.") else ""}</footer>
+<footer>${supportMenu()}<br>
+${h(edition.product)} ${h(version)}${if (edition.stage.isNotEmpty()) " · ${edition.stage}" else ""} · <a href="${edition.guide}">Guide</a> · <a href="$GUIDES">Search the guides</a> · <a href="https://github.com/xlollx/Trackhop" title="Free software under the AGPL-3.0: this is its source code">Source code</a> · Trackhop by xlollx${if (edition == Edition.DESKTOP) " · " + postButton("/quit", "Quit Trackhop", "link", confirm = "Stop Trackhop? Scheduled syncs run only while it is running.") else ""}</footer>
+${linkWatch(refreshSeconds)}
 </body></html>"""
+
+    /**
+     * The page keeps an eye on the server it came from: when the browser can no longer reach it (the
+     * server stopped, the network between them gone) a small notice at the bottom says so, without
+     * covering anything, and goes once the server answers again. A page that refreshes itself while a
+     * sync runs ([refreshSeconds]) asks the server first, so it never lands on the browser's error
+     * page; without scripts the plain refresh in the head does it as before.
+     */
+    internal fun linkWatch(refreshSeconds: Int?): String = """<div id="link-note" class="link-note" role="status" aria-live="polite" hidden>Can't reach Trackhop right now · trying again…</div>
+<script>(function(){var n=document.getElementById('link-note'),down=false,refresh=${refreshSeconds ?: 0};
+function show(d){down=d;n.hidden=!d}
+function ping(then){var c=window.AbortController?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},8000);
+fetch('/health',{cache:'no-store',credentials:'same-origin',signal:c?c.signal:undefined}).then(function(r){clearTimeout(t);then(r.ok)}).catch(function(){clearTimeout(t);then(false)})}
+function watch(){ping(function(ok){var was=down;show(!ok);if(ok&&was&&refresh)location.reload();setTimeout(watch,ok?30000:5000)})}
+window.addEventListener('offline',function(){show(true)});
+window.addEventListener('online',function(){ping(function(ok){show(!ok)})});
+if(refresh)setTimeout(function again(){ping(function(ok){if(ok)location.reload();else{show(true);setTimeout(again,5000)}})},refresh*1000);
+setTimeout(watch,30000)})()</script>"""
+
+    /**
+     * "Support Trackhop" at the top and in the footer: Ko-fi or GitHub Sponsors in a small menu
+     * (no script). Optional and unlocks nothing.
+     */
+    private fun supportMenu() = """<details class="support"><summary>☕ Support</summary><div class="pop">""" +
+        """<p>Optional: nothing is unlocked, everything stays free. Thank you!</p>""" +
+        """<a href="https://ko-fi.com/xlollx" target="_blank" rel="noopener"><span class="i">☕</span><span><b>Ko-fi</b><small>One-off · card or PayPal · no account needed</small></span></a>""" +
+        """<a href="https://github.com/sponsors/xlollx" target="_blank" rel="noopener"><span class="i">♥</span><span><b>GitHub Sponsors</b><small>Monthly or one-off · with a GitHub account</small></span></a>""" +
+        """</div></details>"""
 
     /**
      * The app's look (ui/Theme.kt): its Material 3 colours, dark unless the system is light; large
@@ -192,6 +224,10 @@ h3{margin:0 0 4px;font-size:16px}
 .card.ok{box-shadow:inset 4px 0 0 var(--ok)}.card.err{box-shadow:inset 4px 0 0 var(--err)}
 .alpha{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:1px 8px;border-radius:999px;background:#ffb4ab;color:#690005;vertical-align:middle}
 .beta{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:1px 8px;border-radius:999px;background:#c8e6ff;color:#003258;vertical-align:middle}
+.net{color:var(--ink-2)}
+.net-note{margin:0;padding:10px 16px;background:var(--surface-2);color:var(--ink);font-size:14px;font-weight:600;text-align:center}
+.link-note{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:50;max-width:calc(100vw - 32px);padding:10px 18px;border-radius:999px;background:var(--ink);color:var(--bg);font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.link-note[hidden]{display:none}
 .update-note{margin:0;padding:10px 16px;background:var(--accent-2);color:var(--accent-2-ink);font-size:14px;font-weight:600;text-align:center}
 .update-note a{color:inherit}
 .alpha-note{margin:0;padding:10px 16px;background:var(--surface-2);color:var(--ink-2);font-size:13.5px;text-align:center}
@@ -212,9 +248,13 @@ code{background:var(--surface-2);padding:1px 6px;border-radius:6px;word-break:br
 ol li,ul li{margin:4px 0}
 details summary{cursor:pointer}
 footer{max-width:920px;margin:24px auto;padding:0 16px 24px;color:var(--ink-3);font-size:13px;line-height:2}
-.coffee{display:inline-block;padding:4px 12px;border-radius:999px;background:var(--surface-2);color:var(--ink);text-decoration:none;font-weight:600;line-height:1.5}
-.coffee:hover{background:var(--accent-2);color:var(--accent-2-ink)}
+.support{position:relative;display:inline-block}.support>summary{list-style:none;cursor:pointer;display:inline-block;padding:5px 14px;border-radius:999px;font-weight:600;font-size:14px;background:var(--surface-2);color:var(--ink)}.support>summary::-webkit-details-marker{display:none}.top .support>summary{background:#ffe2a8;color:#4a2c00}.top:has(.support[open]){overflow:visible}.support .pop{position:absolute;z-index:20;line-height:1.4;width:300px;max-width:calc(100vw - 32px);background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:16px;box-shadow:0 8px 28px rgba(0,0,0,.2);padding:12px;text-align:left;font-weight:400}.top .support .pop{right:0;top:calc(100% + 8px)}footer .support .pop{left:0;bottom:calc(100% + 8px)}.support .pop p{margin:0 0 4px;font-size:13px;color:var(--ink-3)}.support .pop a{display:flex;gap:12px;align-items:center;padding:10px 12px;border-radius:12px;text-decoration:none;color:var(--ink);background:var(--surface-2);margin-top:8px}.support .pop a:hover{background:var(--accent-2);color:var(--accent-2-ink)}.support .pop b{display:block;font-size:15px}.support .pop small{display:block;color:var(--ink-3);font-size:12px}.support .pop span.i{font-size:22px}
 .actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.finder{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0}.finder input[type=search]{flex:1;min-width:12em;font:inherit;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);color:var(--ink);text-decoration:none}
+.chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chip-dot{width:12px;height:12px;border-radius:50%;display:inline-block}
 .swatches{display:flex;gap:8px;flex-wrap:wrap}
 .swatches label{margin:0;display:inline-flex;cursor:pointer}
 .swatches input{position:absolute;opacity:0;width:1px;height:1px}
@@ -242,6 +282,6 @@ svg.activity .bar{fill:var(--accent)}
 svg.activity .col:hover .bar{fill:var(--link);filter:brightness(1.15)}
 svg.activity .axis{stroke:var(--line);stroke-width:1}
 svg.activity .tick{fill:var(--ink-3);font-size:10px}
-@media (max-width:560px){h1{font-size:22px}.top{padding:10px 12px}}
+@media (max-width:560px){h1{font-size:22px}.top{padding:10px 12px}.top>.support{position:absolute;top:14px;right:12px}}
 """
 }

@@ -59,19 +59,27 @@ class CardsFlowTest : FlowTest() {
 
     private fun openTool(title: Int) {
         launch(tabIntent(MainActivity.TAB_DISCOVER))
-        waitText(s(title))
-        click(s(title))
+        waitText(s(R.string.discover_wrapped_title))
+        // The cards are a lazy grid: the one asked for may be further down.
+        clickTile(s(title))
     }
 
-    /** In a playlist source card: the service tile, then its playlist from the drop-down. */
+    /**
+     * A playlist source: its field opens the picker's sheet (with a playlist kept from an earlier
+     * visit or none); there the service's mark, then its playlist from the rows. The sheet closes
+     * and the field shows the playlist's name and "Change".
+     */
     private fun pickOwnPlaylist(service: String, playlist: String) {
-        val tile = compose.onAllNodes(hasClickAction() and hasText(service)).onFirst()
-        tile.performScrollTo(); tile.performClick()
+        compose.waitForIdle()
         waitText(s(R.string.editor_playlist))
         click(s(R.string.editor_playlist))
+        val tile = hasClickAction() and hasText(service)
+        waitFor("the picker's services") { compose.onAllNodes(tile).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodes(tile).onFirst().performClick()
         waitText(playlist)
         click(playlist)
-        waitText("$playlist  ·  ", substring = true)
+        waitText(s(R.string.share_sheet_change))
+        waitText(playlist, substring = true)
     }
 
     @Test
@@ -102,16 +110,16 @@ class CardsFlowTest : FlowTest() {
         openTool(R.string.tools_compat_title)
         waitText(s(R.string.card_compat_first))
         // First: a pasted link; second: one of my own Deezer playlists.
-        val field = compose.onAllNodes(androidx.compose.ui.test.hasSetTextAction()).onFirst()
-        field.performScrollTo()
-        field.performTextInput("https://open.spotify.com/playlist/${FakeWorld.PUBLIC_SPOTIFY}")
+        click(s(R.string.card_compat_first))
+        waitNode("the link field in the picker", androidx.compose.ui.test.hasSetTextAction())
+        compose.onAllNodes(androidx.compose.ui.test.hasSetTextAction()).onFirst().performTextInput("https://open.spotify.com/playlist/${FakeWorld.PUBLIC_SPOTIFY}")
         click(s(R.string.link_use))
-        waitText("Friday Night Rock", substring = true)
-        val deezerTiles = compose.onAllNodes(hasClickAction() and hasText("Deezer"))
-        // The second source card's Deezer tile.
-        deezerTiles[deezerTiles.fetchSemanticsNodes().size - 1].apply { performScrollTo(); performClick() }
-        val playlistFields = compose.onAllNodes(hasClickAction() and hasText(s(R.string.editor_playlist)))
-        playlistFields[playlistFields.fetchSemanticsNodes().size - 1].apply { performScrollTo(); performClick() }
+        // The sheet closes on the playlist the link leads to: the first field shows it.
+        waitFor("the first playlist in its field") { compose.onAllNodes(hasText(s(R.string.card_compat_first)) and hasText("Friday Night Rock", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        // The second: Deezer's mark in its picker, then the playlist.
+        click(s(R.string.card_compat_second))
+        waitFor("the picker's services") { compose.onAllNodes(hasClickAction() and hasText("Deezer")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodes(hasClickAction() and hasText("Deezer")).onFirst().performClick()
         waitText("Workout"); click("Workout")
         click(s(R.string.card_compat_run))
         waitText(s(R.string.card_share), ms = 30_000)
@@ -126,6 +134,8 @@ class CardsFlowTest : FlowTest() {
         click(s(R.string.card_poster_run))
         waitText(s(R.string.card_share), ms = 30_000)
         assertFalse("a Spotify playlist has a public page", exists(s(R.string.card_poster_no_qr)))
+        // Off until turned on: most playlists are private.
+        click(s(R.string.card_poster_qr))
         click(s(R.string.card_format_square))
         val url = "https://open.spotify.com/playlist/${FakeWorld.SPOTIFY_ROAD}"
         assertEquals(url, readQrOnScreen())
@@ -195,7 +205,8 @@ class CardsFlowTest : FlowTest() {
         click(s(R.string.card_cover_another))
         waitText(s(R.string.card_share), ms = 30_000)
         assertFalse("127.0.0.1" in attemptedHosts)
-        // The square poster still carries its QR code with the drawn art.
+        // The square poster still carries its QR code with the drawn art, once turned on.
+        click(s(R.string.card_poster_qr))
         click(s(R.string.card_format_square))
         assertEquals("https://open.spotify.com/playlist/${FakeWorld.SPOTIFY_ROAD}", readQrOnScreen())
 
@@ -252,14 +263,15 @@ class CardsFlowTest : FlowTest() {
         assertEquals(expected.trackCount, w.trackCount)
         assertEquals(expected.topArtists, w.topArtists)
         val madeOn = s(R.string.discover_wrapped_made_on, DateFormat.getDateInstance(DateFormat.MEDIUM, app.resources.configuration.locales[0]).format(Date(w.madeAt)))
-        waitText(madeOn)
+        // The line goes on with where the numbers come from ("· From your playlists").
+        waitText(madeOn, substring = true)
         waitText(s(R.string.card_share), ms = 30_000)
 
         // Back on the page later: the last one is there at once, the chips still there with the last choice.
         launch(tabIntent(MainActivity.TAB_DISCOVER))
         waitText(s(R.string.discover_wrapped_title))
         click(s(R.string.discover_wrapped_title))
-        waitText(madeOn, ms = 5_000)
+        waitText(madeOn, substring = true, ms = 5_000)
         waitText(s(R.string.discover_wrapped_history))
         scrollTo(deezer()).assertIsNotSelected()
         assertTrue(exists(s(R.string.discover_wrapped_new)))

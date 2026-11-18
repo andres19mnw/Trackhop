@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -52,12 +51,14 @@ fun AddTrackDialog(provider: MusicProvider, track: Track, onClose: () -> Unit, o
             val own = provider.playlists(ctx.applicationContext).filter { it.ownedByMe && !MusicProvider.isLibrary(it.id) }
             val liked = if (provider.supportsLikedTarget) listOf(Playlist(MusicProvider.LIKED_ID, ctx.getString(R.string.liked_songs))) else emptyList()
             liked + own
-        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message ?: ctx.getString(R.string.error_generic); emptyList() }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.userMessage(ctx); emptyList() }
     }
 
-    AlertDialog(
+    FitDialog(
         onDismissRequest = { if (!busy) onClose() },
         title = { Text(stringResource(R.string.share_track_title, provider.label(ctx))) },
+        // A list of its own: it scrolls, under the line above it.
+        scroll = false,
         text = {
             Column(Modifier.fillMaxWidth()) {
                 Text(track.toString(), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -81,7 +82,7 @@ fun AddTrackDialog(provider: MusicProvider, track: Track, onClose: () -> Unit, o
                                             onDone(ctx.getString(R.string.share_track_added, name))
                                             onClose()
                                         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
-                                            busy = false; error = e.message ?: ctx.getString(R.string.error_generic)
+                                            busy = false; error = e.userMessage(ctx)
                                         }
                                     }
                                 }.padding(vertical = 12.dp, horizontal = 4.dp),

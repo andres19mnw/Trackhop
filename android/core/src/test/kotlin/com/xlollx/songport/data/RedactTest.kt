@@ -25,6 +25,22 @@ class RedactTest {
         assertTrue(out, out.contains("v=1.16.1"))
     }
 
+    @Test fun trackhopsOwnKeysAreHiddenWhereverTheyAre() {
+        // Built at run time: nothing shaped like a real secret in the sources.
+        val groupKey = "thg_" + "Ab3_-".repeat(8) + "xyz"
+        val apiToken = "th_" + "k9".repeat(16)
+        val log = "[shared] invite https://trackhop.org/join#g=0123456789abcdef&t=server&s=https%3A%2F%2Fnas&x=$groupKey · token $apiToken · key=$groupKey"
+        val out = Redact.text(log)
+        assertFalse(out, groupKey.drop(4) in out)
+        assertFalse(out, apiToken.drop(3) in out)
+        assertTrue(out, "g=0123456789abcdef" in out)
+        assertEquals("[shared] the_quick_brown_fox", Redact.text("[shared] the_quick_brown_fox"))
+        // An ntfy access token, alone or in a header.
+        val ntfy = "tk_" + "a7".repeat(14) + "q"
+        val sent = Redact.text("[shared] ntfy token $ntfy, Authorization: Bearer $ntfy")
+        assertFalse(sent, ntfy.drop(3) in sent)
+    }
+
     @Test fun anOrdinaryLogLineIsLeftAsItIs() {
         val line = "2026-11-06 10:34:59 [engine] Apple Music (web): 150 searches in 26s (173 ms each), 0 waits"
         assertEquals(line, Redact.text(line))
@@ -32,5 +48,14 @@ class RedactTest {
         assertEquals(sync, Redact.text(sync))
         val plan = "[engine] Malayalam Trending: plan ready in 115s: source 199, not found 0, to review 1, removals held back 0"
         assertEquals(plan, Redact.text(plan))
+    }
+
+    @Test fun theUserNameInFolderPathsIsHidden() {
+        val log = "[lyrics] /home/lorenzo/Music/a.flac · C:\\Users\\Anna\\AppData\\Trackhop · /Users/marco/Library/Trackhop · file:///C:/Users/luca/x"
+        val out = Redact.text(log)
+        for (name in listOf("lorenzo", "Anna", "marco", "luca")) assertFalse("$name still in:\n$out", out.contains(name))
+        assertTrue(out, out.contains("/home/[user]/Music/a.flac") && out.contains("/Users/[user]/Library/Trackhop") && out.contains("AppData"))
+        // A path outside a home folder stays as it is.
+        assertEquals("[files] /data/csv/Road trip.csv", Redact.text("[files] /data/csv/Road trip.csv"))
     }
 }

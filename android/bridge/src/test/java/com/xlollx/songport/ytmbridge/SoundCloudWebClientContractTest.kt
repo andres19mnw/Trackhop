@@ -400,6 +400,194 @@ class SoundCloudWebClientContractTest {
         assertNull(SoundCloudBridge.tokenAt(app))
     }
 
+    // ------------------------------------------------------------------ an expired site session (4 idle days)
+
+    @Test fun aPageThatRenewsNothingOnceIsNotReopenedForAWhileButEndsNothing() {
+        signedInByMobileCookie()
+        pageAnswer = { SoundCloudRenewal.Page(null, null, SoundCloudRenewal.RENEWED_NOTHING) }
+        repeat(9) { answer("", 401) }
+        try { sc.tracks("1001"); fail() } catch (e: BridgeException) { assertEquals(SoundCloudWebClient.EXPIRED, e.message) }
+        assertEquals(1, pages.size)
+        assertNull("one page proves nothing", SoundCloudRenewal.expiredAt(app))
+        // The next calls within 15 minutes open no page (the owner's log had six in two minutes).
+        repeat(2) { try { sc.tracks("1002"); fail() } catch (e: BridgeException) { assertEquals(SoundCloudWebClient.EXPIRED, e.message) } }
+        assertEquals(1, pages.size)
+        assertNull(SoundCloudRenewal.expiredAt(app))
+    }
+
+    @Test fun aSecondPageThatRenewsNothingAnHourLaterEndsTheSessionOnce() {
+        signedInByMobileCookie()
+        val logs = logs()
+        SoundCloudRenewal.strike(app, System.currentTimeMillis() - 2 * 60 * 60_000L)
+        assertNull(SoundCloudRenewal.expiredAt(app))
+        pageAnswer = { SoundCloudRenewal.Page(null, null, SoundCloudRenewal.RENEWED_NOTHING) }
+        answer("", 401); answer("", 401); answer("", 401)
+        try { sc.tracks("1001"); fail() } catch (e: BridgeException) { assertEquals(SoundCloudWebClient.EXPIRED, e.message) }
+        assertEquals(1, pages.size)
+        assertTrue(SoundCloudRenewal.expiredAt(app) != null)
+        // From then on said at once: no request, no hidden page, until the next sign-in.
+        val calls = BridgeMock.calls.size
+        repeat(3) { try { sc.tracks("1002"); fail() } catch (e: BridgeException) { assertEquals(SoundCloudWebClient.EXPIRED, e.message) } }
+        assertEquals(calls, BridgeMock.calls.size)
+        assertFalse(SoundCloudRenewal.keepAlive(app))
+        assertEquals(1, pages.size)
+        assertEquals(logs.toString(), 1, logs.count { it.contains("the session has expired") })
+    }
+
+    @Test fun aSecondPageWithinTheHourEndsNothing() {
+        signedInByMobileCookie()
+        val now = System.currentTimeMillis()
+        SoundCloudRenewal.strike(app, now - 30 * 60_000L)
+        SoundCloudRenewal.strike(app, now)
+        assertNull(SoundCloudRenewal.expiredAt(app))
+    }
+
+    @Test fun aRenewalClearsTheStrikes() {
+        signedInByMobileCookie()
+        tokenAged(12 * 60)
+        SoundCloudRenewal.strike(app, System.currentTimeMillis() - 2 * 60 * 60_000L)
+        pageAnswer = { SoundCloudRenewal.Page(SoundCloudBridge.Found(newToken, "cookie:m.soundcloud.com"), null, null) }
+        assertTrue(SoundCloudRenewal.keepAlive(app))
+        // A later page that renews nothing is a first strike again.
+        SoundCloudRenewal.strike(app)
+        assertNull(SoundCloudRenewal.expiredAt(app))
+    }
+
+    @Test fun aPageThatFailedWithAnHttpErrorNeverEndsTheSession() {
+        signedInByMobileCookie()
+        pageAnswer = { SoundCloudRenewal.Page(null, null, "the page did not load (HTTP 503)") }
+        repeat(6) { answer("", 401) }
+        repeat(2) { try { sc.tracks("1001"); fail() } catch (e: BridgeException) { assertEquals(SoundCloudWebClient.EXPIRED, e.message) } }
+        // Not a strike: tried again at the next call.
+        assertEquals(2, pages.size)
+        assertNull(SoundCloudRenewal.expiredAt(app))
+    }
+
+    /** A renewal whose page could not reach SoundCloud (no internet, the connection just back) is the connection's, not "sign in again". */
+    @Test fun aRenewalCutByTheConnectionIsNotAnExpiredSession() {
+        signedInByMobileCookie()
+        val lost = NetWords.pageLoad("the page", "m.soundcloud.com", NetWords.ERROR_HOST_LOOKUP, "net::ERR_NAME_NOT_RESOLVED")
+        pageAnswer = { SoundCloudRenewal.Page(null, null, lost) }
+        repeat(6) { answer("", 401) }
+        try { sc.tracks("1001"); fail() } catch (e: BridgeException) {
+            assertFalse(e.message, e.message!!.contains("sign in", true))
+            assertTrue(e.message, e.message!!.contains("Unable to resolve host"))
+        }
+        assertNull(SoundCloudRenewal.expiredAt(app))
+        // The next renewal that fails for another reason says "expired" as before.
+        pageAnswer = { SoundCloudRenewal.Page(null, null, "the page did not load (HTTP 503)") }
+        try { sc.tracks("1002"); fail() } catch (e: BridgeException) { assertEquals(SoundCloudWebClient.EXPIRED, e.message) }
+    }
+
+    /** A page that loaded but whose own requests got no answer renewed nothing because of the connection: no strike against the session. */
+    @Test fun aPageWhoseRequestsGotNoAnswerIsNoStrike() {
+        assertEquals(SoundCloudRenewal.RENEWED_NOTHING, SoundCloudRenewal.settled(false, null))
+        assertEquals(SoundCloudRenewal.DATADOME_CHECKED, SoundCloudRenewal.settled(true, null))
+        val net = SoundCloudRenewal.settled(false, NetWords.pageLoad("a request of the page", "api-v2.soundcloud.com", NetWords.ERROR_CONNECT, "net::ERR_CONNECTION_RESET"))
+        assertTrue(net, net != SoundCloudRenewal.RENEWED_NOTHING && NetWords.readable(net))
+        signedInByMobileCookie()
+        pageAnswer = { SoundCloudRenewal.Page(null, null, net) }
+        repeat(6) { answer("", 401) }
+        SoundCloudRenewal.strike(app, System.currentTimeMillis() - 2 * 60 * 60_000L)
+        try { sc.tracks("1001"); fail() } catch (e: BridgeException) { assertFalse(e.message, e.message == SoundCloudWebClient.EXPIRED) }
+        assertNull("the connection is not a second strike", SoundCloudRenewal.expiredAt(app))
+    }
+
+    @Test fun aTokenOfUnknownAgeIsNotTakenAsOver() {
+        // A session from before the token's time was kept: the keep-alive's page renewing nothing counts for nothing.
+        SoundCloudRenewal.strike(app, System.currentTimeMillis() - 2 * 60 * 60_000L)
+        SoundCloudBridge.session.put(app, "renewedNothingLastAt", null)
+        assertNull(SoundCloudBridge.tokenAt(app))
+        pageAnswer = { SoundCloudRenewal.Page(null, null, SoundCloudRenewal.RENEWED_NOTHING) }
+        assertFalse(SoundCloudRenewal.keepAlive(app))
+        assertEquals(1, pages.size)
+        assertNull(SoundCloudRenewal.expiredAt(app))
+    }
+
+    @Test fun aSignInAgainLetsRenewalsRunAgain() {
+        signedInByMobileCookie()
+        SoundCloudRenewal.markExpired(app, "test")
+        val at = SoundCloudRenewal.expiredAt(app)
+        SoundCloudRenewal.markExpired(app, "again")
+        assertEquals("marked once: the first time stays", at, SoundCloudRenewal.expiredAt(app))
+        SoundCloudRenewal.strike(app, System.currentTimeMillis() - 2 * 60 * 60_000L)
+        SoundCloudBridge.rememberToken(app, SoundCloudBridge.Found(newToken, "cookie:m.soundcloud.com"))
+        assertNull(SoundCloudRenewal.expiredAt(app))
+        assertNull(SoundCloudBridge.session.get(app, "renewedNothing"))
+    }
+
+    @Test fun aRenewedTokenRefusedTooIsSaidButEndsNothing() {
+        SoundCloudBridge.rememberToken(app, SoundCloudBridge.Found(oldToken, "cookie:soundcloud.com"))
+        pageAnswer = { SoundCloudRenewal.Page(SoundCloudBridge.Found(newToken, "header:api-v2.soundcloud.com"), null, null) }
+        answer("", 401); answer("", 401); answer("", 401)
+        try { sc.tracks("1001"); fail() } catch (e: BridgeException) { assertEquals(SoundCloudWebClient.EXPIRED, e.message) }
+        assertNull(SoundCloudRenewal.expiredAt(app))
+    }
+
+    private fun tokenAged(minutes: Long) = SoundCloudBridge.session.put(app, "tokenAt", (System.currentTimeMillis() - minutes * 60_000L).toString())
+
+    @Test fun aPageThatCouldNotRenewForAnotherReasonIsTriedAgainLater() {
+        SoundCloudBridge.rememberToken(app, SoundCloudBridge.Found(oldToken, "cookie:m.soundcloud.com"))
+        tokenAged(13 * 60)
+        pageAnswer = { SoundCloudRenewal.Page(null, null, SoundCloudRenewal.dataDomeProblem(DataDome.Kind.CAPTCHA)) }
+        assertFalse(SoundCloudRenewal.keepAlive(app))
+        pageAnswer = { SoundCloudRenewal.Page(null, null, "the page did not load (error -2)") }
+        assertFalse(SoundCloudRenewal.keepAlive(app))
+        assertNull(SoundCloudRenewal.expiredAt(app))
+        assertEquals(2, pages.size)
+    }
+
+    @Test fun theKeepAliveRenewsAnOldTokenInOneLogLine() {
+        signedInByMobileCookie()
+        tokenAged(12 * 60)
+        val logs = logs()
+        pageAnswer = { SoundCloudRenewal.Page(SoundCloudBridge.Found(newToken, "cookie:m.soundcloud.com"), "oauth_token=$newToken; datadome=k~2", null) }
+        assertTrue(SoundCloudRenewal.keepAlive(app))
+        assertEquals(listOf<String?>(oldToken), pages)
+        assertEquals(newToken, SoundCloudBridge.token(app))
+        assertEquals(logs.toString(), 1, logs.size)
+        assertTrue(logs.toString(), logs[0].startsWith("[soundcloud] session renewed in a hidden page (keep-alive)"))
+        assertTrue(BridgeMock.calls.isEmpty())
+    }
+
+    @Test fun theKeepAliveLeavesATokenOfTheLastHourAlone() {
+        signedInByMobileCookie()
+        tokenAged(20)
+        assertFalse(SoundCloudRenewal.keepAlive(app))
+        assertTrue(pages.isEmpty())
+    }
+
+    @Test fun anIdleSessionWhosePageRenewsNothingTwiceIsMarkedExpiredByTheKeepAlive() {
+        signedInByMobileCookie()
+        tokenAged(4 * 24 * 60)
+        pageAnswer = { SoundCloudRenewal.Page(null, null, SoundCloudRenewal.RENEWED_NOTHING) }
+        assertFalse(SoundCloudRenewal.keepAlive(app))
+        assertNull(SoundCloudRenewal.expiredAt(app))
+        // Twelve hours later, the next keep-alive.
+        SoundCloudBridge.session.put(app, "renewedNothingFirstAt", (System.currentTimeMillis() - 12 * 60 * 60_000L).toString())
+        SoundCloudBridge.session.put(app, "renewedNothingLastAt", (System.currentTimeMillis() - 12 * 60 * 60_000L).toString())
+        assertFalse(SoundCloudRenewal.keepAlive(app))
+        assertEquals(2, pages.size)
+        assertTrue(SoundCloudRenewal.expiredAt(app) != null)
+    }
+
+    @Test fun aTokenStillValidThatThePageDoesNotRenewYetEndsNothing() {
+        // Renewed ahead at 55 minutes: the site may keep a token that still works for a few minutes.
+        signedInByMobileCookie()
+        tokenAged(55)
+        pageAnswer = { SoundCloudRenewal.Page(null, null, SoundCloudRenewal.RENEWED_NOTHING) }
+        answer(set(1001))
+        sc.tracks("1001")
+        assertEquals(1, pages.size)
+        assertNull(SoundCloudRenewal.expiredAt(app))
+    }
+
+    @Test fun theKeepAliveDoesNothingSignedOut() {
+        SoundCloudBridge.session.clear(app)
+        assertFalse(SoundCloudRenewal.keepAlive(app))
+        assertTrue(pages.isEmpty())
+    }
+
     @Test fun aRenewalTakesOnlyATokenOtherThanTheOldOne() {
         val jar = mapOf(SoundCloudBridge.SITE to "oauth_token=$oldToken", SoundCloudBridge.MOBILE_SITE to "oauth_token=$newToken", "https://secure.soundcloud.com" to null)
         assertEquals(newToken, SoundCloudRenewal.newToken(null, jar, oldToken)?.token)
@@ -476,6 +664,21 @@ class SoundCloudWebClientContractTest {
         sc.setPublic("1001", true)
         assertEquals("public", call(3).json()["playlist"]["sharing"].str)
         assertEquals("[1,2]", call(3).json()["playlist"]["tracks"].toString())
+    }
+
+    @Test fun artworkIsTheBase64OfTheJpegOnTheSetsArtworkPath() {
+        answer("""{"artwork_url":"https://i1.sndcdn.com/artworks-made-up-large.jpg"}""")
+        sc.setArtwork("1001", byteArrayOf(-1, -40, -1, -32, 1, 2, 3))
+        val r = call(0)
+        assertApi(r, "PUT", "/playlists/1001/artwork")
+        assertEquals("application/json", r.getHeader("Content-Type")!!.substringBefore(';'))
+        assertEquals("/9j/4AECAw==", r.json()["image_data"].str)
+        assertEquals(1, BridgeMock.calls.size)
+    }
+
+    @Test fun noArtworkOnAPublicPage() {
+        try { sc.setArtwork("someone/sets/x", byteArrayOf(1)); fail() } catch (e: BridgeException) { assertTrue(e.message!!.contains("read-only")) }
+        assertEquals(0, BridgeMock.calls.size)
     }
 
     @Test fun deleteIsADelete() {

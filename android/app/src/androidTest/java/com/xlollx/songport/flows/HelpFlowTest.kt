@@ -52,7 +52,9 @@ class HelpFlowTest : FlowTest() {
         waitText(s(R.string.settings_theme))
         click(s(R.string.howto_title))
         waitText(s(R.string.howto_intro))
-        com.xlollx.songport.ui.HowTo.entries.forEach { waitText(s(it.title)) }
+        com.xlollx.songport.ui.HowTo.shown().forEach { waitText(s(it.title)) }
+        // 2.0's guides come with the release switch (com.xlollx.songport.Features), on from 2.0.
+        com.xlollx.songport.ui.HowTo.V2.forEach { if (com.xlollx.songport.Features.v2) waitText(s(it.title)) else assertFalse(it.name, exists(s(it.title))) }
 
         click(s(R.string.howto_preview_title))
         waitText(heading(R.string.howto_preview_body, 1))

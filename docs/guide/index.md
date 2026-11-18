@@ -1,27 +1,46 @@
+---
+title: Trackhop guide
+description: How to use Trackhop, the free playlist sync app for Android, Windows, macOS, Linux and Docker, step by step, with a search across every guide page.
+---
+
 # Trackhop guide
 
 Practical notes for people using Trackhop and for whoever maintains it. The full technical
 description (architecture, matching, services and their limits) stays in the
 [README](https://github.com/xlollx/Trackhop#readme); this guide is the "how do I…" side.
 
+{% include guide-search.html %}
+
 **Using the app**
 - [Getting started](getting-started): install, connect a service, the first sync.
-- [Which Trackhop?](versions): the GitHub/F-Droid and Play builds, connector plugins, the community.
+- [Which Trackhop?](versions): the GitHub/F-Droid and store builds, connector plugins, the community.
 - [Shared links](shared-links): a friend's Spotify link into your YouTube Music, Navidrome or Jellyfin playlist.
-- [SoundCloud](soundcloud): a public SoundCloud set or likes page as the source of a sync, no account needed.
+- [SoundCloud](soundcloud): a public SoundCloud set or likes page as the source of a sync, no account needed, or your own account.
 - [NetEase Cloud Music and QQ Music](netease-qq-music): a public 网易云音乐 or QQ音乐 playlist as the source of a sync, from its link, no Chinese account needed ([中文](netease-qq-music-zh)).
+- [JioSaavn](jiosaavn): a public JioSaavn playlist, album or song as the source of a sync, from its link, no account needed.
+- [Favourites, labels and tags](organise-syncs): star, colour, tag and arrange your syncs; card sizes, tiles, tablets.
+- [Notifications on Telegram, ntfy, Discord and more](notification-channels): a message when a sync changes something or fails.
 - [Troubleshooting](troubleshooting): the errors people actually meet, and what to do about each.
 - [Is it safe?](security): every download checked on VirusTotal, the files' SHA-256 and how Trackhop is built.
 - [Reporting a problem](reporting-a-problem): the diagnostic report, and what makes a report useful.
+- [Help add a service from your country](help-add-a-service): Yandex Music, NetEase, Pandora and other services the developer cannot sign in to; how to record the website safely and what to send ([Русский](help-add-a-service-ru), [中文](help-add-a-service-zh)).
 - [Cards](cards): "how compatible are we?" between two playlists, and the playlist poster with a QR code.
 - [Unplayable tracks](unplayable-tracks): the greyed-out tracks in your playlists, and how Trackhop replaces them.
 - [Trackhop Desktop (Windows, macOS, Linux)](desktop): the engine as a program on your computer, no Docker needed.
 - [Trackhop on a server (Docker, beta)](docker): works for everyday use, still young. Scheduled syncs on a home server or a NAS, with a web page.
+- [Trackhop on iPhone and iPad](iphone): no App Store app; your own Trackhop server on the home screen, like an app ([Italiano](trackhop-su-iphone)).
 - [The trackhop command](cli): run syncs, read their results, add and remove tracks from a terminal or a script, with Desktop or Docker.
+
+**Tools on this site, nothing to install**
+- [Your Wrapped, any time](../wrapped): top artists, songs and hours, year by year, from the data export of Spotify, Apple Music or YouTube Music. The file is read in your browser and is not uploaded ([Italiano](../it/wrapped)).
+- [Convert a playlist file](../convert): CSV, M3U, PLS, XSPF, JSPF, JSON, an Apple Music/iTunes library or a plain list into another format, in your browser ([Italiano](../it/convert)).
+- [A link for every service](../link): paste a song or album link from Apple Music, Deezer or Spotify and open the same song on the service you use. The lookup runs in your browser and nothing is stored ([Italiano](../it/link)).
 
 **On your computer or server**
 - [Playlist sync for Windows](playlist-sync-windows), [for Mac](playlist-sync-mac), [for Linux](playlist-sync-linux): the desktop app, how to install it and what it does.
 - [Self-hosted playlist sync](self-hosted-playlist-sync): your Navidrome, Jellyfin or Plex in step with your streaming service.
+- [Lyrion Music Server](lyrion) (the former Logitech Media Server) and [Mopidy](mopidy): their playlists as a source and a destination (beta).
+- [Missing on my server](missing-on-my-server): the songs your library still lacks, by album, as a list for Lidarr.
 - [On a NAS or home server](playlist-sync-nas): Docker on Synology, Unraid, TrueNAS or a Raspberry Pi.
 
 **Step by step**
@@ -36,6 +55,7 @@ description (architecture, matching, services and their limits) stays in the
 - [Transfer Spotify playlists to Deezer](spotify-to-deezer) and [to Amazon Music](spotify-to-amazon-music).
 - [Apple Music to YouTube Music, and back](apple-music-to-youtube-music).
 - [Keep playlists in sync](sync-playlists) between any two services, on a schedule.
+- [Two-way playlist sync](two-way-sync): changes on either side reach the other, removals too if you want.
 - [Free playlist sync](free-playlist-sync): no paid plan, no track limit, no account.
 - [Transfer liked songs](transfer-liked-songs), favourites and saved albums.
 - [Merge playlists and remove duplicates](merge-playlists-remove-duplicates).
@@ -50,6 +70,17 @@ description (architecture, matching, services and their limits) stays in the
 - [Remove duplicate songs](remove-duplicates-spotify) from a playlist, on any service.
 - [Fix greyed-out songs](fix-greyed-out-songs): unplayable tracks swapped for versions that play.
 - [Your Wrapped, whenever you want](wrapped-anytime), from any service, with history.
+- [Without a paid service](without-a-paid-service): new music every week on free YouTube Music, Spotify, Deezer or SoundCloud accounts.
+
+**New in 2.0**
+- [Your Wrapped from what you really play](wrapped-anytime#from-what-you-really-play): Last.fm, ListenBrainz, your own server and more.
+- [Your phone and your Trackhop server](phone-and-server): take turns on each playlist, hand a sync over to the server and bring it back.
+- [A playlist shared by a group](shared-playlists): one playlist for friends who each use their own service.
+- [New releases from your playlist's artists](new-releases), in a playlist on any service, now or every week.
+- [Concerts of the artists in your playlist](concerts): upcoming dates by country, with the ticket links.
+- [Setlists of the artists in your playlist](setlists): what they played live, as a playlist on any service.
+- [Records and merch of the artists in your playlist](records): CDs, vinyl and cassettes from Discogs, official shops, shop searches.
+- [Alerts for the artists you follow](artist-alerts): new releases, concerts near you, new merch and records, in one notification.
 
 **Coming from another service**
 - [A free Soundiiz alternative](soundiiz-alternative): the same moves, kept in sync, no account, no limits.
@@ -71,7 +102,8 @@ description (architecture, matching, services and their limits) stays in the
 - [Trasferire playlist tra Spotify, YouTube Music, Apple Music e Amazon Music](trasferire-playlist), gratis e sincronizzate.
 - [Alternativa gratuita a Soundiiz e TuneMyMusic](alternativa-soundiiz): niente account, niente limiti.
 - [Da Spotify ad Apple Music](trasferire-playlist-spotify-apple-music) e [da Spotify a YouTube Music](trasferire-playlist-spotify-youtube-music), gratis.
-- [Salvare Discover Weekly prima che cambi](salvare-discover-weekly) · [Backup automatico delle playlist](backup-playlist-spotify) · [Rimuovere i brani doppi](rimuovere-duplicati-playlist) · [Sistemare i brani in grigio](brani-non-riproducibili) · [Il tuo Wrapped, quando vuoi](wrapped-quando-vuoi).
+- [Salvare Discover Weekly prima che cambi](salvare-discover-weekly) · [Backup automatico delle playlist](backup-playlist-spotify) · [Rimuovere i brani doppi](rimuovere-duplicati-playlist) · [Sistemare i brani in grigio](brani-non-riproducibili) · [Il tuo Wrapped, quando vuoi](wrapped-quando-vuoi) · [Senza abbonamento](senza-abbonamento).
+- Sul sito, senza installare niente: [il tuo Wrapped dai dati che il servizio ti dà](../it/wrapped), [convertire un file di playlist](../it/convert) e [un link per ogni servizio](../it/link), per aprire un brano sul servizio che usi tu.
 
 **Maintaining it**
 - [Release process](release-process): version, changelogs, what CI does, F-Droid and Obtainium.

@@ -8,10 +8,10 @@ tabs_label: Trackhop のインストール先
 tab_phone: Android
 tab_computer: デスクトップ
 tab_server: セルフホスト
-play_alt: "Google Play：近日公開"
-play_note: 'テスト中'
-appgallery_alt: "Huawei AppGallery：近日公開"
-appgallery_note: "準備中 · Google サービス不要"
+play_alt: "Google Play で手に入れよう"
+play_note: '配信中'
+appgallery_alt: "Huawei AppGallery で入手"
+appgallery_note: "Google サービス不要"
 store_bridge: '<b>Google Play 版・AppGallery 版なら</b> Trackhop Bridge で YouTube Music や Amazon Music などを追加'
 fdroid_alt: F-Droid で入手
 fdroid_note: ソースからビルド · 新バージョンは数日遅れで公開
@@ -28,7 +28,7 @@ mac_alt: macOS 版を入手（Apple silicon）
 mac_note: 'Apple silicon · <a href="%DL%/Trackhop-Desktop-v%V%-macos-x64.dmg">Intel 版</a> · <a href="/guide/desktop#package-managers-and-stores">Homebrew</a>'
 linux_alt: Linux 版を入手
 linux_note: '.deb · または <a href="https://snapcraft.io/trackhop">Snap</a> · <a href="%DL%/Trackhop-Desktop-v%V%-linux.flatpak">Flatpak</a>'
-computer_more: 'Mac では初回だけ右クリック › 開く で起動してください（<a href="/guide/desktop#macos">理由</a>） · <a href="#docker">すべてのダウンロード</a>'
+computer_more: 'Mac では初回だけ システム設定 › プライバシーとセキュリティ › このまま開く で許可してください（<a href="/guide/desktop#macos">理由</a>） · <a href="#docker">すべてのダウンロード</a>'
 docker_alt: Docker で動かす
 docker_note: 'ベータ · ghcr.io または <a href="https://hub.docker.com/r/xlollx/trackhop">Docker Hub</a> · <a href="/guide/playlist-sync-nas">NAS で使う</a>'
 azure_title: "ベータ：あなた自身の Azure サブスクリプションで動作（月額約 5 ドル）"
@@ -38,21 +38,23 @@ server_more: 'Web ページ、スケジュール同期、API · 家族みんな�
 virustotal: すべてのダウンロードを VirusTotal でチェック済み
 downloads: "{n} ダウンロード"
 downloads_title: GitHub リリースのダウンロード数と Docker Hub のプル数。F-Droid やストアは数を公開していないため、実際はもっと多くなります。
+playlists_synced: "公開プレイリスト {n} 件を同期中"
+playlists_synced_title: "Trackhop が同期している Spotify と YouTube の公開プレイリスト（説明に「Synced with Trackhop」とあるもの）。非公開のプレイリストやほかのサービスは数えていないため、実際の数はもっと多くなります。"
 demo_alt: "Trackhop の紹介：同期一覧、新しい同期、アカウント、ツール、共有された曲、相性カードとポスターカード、再生できない曲、設定"
 what_title: できること
 what_intro: 同期元と同期先を選び、頻度を決めるだけ。Trackhop は相手側で曲を一つずつ見つけ、何が変わるかを見せてから、両方をそろえ続けます。
 card1_title: どのサービスからどのサービスへも
-card1: プレイリスト、お気に入りの曲、保存したアルバム、フォロー中のアーティスト。公開プレイリストならリンクを貼るだけでも OK。
+card1: "プレイリスト、お気に入りの曲、保存したアルバム、フォロー中のアーティスト。公開プレイリストのリンクを貼るだけでも使えます。2.0 からは、別々のサービスを使う友だちとひとつのプレイリストを共有できます。"
 card2_title: スケジュールで自動同期
-card2: 1 時間ごと、6 時間ごと、毎日、毎週。追加のみ、または削除も反映。同期元の曲順もそのままに。
+card2: "1 時間ごと、6 時間ごと、毎日、毎週。追加のみ、または削除も反映。同期元の曲順もそのままに。双方向の同期も、削除を含めて。"
 card3_title: 推測はしない
 card3: "同期の前には必ずプレビュー。見つからなかった曲は確認リストへ：一度正しい曲を選べば、Trackhop が覚えておきます。"
 card4_title: アカウントはあなたのもの
 card4: ログインは各サービスの公式ページで。アクセストークンはスマホ上で暗号化され、外に出ることはありません。
 card5_title: 自分の音楽サーバーにも
-card5: "ストリーミングサービスに加えて、Navidrome などの Subsonic サーバー、Jellyfin、Plex にも対応。ファイルも：CSV、M3U、XML、JSON。 <a href='https://www.navidrome.org/apps/'>Navidrome のアプリカタログに掲載。</a>"
+card5: "ストリーミングサービスに加えて、Navidrome などの Subsonic サーバー、Jellyfin、Emby、Plex、Lyrion、Mopidy にも対応し、サーバーにまだない曲の一覧も。ファイルも：CSV、M3U、XML、JSON。 <a href='https://www.navidrome.org/apps/'>Navidrome のアプリカタログに掲載。</a>"
 card6_title: プレイリストツール
-card6: バックアップ、重複の削除、結合・分割・並べ替え、そして自分の AI キーで動くプレイリスト生成。
+card6: "バックアップ、重複の削除、結合・分割・並べ替え、自分の AI キーで動くプレイリスト生成。2.0 では、プレイリストのアーティストの新作・コンサート・セットリスト・レコードも加わりました。"
 one_title: "サービスがひとつだけでも"
 one_intro: "2つ目のサービスは要りません。Spotify、Apple Music、YouTube Music など1つしか使っていなくても、Trackhop がプレイリストを守ります。"
 one1_title: "Discover Weekly を保存"
@@ -138,3 +140,4 @@ instagram_alt: 'Instagram で Trackhop をフォロー'
 say_title: 'みんなの声'
 say_intro: 'Trackhop を紹介した動画や投稿へのコメントと、支援者からのメッセージ。名前と写真は隠しています。'
 say_alt: 'Trackhop を使う人のコメントと、自動同期と安全性をほめる支援者からの2つのメッセージ、そして X の投稿（"a game changer for music lovers who use multiple platforms"）'
+gallery_title: "のぞいてみる"

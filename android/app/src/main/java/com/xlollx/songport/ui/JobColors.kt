@@ -1,5 +1,6 @@
 package com.xlollx.songport.ui
 
+import androidx.compose.foundation.verticalScroll
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -179,18 +180,27 @@ fun jobInk(key: String?): Color? {
     return x
 }
 
-/** One dot per colour plus the default, the chosen one ticked. */
+/**
+ * One dot per colour plus the default, the chosen one ticked: the ready colours, then the colours
+ * the user saved as labels ([labels]), then any colour from a picker. [selected] is what the sync
+ * wears: a ready colour's key, a saved label's id, "#RRGGBB" for a colour with no name, or null.
+ */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun JobColorPicker(selected: String?, onSelect: (String?) -> Unit) {
+fun JobColorPicker(selected: String?, labels: List<com.xlollx.songport.model.Label> = emptyList(), onSelect: (String?) -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Swatch(MaterialTheme.colorScheme.surfaceContainerHighest, stringResource(R.string.job_color_default), selected == null) { onSelect(null) }
         JobColor.entries.forEach { c ->
-            Swatch(if (LocalAppDark.current) c.dark else c.light, stringResource(c.label), selected == c.key) { onSelect(c.key) }
+            val named = labels.firstOrNull { it.id == c.key }?.name.orEmpty()
+            Swatch(if (LocalAppDark.current) c.dark else c.light, named.ifEmpty { stringResource(c.label) }, selected == c.key) { onSelect(c.key) }
+        }
+        // The user's own colours saved with a name: ready like the others, so another sync gets the very same one.
+        labels.filter { JobColor.of(it.id) == null }.forEach { l ->
+            jobAccent(l.color)?.let { Swatch(it, l.name, selected == l.id) { onSelect(l.id) } }
         }
         // Last: any colour, from a picker. Shows the chosen one when it is a colour of the user's own.
         val own = CustomColor.parse(selected)
-        var open by remember { mutableStateOf(false) }
+        var open by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
         val ownName = name(own)
         Box(
             Modifier.size(40.dp).clip(CircleShape)
@@ -207,6 +217,13 @@ fun JobColorPicker(selected: String?, onSelect: (String?) -> Unit) {
     }
 }
 
+/** The colour (SyncJob.color) of what a picker holds: a label's colour, or the colour itself. */
+fun pickedColor(pick: String?, labels: List<com.xlollx.songport.model.Label>): String? =
+    if (pick == null || com.xlollx.songport.sync.Labels.isCustom(pick)) pick else com.xlollx.songport.sync.Labels.find(labels, pick)?.color
+
+/** The label (SyncJob.label) of what a picker holds: none for no colour and for a colour without a name. */
+fun pickedLabel(pick: String?): String? = pick?.takeUnless { com.xlollx.songport.sync.Labels.isCustom(it) }
+
 private val RAINBOW = listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)
 
 @Composable
@@ -219,11 +236,11 @@ private fun name(own: Color?): String = stringResource(R.string.job_color_custom
 @Composable
 fun CustomColorDialog(initial: Color, onDismiss: () -> Unit, onPick: (Color) -> Unit) {
     val hsv = remember { FloatArray(3).also { android.graphics.Color.colorToHSV(android.graphics.Color.rgb((initial.red * 255).toInt(), (initial.green * 255).toInt(), (initial.blue * 255).toInt()), it) } }
-    var hue by remember { mutableStateOf(hsv[0]) }
-    var sat by remember { mutableStateOf(hsv[1]) }
-    var value by remember { mutableStateOf(hsv[2]) }
+    var hue by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(hsv[0]) }
+    var sat by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(hsv[1]) }
+    var value by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(hsv[2]) }
     val color = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value)))
-    var hex by remember { mutableStateOf(CustomColor.key(color)) }
+    var hex by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(CustomColor.key(color)) }
     // Typing a code moves the square and the bar; moving them rewrites the code.
     fun setFrom(c: Color) {
         val out = FloatArray(3)
@@ -233,68 +250,85 @@ fun CustomColorDialog(initial: Color, onDismiss: () -> Unit, onPick: (Color) -> 
     val pure = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
     val svName = stringResource(R.string.job_color_shade)
     val hueName = stringResource(R.string.job_color_hue)
+    // A phone on its side: the dialog widens, the square and the bar stand beside the code and the
+    // preview, and the square is lower so both fit without scrolling.
+    val wide = LocalWindowLayout.current.short
+    val pickers: @Composable () -> Unit = {
+        // Saturation left to right, brightness top to bottom.
+        androidx.compose.foundation.Canvas(
+            Modifier.fillMaxWidth().height(if (wide) 120.dp else 180.dp).clip(RoundedCornerShape(12.dp))
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        fun at(o: Offset) { sat = (o.x / size.width).coerceIn(0f, 1f); value = 1f - (o.y / size.height).coerceIn(0f, 1f); hex = CustomColor.key(Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value)))) }
+                        at(down.position)
+                        drag(down.id) { at(it.position); it.consume() }
+                    }
+                }
+                .semantics { contentDescription = svName },
+        ) {
+            drawRect(Brush.horizontalGradient(listOf(Color.White, pure)))
+            drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
+            val c = Offset(sat * size.width, (1f - value) * size.height)
+            drawCircle(Color.White, 11.dp.toPx(), c, style = androidx.compose.ui.graphics.drawscope.Stroke(3.dp.toPx()))
+            drawCircle(Color.Black.copy(alpha = 0.4f), 13.dp.toPx(), c, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+        }
+        // Hue.
+        androidx.compose.foundation.Canvas(
+            Modifier.fillMaxWidth().height(28.dp).clip(RoundedCornerShape(14.dp))
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        fun at(o: Offset) { hue = (o.x / size.width).coerceIn(0f, 1f) * 360f; hex = CustomColor.key(Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value)))) }
+                        at(down.position)
+                        drag(down.id) { at(it.position); it.consume() }
+                    }
+                }
+                .semantics { contentDescription = hueName },
+        ) {
+            drawRect(Brush.horizontalGradient(RAINBOW))
+            val x = hue / 360f * size.width
+            drawCircle(Color.White, size.height / 2 - 2.dp.toPx(), Offset(x, size.height / 2), style = androidx.compose.ui.graphics.drawscope.Stroke(3.dp.toPx()))
+        }
+    }
+    val result: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(color).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)))
+            androidx.compose.material3.OutlinedTextField(
+                value = hex,
+                onValueChange = { t ->
+                    val v = ("#" + t.removePrefix("#").filter { it.isLetterOrDigit() }.take(6)).uppercase()
+                    hex = v
+                    CustomColor.parse(v)?.let { setFrom(it) }
+                },
+                label = { Text("HEX") }, singleLine = true, modifier = Modifier.weight(1f),
+            )
+        }
+        // How a card will wear it, in this theme: the same tint and text colour as the list.
+        val key = CustomColor.key(color)
+        Box(
+            Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(14.dp)).background(jobContainer(key))
+                .border(1.dp, jobAccent(key) ?: MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp)),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text(stringResource(R.string.job_color_preview), Modifier.padding(horizontal = 14.dp), color = jobInk(key) ?: MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleSmall)
+        }
+    }
+    val close = rememberDiscardGuard(CustomColor.key(color) != CustomColor.key(initial), onClose = onDismiss)
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = rememberStayingDismiss(close),
+        modifier = if (wide) WideDialog.modifier else Modifier,
+        properties = if (wide) WideDialog.properties else androidx.compose.ui.window.DialogProperties(),
         title = { Text(stringResource(R.string.job_color_custom)) },
         text = {
-            androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Saturation left to right, brightness top to bottom.
-                androidx.compose.foundation.Canvas(
-                    Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp))
-                        .pointerInput(Unit) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown()
-                                fun at(o: Offset) { sat = (o.x / size.width).coerceIn(0f, 1f); value = 1f - (o.y / size.height).coerceIn(0f, 1f); hex = CustomColor.key(Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value)))) }
-                                at(down.position)
-                                drag(down.id) { at(it.position); it.consume() }
-                            }
-                        }
-                        .semantics { contentDescription = svName },
-                ) {
-                    drawRect(Brush.horizontalGradient(listOf(Color.White, pure)))
-                    drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
-                    val c = Offset(sat * size.width, (1f - value) * size.height)
-                    drawCircle(Color.White, 11.dp.toPx(), c, style = androidx.compose.ui.graphics.drawscope.Stroke(3.dp.toPx()))
-                    drawCircle(Color.Black.copy(alpha = 0.4f), 13.dp.toPx(), c, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
-                }
-                // Hue.
-                androidx.compose.foundation.Canvas(
-                    Modifier.fillMaxWidth().height(28.dp).clip(RoundedCornerShape(14.dp))
-                        .pointerInput(Unit) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown()
-                                fun at(o: Offset) { hue = (o.x / size.width).coerceIn(0f, 1f) * 360f; hex = CustomColor.key(Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value)))) }
-                                at(down.position)
-                                drag(down.id) { at(it.position); it.consume() }
-                            }
-                        }
-                        .semantics { contentDescription = hueName },
-                ) {
-                    drawRect(Brush.horizontalGradient(RAINBOW))
-                    val x = hue / 360f * size.width
-                    drawCircle(Color.White, size.height / 2 - 2.dp.toPx(), Offset(x, size.height / 2), style = androidx.compose.ui.graphics.drawscope.Stroke(3.dp.toPx()))
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(color).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)))
-                    androidx.compose.material3.OutlinedTextField(
-                        value = hex,
-                        onValueChange = { t ->
-                            val v = ("#" + t.removePrefix("#").filter { it.isLetterOrDigit() }.take(6)).uppercase()
-                            hex = v
-                            CustomColor.parse(v)?.let { setFrom(it) }
-                        },
-                        label = { Text("HEX") }, singleLine = true, modifier = Modifier.weight(1f),
-                    )
-                }
-                // How a card will wear it, in this theme: the same tint and text colour as the list.
-                val key = CustomColor.key(color)
-                Box(
-                    Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(14.dp)).background(jobContainer(key))
-                        .border(1.dp, jobAccent(key) ?: MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Text(stringResource(R.string.job_color_preview), Modifier.padding(horizontal = 14.dp), color = jobInk(key) ?: MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleSmall)
-                }
+            if (wide) Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                androidx.compose.foundation.layout.Column(Modifier.weight(0.55f).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) { pickers() }
+                androidx.compose.foundation.layout.Column(Modifier.weight(0.45f).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) { result() }
+            }
+            // Scrolls where the dialog is lower than its content.
+            else androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                pickers()
+                result()
             }
         },
         confirmButton = { TextButton(onClick = { onPick(color) }) { Text(stringResource(R.string.ok)) } },
@@ -320,7 +354,7 @@ private fun Color.luminanceIsDark(): Boolean = (0.299f * red + 0.587f * green + 
 /** The picker on its own, from a card's menu. */
 @Composable
 fun JobColorDialog(selected: String?, onDismiss: () -> Unit, onSelect: (String?) -> Unit) {
-    AlertDialog(
+    FitDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.job_color)) },
         text = { JobColorPicker(selected) { onSelect(it); onDismiss() } },

@@ -3,6 +3,7 @@ package com.xlollx.songport.flows
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onLast
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.xlollx.songport.MainActivity
 import com.xlollx.songport.R
@@ -48,6 +49,7 @@ class FirstSyncFlowTest : FlowTest() {
         click(s(R.string.first_sync_create))
         waitText(s(R.string.editor_title_new))
         waitText(s(R.string.editor_source))
+        openSourcePicker()
         tileSelected("Spotify")
         // One service only: the hint, and a file on the phone as the target.
         waitText(s(R.string.editor_one_service_hint))
@@ -86,7 +88,11 @@ class OneServiceFlowTest : FlowTest() {
         // Target: Spotify and File, File chosen (the other side of the only service).
         val file = LocalFilesProvider.label(app)
         waitText(file)
-        compose.onAllNodes(hasClickAction() and hasText(file))[0].assertIsSelected()
+        // The target's field (the second) names File; in its picker's sheet, File is the mark selected.
+        tap(compose.onAllNodes(hasClickAction() and hasText(s(R.string.editor_playlist))).onLast(), "the target's field")
+        waitFor("File selected among the targets") {
+            compose.onAllNodes(hasClickAction() and hasText(file) and androidx.compose.ui.test.isSelected()).fetchSemanticsNodes().isNotEmpty()
+        }
 
         // The hint's button goes to Accounts, with the service grid open.
         click(s(R.string.empty_syncs_cta_accounts))

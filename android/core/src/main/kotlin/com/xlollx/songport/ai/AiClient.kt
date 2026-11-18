@@ -311,6 +311,9 @@ object AiClient {
     suspend fun check(c: Config): String? = try {
         val text = complete(c, "Reply with the single word OK.", "ping")
         if (text.isBlank()) "Empty answer" else null
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        // The screen went away mid-check: not an answer about the model, so not shown or kept.
+        throw e
     } catch (e: Exception) {
         e.message ?: e.javaClass.simpleName
     }
@@ -395,6 +398,63 @@ object AiClient {
             Vendor.CUSTOM -> openAiImage(c, c.imageModel, prompt, b64Param = true)
             else -> throw ProviderException("${c.vendor.label} does not make images")
         }
+    }
+
+    /** A Cloudflare account that draws covers for free with FLUX.1 schnell (Workers AI), whatever the chat AI is. */
+    data class ImageKey(val accountId: String, val token: String) {
+        val complete: Boolean get() = accountId.isNotBlank() && token.isNotBlank()
+    }
+
+    private const val IMAGE_STORE_ID = "__ai_images__"
+    /** Cloudflare's address; the tests point it elsewhere. */
+    @Volatile var cloudflareApi = "https://api.cloudflare.com"
+    const val CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
+
+    fun imageKey(env: Env): ImageKey? = env.tokens.get(IMAGE_STORE_ID)?.let { ImageKey(it.extra["accountId"].orEmpty(), it.accessToken) }?.takeIf { it.complete }
+
+    fun saveImageKey(env: Env, k: ImageKey?) =
+        if (k == null || !k.complete) env.tokens.clear(IMAGE_STORE_ID)
+        else env.tokens.set(IMAGE_STORE_ID, Tokens(accessToken = k.token.trim(), extra = mapOf("accountId" to k.accountId.trim())))
+
+    /** Whether a cover can be drawn by an AI at all: the 1.18 Cloudflare key, else [c]'s own provider. */
+    fun canDraw(env: Env, c: Config?): Boolean =
+        (com.xlollx.songport.Features.v2 && imageKey(env) != null) || (c != null && imageSupport(c) == ImageSupport.YES)
+
+    /**
+     * A cover for [prompt]: drawn by the Cloudflare key when there is one (1.18), else, or when it fails,
+     * by [c]'s own provider when it draws; the first error when neither could.
+     */
+    suspend fun drawCover(env: Env, c: Config?, prompt: String): ByteArray {
+        val cf = imageKey(env)?.takeIf { com.xlollx.songport.Features.v2 }
+        val own = c?.takeIf { imageSupport(it) == ImageSupport.YES }
+        if (cf == null) return generateImage(own ?: throw ProviderException("No AI that draws images"), prompt)
+        return try { cloudflareImage(cf, prompt) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (x: Exception) {
+            // A timeout, an error page that is not JSON, a bad picture: the own AI is tried for those too.
+            val e = x as? ProviderException ?: ProviderException("Cloudflare: ${x.message ?: x.javaClass.simpleName}")
+            if (own == null) throw e
+            try { generateImage(own, prompt) } catch (c: kotlinx.coroutines.CancellationException) { throw c } catch (_: Exception) { throw e }
+        }
+    }
+
+    /** FLUX.1 schnell on Workers AI: a JPEG, base64 in "result.image". */
+    suspend fun cloudflareImage(k: ImageKey, prompt: String): ByteArray = withContext(Dispatchers.IO) {
+        val url = "${cloudflareApi.trimEnd('/')}/client/v4/accounts/${Http.enc(k.accountId.trim())}/ai/run/$CLOUDFLARE_IMAGE_MODEL"
+        // The model reads at most 2048 characters; 8 steps is its best (and slowest) picture.
+        val body = jsonObj("prompt" to prompt.take(2048), "steps" to 8)
+        val (code, text) = postImage(url, mapOf("Authorization" to "Bearer ${k.token.trim()}"), body.toString())
+        if (code !in 200..299) {
+            val why = parseJson(text)["errors"][0]["message"].str?.take(200)
+            throw ProviderException(
+                when (code) {
+                    401, 403 -> "Cloudflare refused the token (it needs the Workers AI permission, on this account)"
+                    404 -> "Cloudflare: no account with this Account ID"
+                    429 -> "Cloudflare: today's free images are used up, try again tomorrow"
+                    else -> "Cloudflare $code" + (why?.let { ": $it" } ?: "")
+                },
+            )
+        }
+        val data = parseJson(text)["result"]["image"].str ?: throw ProviderException("Cloudflare made no image")
+        java.util.Base64.getDecoder().decode(data)
     }
 
     private fun openAiImage(c: Config, model: String, prompt: String, b64Param: Boolean): ByteArray {

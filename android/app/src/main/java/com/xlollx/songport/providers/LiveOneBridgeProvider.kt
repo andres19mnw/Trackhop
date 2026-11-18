@@ -26,7 +26,8 @@ import kotlinx.serialization.json.JsonElement
  * added to. Playlists of one's own need LiveOne's paid plan and are not handled yet; removing from
  * the presets is not either. Same service id as the server's connector, so a sync means the same.
  */
-class LiveOneBridgeProvider(override val slot: String = "") : MusicProvider, WebAccounts.Connector {
+class LiveOneBridgeProvider(override val slot: String = "") : MusicProvider, WebAccounts.Connector, StartsOver {
+    override val beta = true
     override val serviceId = SERVICE
     override val displayName = if (BridgePlugin.builtIn) "LiveOne (web)" else "LiveOne (plugin)"
     override val route: MusicProvider.Route? get() = MusicProvider.Route.EASY
@@ -34,7 +35,6 @@ class LiveOneBridgeProvider(override val slot: String = "") : MusicProvider, Web
     override val familyName: String get() = "LiveOne"
     override val brandColor = 0xFFE4002B
     override val noteName = "provider_note_liveone"
-    override val alpha = true
     override val supportsLikedSongs = true
     override val supportsLikedTarget = true
     /** Another account: where the WebView keeps profiles apart and the connectors take a slot (see [WebAccounts]). */
@@ -57,6 +57,8 @@ class LiveOneBridgeProvider(override val slot: String = "") : MusicProvider, Web
     override suspend fun completeAuth(ctx: Env, params: Map<String, String>, verifier: String) { /* the sign-in screen keeps the session itself */ }
     override fun disconnect(ctx: Env) { runCatching { call(ctx, "liveone.disconnect") } }
 
+    // Start over: the Bridge forgets the session and the sites' data; an older one only signs out.
+    override fun startOver(ctx: Env) { runCatching { call(ctx, "liveone.reset") }.onFailure { disconnect(ctx) } }
     /** No playlists of one's own on a free account: the presets are the liked songs. */
     override suspend fun playlists(ctx: Env): List<Playlist> = emptyList()
 

@@ -7,6 +7,7 @@ import android.app.LocaleManager
 import android.app.UiAutomation
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Build
 import android.os.LocaleList
 import android.util.Log
@@ -20,14 +21,18 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.printToString
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
@@ -68,8 +73,17 @@ abstract class FlowTest {
     /** Who is signed in when the test starts; a test can change it before [launch]. */
     protected open val connectedAtStart: List<String> = listOf("spotify", "deezer")
 
+    /**
+     * Settings › Developer options › Preview upcoming features at the start: the tests of 1.18's features
+     * turn it on (they are hidden in the build otherwise, see com.xlollx.songport.Features).
+     */
+    protected open val preview2: Boolean = false
+
     @Before
     fun baseSetUp() {
+        // The tests' services are fakes: whatever the emulator's network says, the app is online here
+        // (OfflineFlowTest turns it off on purpose).
+        com.xlollx.songport.net.Connectivity.simulate(true)
         com.xlollx.songport.auth.AuthEvents.consume()
         // The guided tour lives in the process: none left running from the test before.
         com.xlollx.songport.ui.Tour.step.value = null
@@ -84,6 +98,8 @@ abstract class FlowTest {
         FakeWorld.install()
         File(app.filesDir, "csv").deleteRecursively()
         com.xlollx.songport.ai.AiClient.clear(app)
+        // The poster's choices (QR, layout, art) start from their defaults in every test.
+        app.getSharedPreferences("poster", Context.MODE_PRIVATE).edit().clear().commit()
         store.update { StoreData(settings = baseSettings()) }
         store.flush()
     }
@@ -98,6 +114,7 @@ abstract class FlowTest {
         whatsNewSeen = com.xlollx.songport.ui.WhatsNew.newestVersion,
         // The "Did you know?" pill only where TipsFlowTest asks for it.
         tipsPillDismissed = true,
+        preview2 = preview2,
     )
 
     // ------------------------------------------------------------------ the activity
@@ -139,13 +156,31 @@ abstract class FlowTest {
 
     protected fun main(): MainActivity = resumed() as? MainActivity ?: throw AssertionError("MainActivity is not on screen")
 
-    /** Rotates the screen and waits for the activity to be recreated. */
+    /** Rotates the screen and waits until the app is drawn turned (MainActivity is not remade for it: the same one). */
     protected fun rotate(to: Int) {
         val before = resumed()
+        val was = configOf(before)
         setRotation(to)
         rotatedAway = to != UiAutomation.ROTATION_FREEZE_0
-        waitForNewMain(before)
+        waitForConfigChange(before, was)
         compose.waitForIdle()
+    }
+
+    protected fun configOf(a: Activity?): Configuration? = a?.let { Configuration(it.resources.configuration) }
+
+    /**
+     * After the phone's configuration changed (turned, text size, window size, language): the activity
+     * on screen has the change, whether it is the same one (MainActivity handles the screen, the
+     * theme and the text size itself) or a new one (a language).
+     */
+    protected fun waitForConfigChange(before: Activity?, was: Configuration?, ms: Long = 30_000): MainActivity {
+        val end = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < end) {
+            val now = resumed()
+            if (now is MainActivity && (now !== before || was == null || now.resources.configuration.diff(was) != 0)) return now
+            Thread.sleep(100)
+        }
+        throw AssertionError("MainActivity did not take the new configuration (resumed: ${resumed()?.javaClass?.simpleName})")
     }
 
     /** The test left the screen turned or the app in another language: putting them back recreates the activity. */
@@ -179,6 +214,57 @@ abstract class FlowTest {
 
     protected fun waitText(text: String, ms: Long = 15_000, substring: Boolean = false) =
         waitFor("text \"$text\"", ms) { compose.onAllNodesWithText(text, substring = substring, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+
+    /** A tile of the editor's source or target row, which scrolls sideways: off screen on a phone, the row goes to it first. */
+    /**
+     * The sync editor's source picker: the Source card's playlist field opens its sheet, where the
+     * services' marks, the link, Shazam and the radio are.
+     */
+    protected fun openSourcePicker() {
+        waitText(s(com.xlollx.songport.R.string.editor_playlist))
+        click(s(com.xlollx.songport.R.string.editor_playlist))
+        // The sheet is titled as the step is: two "Source" on screen.
+        waitFor("the source picker's sheet") { compose.onAllNodesWithText(s(com.xlollx.songport.R.string.editor_source)).fetchSemanticsNodes().size >= 2 }
+    }
+
+    /**
+     * The sync editor's target picker: the Target card's playlist field (the last "Playlist" field on
+     * the page) opens its sheet, with the services that can be written to.
+     */
+    protected fun openTargetPicker() {
+        val field = hasClickAction() and hasText(s(com.xlollx.songport.R.string.editor_playlist))
+        waitFor("the target's field") { compose.onAllNodes(field).fetchSemanticsNodes().isNotEmpty() }
+        tap(compose.onAllNodes(field).onLast(), "the target's field")
+        // The sheet is titled as the step is: two "Target" on screen.
+        waitFor("the target picker's sheet") { compose.onAllNodesWithText(s(com.xlollx.songport.R.string.editor_target)).fetchSemanticsNodes().size >= 2 }
+    }
+
+    /** The sheet's "Create a new playlist" row (the page's switch says the same, but is not a row to select). */
+    protected val newPlaylistRow: SemanticsMatcher
+        get() = hasClickAction() and hasText(s(com.xlollx.songport.R.string.editor_new_playlist)) and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)
+
+    /** The target chosen through its picker: [service]'s mark, then [playlist] there, or a new playlist when null. */
+    protected fun chooseTarget(service: String, playlist: String? = null) {
+        openTargetPicker()
+        clickTile(service)
+        if (playlist == null) {
+            waitFor("the new playlist row") { compose.onAllNodes(newPlaylistRow).fetchSemanticsNodes().isNotEmpty() }
+            tap(compose.onAllNodes(newPlaylistRow).onFirst(), "Create a new playlist")
+        } else {
+            waitText(playlist)
+            click(playlist)
+        }
+        waitFor("the target picker closed") { compose.onAllNodesWithText(s(com.xlollx.songport.R.string.editor_target)).fetchSemanticsNodes().size < 2 }
+    }
+
+    protected fun clickTile(label: String) {
+        val tile = androidx.compose.ui.test.hasText(label)
+        compose.onAllNodes(androidx.compose.ui.test.hasScrollToNodeAction()).fetchSemanticsNodes().indices.forEach { i ->
+            runCatching { compose.onAllNodes(androidx.compose.ui.test.hasScrollToNodeAction())[i].performScrollToNode(tile) }
+        }
+        compose.waitForIdle()
+        click(label)
+    }
 
     protected fun waitGone(text: String, ms: Long = 15_000, substring: Boolean = false) =
         waitFor("no text \"$text\"", ms) { compose.onAllNodesWithText(text, substring = substring, useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
@@ -226,6 +312,8 @@ abstract class FlowTest {
     protected fun tap(n: SemanticsNodeInteraction, what: String) {
         runCatching { n.performScrollTo() }
         clearOfBottomBar(n)
+        clearOfPinnedPill(n)
+        settle(n)
         try {
             n.performClick()
         } catch (e: AssertionError) {
@@ -236,6 +324,57 @@ abstract class FlowTest {
         }
         compose.waitForIdle()
     }
+
+    /**
+     * Waits until [n] stands still. A page ends above the keyboard, so while the keyboard slides in
+     * or out (a field was just typed in) the page is still moving and a touch aimed at where the
+     * node was would land beside it; should the move push the node out of view, it is scrolled to again.
+     */
+    private fun settle(n: SemanticsNodeInteraction) {
+        // A field has the focus and the keyboard is not up yet: it is on its way (it takes the
+        // emulator up to a second), and the page will move when it arrives.
+        val typing = runCatching {
+            compose.onAllNodes(hasSetTextAction() and SemanticsMatcher.expectValue(SemanticsProperties.Focused, true)).fetchSemanticsNodes().isNotEmpty()
+        }.getOrDefault(false)
+        if (typing && keyboardHeight() == 0) {
+            val shown = System.currentTimeMillis() + 2_000
+            while (keyboardHeight() == 0 && System.currentTimeMillis() < shown) Thread.sleep(50)
+        }
+        var last = (runCatching { n.fetchSemanticsNode().boundsInWindow }.getOrNull() ?: return) to keyboardHeight()
+        var still = 0
+        var moves = 0
+        var stuck = 0
+        val end = System.currentTimeMillis() + 5_000
+        while (still < 3 && System.currentTimeMillis() < end) {
+            Thread.sleep(80)
+            compose.waitForIdle()
+            val node = runCatching { n.fetchSemanticsNode() }.getOrNull() ?: return
+            val now = node.boundsInWindow to keyboardHeight()
+            // In view: what shows of it (its bounds, cut to its scroller) is all of it. The field being
+            // typed in is kept in view by the page as the keyboard arrives, which can push the node out again.
+            val inView = node.boundsInWindow.height >= node.size.height - 1 && node.boundsInWindow.width >= node.size.width - 1
+            when {
+                now == last && inView -> still++
+                // Cut by something that does not scroll (a card under the pinned pill): as much in view as it gets.
+                now == last && ++stuck >= 4 -> break
+                else -> { still = 0; moves++; last = now; runCatching { n.performScrollTo() }; clearOfBottomBar(n); clearOfPinnedPill(n) }
+            }
+        }
+        if (moves > 0) log("settle: moved $moves times, in the end ${runCatching { n.fetchSemanticsNode().boundsInWindow }.getOrNull()} with the keyboard at ${keyboardHeight()} px, still=$still")
+    }
+
+    /** How much of the window the keyboard covers now, in pixels (0 = not shown). */
+    private fun keyboardHeight(): Int {
+        var h = 0
+        runCatching {
+            val a = resumed() ?: return 0
+            instr.runOnMainSync {
+                h = androidx.core.view.ViewCompat.getRootWindowInsets(a.window.decorView)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())?.bottom ?: 0
+            }
+        }
+        return h
+    }
+
 
     private fun topOf(n: SemanticsNode): SemanticsNode { var p = n; while (p.parent != null) p = p.parent!!; return p }
 
@@ -248,6 +387,8 @@ abstract class FlowTest {
         val root = topOf(node).id
         val tabs = compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).fetchSemanticsNodes().filter { topOf(it).id == root }
         if (tabs.any { it.id == node.id }) return
+        // On its side (and on a tablet) the tabs are a rail at the left: nothing lies over the end of the page.
+        if (tabs.map { it.boundsInRoot.top }.distinct().size > 1) return
         val top = tabs.minOfOrNull { it.boundsInRoot.top } ?: return
         if (node.boundsInRoot.bottom <= top) return
         var p = node.parent
@@ -255,6 +396,36 @@ abstract class FlowTest {
         val scroll = p?.config?.getOrNull(SemanticsActions.ScrollBy)?.action ?: return
         val dy = node.boundsInRoot.bottom - top + 24 * app.resources.displayMetrics.density
         compose.runOnIdle { scroll(0f, dy) }
+        compose.waitForIdle()
+    }
+
+    /** Where the pinned Sync-all pill's background ends (its fade included), in root pixels; null while it is not pinned. */
+    protected fun pinnedPillBottom(): Float? =
+        compose.onAllNodes(androidx.compose.ui.test.hasTestTag(com.xlollx.songport.ui.RUN_ALL_BAND_TAG), useUnmergedTree = true)
+            .fetchSemanticsNodes(atLeastOneRootRequired = false).firstOrNull()
+            ?.let { it.boundsInRoot.bottom + com.xlollx.songport.ui.PILL_FADE.value * app.resources.displayMetrics.density }
+
+    /**
+     * performScrollTo leaves a node scrolled up at the top edge of the sync list, which is under the
+     * pinned Sync-all pill and its background (they take the touch, the card beneath shows nowhere):
+     * the list moves it down to below the pill's fade.
+     */
+    protected fun clearOfPinnedPill(n: SemanticsNodeInteraction) {
+        val node = runCatching { n.fetchSemanticsNode() }.getOrNull() ?: return
+        val root = topOf(node).id
+        val band = compose.onAllNodes(androidx.compose.ui.test.hasTestTag(com.xlollx.songport.ui.RUN_ALL_BAND_TAG), useUnmergedTree = true)
+            .fetchSemanticsNodes(atLeastOneRootRequired = false).firstOrNull { topOf(it).id == root } ?: return
+        // The pill and its "?" are in the band: they are what is tapped there.
+        var a: SemanticsNode? = node
+        while (a != null) { if (a.id == band.id) return; a = a.parent }
+        val density = app.resources.displayMetrics.density
+        val bottom = band.boundsInRoot.bottom + com.xlollx.songport.ui.PILL_FADE.value * density
+        if (node.boundsInRoot.top >= bottom || node.boundsInRoot.bottom <= band.boundsInRoot.top) return
+        var p = node.parent
+        while (p != null && !p.config.contains(SemanticsActions.ScrollBy)) p = p.parent
+        val scroll = p?.config?.getOrNull(SemanticsActions.ScrollBy)?.action ?: return
+        val dy = bottom - node.boundsInRoot.top + 8 * density
+        compose.runOnIdle { scroll(0f, -dy) }
         compose.waitForIdle()
     }
 
@@ -269,8 +440,8 @@ abstract class FlowTest {
     /**
      * Puts rotation and language back, then waits until the app is still. This runs inside the compose
      * rule, whose teardown drains the frames still queued on its test clock from the instrumentation
-     * thread, laying out every compose root there: had the phone just been turned back, the recreated
-     * activity would be in its own first layout on the main thread at that moment, and Compose throws
+     * thread, laying out every compose root there: had the phone just been turned back, the activity
+     * (recreated for a language, redrawn for a rotation) would be in its own layout on the main thread at that moment, and Compose throws
      * "performMeasureAndLayout called during measure layout" (CardsFlowTest.twoSharedLinksAreComparedAtOnce
      * on API 34, ending in landscape). Waiting for the new activity and for idle here leaves no frame
      * queued and no layout under way.
@@ -278,10 +449,11 @@ abstract class FlowTest {
     private fun restoreAndSettle() {
         val recreates = rotatedAway || (localeChanged && Build.VERSION.SDK_INT >= 33)
         val before = if (recreates) runCatching { resumed() }.getOrNull() else null
+        val was = configOf(before)
         if (rotatedAway) setRotation(UiAutomation.ROTATION_FREEZE_0)
         if (localeChanged) runCatching { setLocale("") }
         rotatedAway = false; localeChanged = false
-        if (before is MainActivity) runCatching { waitForNewMain(before, ms = 10_000) }
+        if (before is MainActivity) runCatching { waitForConfigChange(before, was, ms = 10_000) }
         runCatching { compose.waitForIdle() }
     }
 

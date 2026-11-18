@@ -1,6 +1,10 @@
 package com.xlollx.songport.ui
 
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Upgrade
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Style
 import com.xlollx.songport.ai.config
 import com.xlollx.songport.providers.*
 import android.app.Activity
@@ -40,7 +44,10 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.DeveloperMode
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.EditNotifications
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Extension
@@ -54,6 +61,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MusicOff
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Notifications
@@ -62,11 +70,13 @@ import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.StarRate
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Verified
-import androidx.compose.material.icons.filled.VolunteerActivism
 import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -93,7 +103,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.xlollx.songport.BuildConfig
 import com.xlollx.songport.R
-import com.xlollx.songport.ads.Ads
 import com.xlollx.songport.auth.LockActivity
 import com.xlollx.songport.data.Store
 import com.xlollx.songport.data.StoreData
@@ -105,14 +114,11 @@ import com.xlollx.songport.sync.Scheduler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Apre la pagina Ko-fi: donazione volontaria, nessuna funzione legata. */
-fun openSupport(ctx: android.content.Context) = openUrl(ctx, BuildConfig.KOFI_URL)
-
-fun openSponsors(ctx: android.content.Context) = openUrl(ctx, BuildConfig.SPONSORS_URL)
-
+/** Opens a web page in the browser: http and https only (links from other services' answers come here too). */
 internal fun openUrl(ctx: android.content.Context, url: String) {
-    if (url.isBlank()) return
-    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+    val uri = runCatching { Uri.parse(url.trim()) }.getOrNull() ?: return
+    if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return
+    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
 }
 
 internal const val SOURCE_URL = "https://github.com/xlollx/Trackhop"
@@ -150,9 +156,10 @@ fun SettingsScreen(
     onAutomationFocused: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
-    val privacyRequired by Ads.privacyOptionsRequired.collectAsState()
     val scope = rememberCoroutineScope()
     val settings = data.settings
+    // The release switch: what only 1.18's features use is offered with them (Features).
+    val v2 = com.xlollx.songport.Features.v2(settings)
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -165,7 +172,7 @@ fun SettingsScreen(
             val themeLabels = ThemeMode.entries.map {
                 it to stringResource(when (it) { ThemeMode.SYSTEM -> R.string.settings_theme_system; ThemeMode.LIGHT -> R.string.settings_theme_light; ThemeMode.DARK -> R.string.settings_theme_dark })
             }
-            var themeOpen by remember { mutableStateOf(false) }
+            var themeOpen by rememberSaveable { mutableStateOf(false) }
             PrefRow(Icons.Filled.Palette, stringResource(R.string.settings_theme), themeLabels.first { it.first == mode }.second) { themeOpen = true }
             if (themeOpen) ChoiceDialog(stringResource(R.string.settings_theme), themeLabels, mode, onDismiss = { themeOpen = false }) { m ->
                 themeOpen = false
@@ -177,8 +184,70 @@ fun SettingsScreen(
                 stringResource(if (dynamicColorAvailable) R.string.settings_dynamic_color_summary else R.string.settings_dynamic_color_unavailable),
                 settings.dynamicColor && dynamicColorAvailable, enabled = dynamicColorAvailable,
             ) { v -> store.updateSettings { it.copy(dynamicColor = v) } }
+            // Everything about how the sync cards look, in one row that opens: the list stays short.
+            var cardStyleOpen by rememberSaveable { mutableStateOf(false) }
+            PrefRow(Icons.Filled.Style, stringResource(R.string.settings_card_style), stringResource(R.string.settings_card_style_summary), trailing = { ExpandMark(cardStyleOpen) }) { cardStyleOpen = !cardStyleOpen }
+            if (cardStyleOpen) {
+            // How coloured sync cards wear their colour, and how their last runs show.
+            val accentChoices = CardAccent.entries.map { it.key to stringResource(it.label) }
+            var accentOpen by rememberSaveable { mutableStateOf(false) }
+            PrefRow(Icons.Filled.Palette, stringResource(R.string.settings_card_accent), accentChoices.firstOrNull { it.first == settings.cardAccent }?.second ?: accentChoices.first().second) { accentOpen = true }
+            if (accentOpen) ChoiceDialog(stringResource(R.string.settings_card_accent), accentChoices, settings.cardAccent, onDismiss = { accentOpen = false },
+                note = stringResource(R.string.card_accent_note), trailing = { AccentPreview(CardAccent.entries.firstOrNull { a -> a.key == it } ?: CardAccent.CLASSIC) }) { k ->
+                accentOpen = false
+                store.updateSettings { it.copy(cardAccent = k) }
+            }
+            // The glow of the two services' colours: which cards wear it (each card can choose otherwise in its Style).
+            val glowChoices = listOf(
+                "plain" to stringResource(R.string.route_glow_plain), "all" to stringResource(R.string.route_glow_all), "off" to stringResource(R.string.route_glow_off),
+            )
+            var glowOpen by rememberSaveable { mutableStateOf(false) }
+            PrefRow(Icons.Filled.Palette, stringResource(R.string.settings_route_glow), glowChoices.firstOrNull { it.first == settings.routeGlowMode }?.second ?: glowChoices.first().second) { glowOpen = true }
+            if (glowOpen) ChoiceDialog(stringResource(R.string.settings_route_glow), glowChoices, settings.routeGlowMode, onDismiss = { glowOpen = false },
+                note = stringResource(R.string.route_glow_note), trailing = { RouteGlowPreview(it) }) { k ->
+                glowOpen = false
+                store.updateSettings { it.copy(routeGlowMode = k) }
+            }
+            val placeChoices = listOf("footer" to stringResource(R.string.status_place_footer), "badge" to stringResource(R.string.status_place_badge))
+            var placeOpen by rememberSaveable { mutableStateOf(false) }
+            PrefRow(Icons.Filled.Palette, stringResource(R.string.settings_status_place), placeChoices.firstOrNull { it.first == settings.cardStatusPlace }?.second ?: placeChoices.first().second) { placeOpen = true }
+            if (placeOpen) ChoiceDialog(stringResource(R.string.settings_status_place), placeChoices, settings.cardStatusPlace, onDismiss = { placeOpen = false },
+                note = stringResource(R.string.status_place_note), trailing = { StatusPlacePreview(it) }) { k ->
+                placeOpen = false
+                store.updateSettings { it.copy(cardStatusPlace = k) }
+            }
+            val historyChoices = RunHistoryStyle.entries.map { it.key to stringResource(it.label) }
+            var historyOpen by rememberSaveable { mutableStateOf(false) }
+            PrefRow(Icons.Filled.Palette, stringResource(R.string.settings_run_history), historyChoices.firstOrNull { it.first == settings.runHistoryStyle }?.second ?: historyChoices.first().second) { historyOpen = true }
+            if (historyOpen) ChoiceDialog(stringResource(R.string.settings_run_history), historyChoices, settings.runHistoryStyle, onDismiss = { historyOpen = false },
+                note = stringResource(R.string.run_history_note), trailing = { RunHistoryPreview(RunHistoryStyle.of(it)) }) { k ->
+                historyOpen = false
+                store.updateSettings { it.copy(runHistoryStyle = k) }
+            }
+            // How big the sync cards are, each choice with a small picture of how many fit; and the tiles instead of cards.
+            val sizeChoices = CardSize.entries.map { it to stringResource(it.label) }
+            var sizeOpen by rememberSaveable { mutableStateOf(false) }
+            val size = CardSize.of(settings.cardSize)
+            PrefRow(Icons.Filled.Palette, stringResource(R.string.settings_card_size), stringResource(size.label)) { sizeOpen = true }
+            if (sizeOpen) ChoiceDialog(
+                stringResource(R.string.settings_card_size), sizeChoices, size, onDismiss = { sizeOpen = false },
+                note = stringResource(R.string.card_size_landscape), trailing = { CardSizePreview(it) },
+            ) { k ->
+                sizeOpen = false
+                store.updateSettings { it.copy(cardSize = k.key) }
+            }
+            PrefSwitch(Icons.Filled.GridView, stringResource(R.string.settings_minimal_view), stringResource(R.string.settings_minimal_view_summary), settings.minimalSyncs) { v ->
+                store.updateSettings { it.copy(minimalSyncs = v) }
+            }
+            PrefSwitch(Icons.Filled.Star, stringResource(R.string.settings_favorites_on_top), stringResource(R.string.settings_favorites_on_top_summary), settings.favoritesOnTop) { v ->
+                store.updateSettings { it.copy(favoritesOnTop = v) }
+            }
+            PrefSwitch(Icons.Filled.Dashboard, stringResource(R.string.settings_new_look), stringResource(R.string.settings_new_look_summary), settings.newLook, help = { HelpButton(Helps.newLook) }) { v ->
+                store.updateSettings { it.copy(newLook = v) }
+            }
+            }
             // Chosen in-app and applied at once (the activity is recreated), also while a sync runs.
-            var langOpen by remember { mutableStateOf(false) }
+            var langOpen by rememberSaveable { mutableStateOf(false) }
             val currentTag = AppLocale.current(ctx)
             PrefRow(Icons.Filled.Language, stringResource(R.string.settings_language), AppLocale.label(ctx, currentTag)) { langOpen = true }
             if (langOpen) ChoiceDialog(
@@ -190,8 +259,12 @@ fun SettingsScreen(
                 langOpen = false
                 if (tag != currentTag) (ctx as? Activity)?.let { AppLocale.set(it, tag) }
             }
-            PrefSwitch(Icons.Filled.Dashboard, stringResource(R.string.settings_new_look), stringResource(R.string.settings_new_look_summary), settings.newLook, help = { HelpButton(Helps.newLook) }) { v ->
-                store.updateSettings { it.copy(newLook = v) }
+            // The pictures of Discover's Concerts and Records & merch, which are 1.18's.
+            if (v2) PrefSwitch(Icons.Filled.Image, stringResource(R.string.settings_discover_images), stringResource(R.string.settings_discover_images_summary), settings.discoverImages) { v ->
+                store.updateSettings { it.copy(discoverImages = v) }
+            }
+            if (v2) PrefSwitch(Icons.Filled.Wifi, stringResource(R.string.settings_discover_images_wifi), stringResource(R.string.settings_discover_images_wifi_summary), settings.discoverImagesWifiOnly, enabled = settings.discoverImages) { v ->
+                store.updateSettings { it.copy(discoverImagesWifiOnly = v) }
             }
         }
 
@@ -219,6 +292,10 @@ fun SettingsScreen(
             PrefSwitch(Icons.Filled.Notifications, stringResource(R.string.settings_notifications), stringResource(R.string.settings_notifications_summary), settings.notifyOnSync, help = { HelpButton(Helps.notifications) }) { v ->
                 store.updateSettings { it.copy(notifyOnSync = v) }
             }
+            // Telegram, ntfy, Discord…: the same channels as Docker and Desktop (core's Notify).
+            var channelsOpen by rememberSaveable { mutableStateOf(false) }
+            PrefRow(Icons.Filled.Campaign, stringResource(R.string.notify_channels_title), stringResource(R.string.notify_channels_summary)) { channelsOpen = true }
+            if (channelsOpen) NotifyChannelsScreen(onClose = { channelsOpen = false })
             // Tasker, MacroDroid…: the commands and the end-of-sync event, off until turned on.
             val automationView = remember { BringIntoViewRequester() }
             val flash = remember { Animatable(0f) }
@@ -261,6 +338,9 @@ fun SettingsScreen(
             PrefSwitch(Icons.Filled.MusicOff, stringResource(R.string.settings_unplayable), stringResource(R.string.settings_unplayable_summary), settings.unplayableCheck) { v ->
                 store.updateSettings { it.copy(unplayableCheck = v) }; Scheduler.applyUnplayable(ctx)
             }
+            PrefSwitch(Icons.Filled.NotificationsActive, stringResource(R.string.alerts_master), stringResource(R.string.alerts_master_summary), settings.artistAlerts) { v ->
+                store.updateSettings { it.copy(artistAlerts = v) }; Scheduler.applyArtistAlerts(ctx)
+            }
             PrefRow(
                 Icons.Filled.EditNotifications, stringResource(R.string.settings_notifications_system), stringResource(R.string.settings_notifications_system_desc),
                 trailing = { ExternalMark() },
@@ -294,13 +374,13 @@ fun SettingsScreen(
                     store.updateSettings { it.copy(appLock = v) }
                 }
             }
-            var factsOpen by remember { mutableStateOf(false) }
+            var factsOpen by rememberSaveable { mutableStateOf(false) }
             PrefRow(Icons.Filled.Security, stringResource(R.string.security_title), stringResource(R.string.settings_security_summary)) { factsOpen = true }
-            if (factsOpen) AlertDialog(
+            if (factsOpen) FitDialog(
                 onDismissRequest = { factsOpen = false },
                 title = { Text(stringResource(R.string.security_title)) },
                 text = {
-                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         listOf(R.string.security_fact_1, R.string.security_fact_2, R.string.security_fact_3, R.string.security_fact_4).forEach {
                             Row(verticalAlignment = Alignment.Top) {
                                 Icon(Icons.Filled.Lock, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 2.dp).size(18.dp))
@@ -312,12 +392,6 @@ fun SettingsScreen(
                 },
                 confirmButton = { TextButton(onClick = { factsOpen = false }) { Text(stringResource(R.string.ok)) } },
             )
-            // Play build only, and only where the consent rules ask for it (UMP decides).
-            if (privacyRequired) {
-                PrefRow(Icons.Filled.PrivacyTip, stringResource(R.string.settings_privacy_options), null, trailing = { ExternalMark() }) {
-                    (ctx as? Activity)?.let { Ads.showPrivacyOptions(it) }
-                }
-            }
         }
 
         // ---------------------------------------------------------------- Plugins
@@ -332,7 +406,7 @@ fun SettingsScreen(
                     BridgePlugin.installedPlugins(ctx).map { it to if (it.packageName == active) services else emptyList() }
                 }
             }
-            // What a plugin is, above the list; nothing about where plugins come from.
+            // What a plugin is, above the list; no plugin is named or linked, only Trackhop's own source.
             PrefSection(stringResource(R.string.plugins_title), accent = JobColor.PINK, description = stringResource(R.string.plugins_desc), footer = stringResource(R.string.plugins_where), help = { HelpButton(Helps.plugins) }) {
                 val list = plugins
                 if (list != null && list.isEmpty()) PrefRow(Icons.Filled.Extension, stringResource(R.string.plugins_none))
@@ -347,6 +421,8 @@ fun SettingsScreen(
                         onClick = launch?.let { i -> { runCatching { ctx.startActivity(i) } } },
                     )
                 }
+                // Trackhop's own source, where the connector interface is documented: never a plugin's page.
+                PrefRow(Icons.Filled.Code, stringResource(R.string.plugins_source_title), stringResource(R.string.plugins_source_desc), trailing = { ExternalMark() }) { openUrl(ctx, SOURCE_URL) }
             }
         }
 
@@ -364,10 +440,36 @@ fun SettingsScreen(
                 trailing = { HelpButton(Helps.ai) },
             ) { aiOpen = true }
 
-            var keysOpen by remember { mutableStateOf(false) }
+            // Coordinate with my server: this phone and the user's Trackhop server take turns on a playlist.
+            var serverLocks by remember { mutableStateOf(com.xlollx.songport.sync.ServerLocks.config(com.xlollx.songport.platform.AndroidEnv.of(ctx))) }
+            var serverLocksOpen by rememberSaveable { mutableStateOf(false) }
+            if (serverLocksOpen) ServerLocksDialog(serverLocks, onDismiss = { serverLocksOpen = false }) { serverLocks = it; serverLocksOpen = false }
+            // 1.18's (Features); one already set up stays here, to change or turn off.
+            if (v2 || serverLocks != null) PrefRow(
+                Icons.Filled.Dns, stringResource(R.string.server_locks_title),
+                serverLocks?.address?.removePrefix("http://")?.removePrefix("https://") ?: stringResource(R.string.server_locks_desc),
+                trailing = { HelpButton(Helps.serverLocks) },
+            ) { serverLocksOpen = true }
+
+            var keysOpen by rememberSaveable { mutableStateOf(false) }
             PrefRow(Icons.Filled.VpnKey, stringResource(R.string.settings_advanced), stringResource(R.string.settings_keys_summary), trailing = { ExpandMark(keysOpen) }) { keysOpen = !keysOpen }
             if (keysOpen) {
                 PrefBlock { Text(stringResource(R.string.settings_advanced_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                // Concerts, Setlists and Records & merch (Discover) are 1.18's: their keys come with them (Features).
+                if (v2) {
+                // Concerts (Discover): the user's own Ticketmaster key, optional.
+                var tmOpen by rememberSaveable { mutableStateOf(false) }
+                if (tmOpen) TicketmasterKeyDialog { tmOpen = false }
+                PrefRow(Icons.Filled.Key, stringResource(R.string.concerts_key_title), stringResource(remember(data.settings, tmOpen) { ticketmasterKeyState(ctx) })) { tmOpen = true }
+                // Setlists (Discover) and setlist.fm links: the user's own setlist.fm key.
+                var sfmOpen by rememberSaveable { mutableStateOf(false) }
+                if (sfmOpen) SetlistFmKeyDialog { sfmOpen = false }
+                PrefRow(Icons.Filled.Key, stringResource(R.string.setlists_key_title), stringResource(remember(data.settings, sfmOpen) { setlistFmKeyState(ctx) })) { sfmOpen = true }
+                // Records and merch (Discover): the user's own Discogs token, optional.
+                var dgOpen by rememberSaveable { mutableStateOf(false) }
+                if (dgOpen) DiscogsTokenDialog { dgOpen = false }
+                PrefRow(Icons.Filled.Key, stringResource(R.string.records_token_title), stringResource(remember(dgOpen) { discogsTokenState(ctx) })) { dgOpen = true }
+                }
                 Providers.all().filter { it.setupGuide != null && it.slot.isEmpty() }.forEach { p ->
                     val configured = remember(p.id, data.settings) { p.isConfigured(ctx) }
                     PrefRow(
@@ -384,15 +486,24 @@ fun SettingsScreen(
             PrefSwitch(Icons.Filled.DeveloperMode, stringResource(R.string.settings_developer_switch), stringResource(R.string.settings_developer_summary), settings.developerOptions) { v ->
                 store.updateSettings { it.copy(developerOptions = v) }
             }
+            // The release switch's other half: this device shows 1.18's features in a build that hides them
+            // (a test APK). A 1.18 build has them on anyway.
+            // Only to turn the preview off: it is turned on by the code typed into the search of the syncs (PreviewCode).
+            if (settings.developerOptions && settings.preview2 && !BuildConfig.V2) {
+                PrefSwitch(Icons.Filled.NewReleases, stringResource(R.string.settings_preview2), stringResource(R.string.settings_preview2_summary), settings.preview2) { v ->
+                    store.updateSettings { it.copy(preview2 = v) }
+                }
+            }
             if (settings.developerOptions && settings.captureUnlocked && com.xlollx.songport.providers.BuiltIn.captureIntent(ctx, "https://x") != null) {
                 // A service being added (Qobuz…): its web player opens here and its calls are written
                 // to a file to share, without cookies, tokens or passwords.
-                var captureOpen by remember { mutableStateOf(false) }
+                var captureOpen by rememberSaveable { mutableStateOf(false) }
                 PrefRow(Icons.Filled.NetworkCheck, stringResource(R.string.capture_site_title), stringResource(R.string.capture_site_desc)) { captureOpen = true }
                 if (captureOpen) {
-                    var address by remember { mutableStateOf("https://play.qobuz.com") }
-                    AlertDialog(
-                        onDismissRequest = { captureOpen = false },
+                    var address by rememberSaveable { mutableStateOf("https://play.qobuz.com") }
+                    val close = rememberDiscardGuard(address != "https://play.qobuz.com") { captureOpen = false }
+                    FitDialog(
+                        onDismissRequest = close,
                         title = { Text(stringResource(R.string.capture_site_title)) },
                         text = { OutlinedTextField(address, { address = it.trim() }, singleLine = true, label = { Text(stringResource(R.string.capture_site_address)) }) },
                         confirmButton = {
@@ -407,7 +518,7 @@ fun SettingsScreen(
             }
             if (settings.developerOptions) {
                 // "Nothing leaves your phone except…" made checkable: the hosts this app has talked to.
-                var connectionsOpen by remember { mutableStateOf(false) }
+                var connectionsOpen by rememberSaveable { mutableStateOf(false) }
                 var connectionsVersion by remember { mutableIntStateOf(0) }
                 PrefRow(Icons.Filled.NetworkCheck, stringResource(R.string.security_connections), stringResource(R.string.security_connections_desc), trailing = { ExpandMark(connectionsOpen) }) {
                     connectionsOpen = !connectionsOpen
@@ -441,13 +552,14 @@ fun SettingsScreen(
         }
 
         // ---------------------------------------------------------------- About
-        val supportNote = if (BuildConfig.KOFI_URL.isNotBlank()) stringResource(R.string.support_body) else null
+        // Store builds (Play, AppGallery) never point to payments outside the store.
+        val supportNote = if (!BuildConfig.STORE_BUILD && BuildConfig.KOFI_URL.isNotBlank()) stringResource(R.string.support_body) else null
         PrefSection(stringResource(R.string.settings_about), footer = supportNote) {
             // Seven taps on the version show the traffic captures (with developer options on): a tool
             // for the developer, which records what is done on a site, kept out of everyone's way.
             var versionTaps by remember { mutableIntStateOf(0) }
             // A long press on the logo shows Oli (Oli.kt): its own gesture, apart from the seven taps.
-            var oliOpen by remember { mutableStateOf(false) }
+            var oliOpen by rememberSaveable { mutableStateOf(false) }
             fun versionTap() {
                 versionTaps++
                 if (versionTaps >= 7) {
@@ -478,7 +590,7 @@ fun SettingsScreen(
                     updates && updater == null, enabled = updater == null,
                 ) { v ->
                     updates = v
-                    com.xlollx.songport.update.AppUpdates.setEnabled(ctx, v)
+                    com.xlollx.songport.update.AppUpdates.setEnabled(ctx, v); com.xlollx.songport.sync.Scheduler.applyUpdateCheck(ctx)
                     if (v) updatesScope.launch { com.xlollx.songport.update.AppUpdates.check(ctx, force = true) }
                 }
             }
@@ -489,18 +601,32 @@ fun SettingsScreen(
             PrefRow(Icons.Filled.Code, stringResource(R.string.settings_source_code), ATTRIBUTION, trailing = { ExternalMark() }) {
                 runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SOURCE_URL))) }
             }
+            // Store builds have no Ko-fi row: the site is where anyone who wants can find more (and support).
+            if (BuildConfig.STORE_BUILD) {
+                PrefRow(Icons.Filled.Language, stringResource(R.string.settings_website), "trackhop.org", trailing = { ExternalMark() }) {
+                    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://trackhop.org"))) }
+                }
+            }
             PrefRow(Icons.Filled.Policy, stringResource(R.string.settings_privacy_policy), null, trailing = { ExternalMark() }) {
                 runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.PRIVACY_POLICY_URL))) }
+            }
+            // Rate where the app came from (Play, AppGallery); share a link to it with anyone.
+            if (com.xlollx.songport.update.AppUpdates.rateInStore) {
+                PrefRow(Icons.Filled.StarRate, stringResource(R.string.settings_rate), stringResource(R.string.settings_rate_summary), trailing = { ExternalMark() }) {
+                    com.xlollx.songport.update.AppUpdates.open(ctx)
+                }
+            }
+            PrefRow(Icons.Filled.Share, stringResource(R.string.settings_share_app), null) {
+                val text = ctx.getString(R.string.settings_share_app_text, com.xlollx.songport.update.AppUpdates.shareUrl(ctx))
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+                runCatching { ctx.startActivity(Intent.createChooser(send, null)) }
             }
             PrefRow(Icons.Filled.Replay, stringResource(R.string.settings_show_onboarding), null) {
                 store.updateSettings { it.copy(onboardingDone = false) }
             }
-            if (BuildConfig.KOFI_URL.isNotBlank()) {
-                PrefRow(Icons.Filled.Favorite, stringResource(R.string.support_button), null, trailing = { ExternalMark() }) { openSupport(ctx) }
-            }
-            // Per chi ha un account GitHub: anche un contributo mensile.
-            if (BuildConfig.SPONSORS_URL.isNotBlank()) {
-                PrefRow(Icons.Filled.VolunteerActivism, stringResource(R.string.support_sponsors), null, trailing = { ExternalMark() }) { openSponsors(ctx) }
+            // One row: Ko-fi or GitHub Sponsors, chosen in the sheet it opens.
+            if (!BuildConfig.STORE_BUILD && (BuildConfig.KOFI_URL.isNotBlank() || BuildConfig.SPONSORS_URL.isNotBlank())) {
+                PrefRow(Icons.Filled.Favorite, stringResource(R.string.support_row), null) { openSupport(ctx) }
             }
         }
         Spacer(Modifier.height(8.dp))

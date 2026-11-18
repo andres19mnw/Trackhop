@@ -41,9 +41,12 @@ class DeezerProvider(override val slot: String = "") : OAuthProvider() {
     override val supportsArtists = true
     override val supportsPodcasts = true
 
+    // Deezer stopped registering new developer apps (its community manager, October 2025): the guide
+    // is for an app the user already has, which keeps working; the texts point the others to the
+    // web connector. No link to the creation page, which leads nowhere now.
     override val setupGuide = SetupGuide(
         dashboardUrl = "https://developers.deezer.com/myapps",
-        stepUrls = listOf("https://developers.deezer.com/myapps", "https://developers.deezer.com/myapps/create", null, "https://developers.deezer.com/myapps"),
+        stepUrls = listOf("https://developers.deezer.com/myapps", "https://developers.deezer.com/myapps", null, "https://developers.deezer.com/myapps"),
         whyName = "setup_why_deezer",
         stepsArrayName = "setup_steps_deezer",
         fieldLabelName = "setup_field_app_id",
@@ -110,6 +113,17 @@ class DeezerProvider(override val slot: String = "") : OAuthProvider() {
             if (code == 300 || code == 200) ctx.tokens.clear(id) // token non valido / permesso mancante
             throw ProviderException("Deezer: ${err["message"].str ?: err.toString()}")
         }
+    }
+
+    /**
+     * The songs and artists Deezer ranks highest for the user (/user/me/charts, basic_access: the
+     * sign-in already has it). A ranking with no counts, over a span Deezer does not say.
+     */
+    suspend fun listening(ctx: Env): com.xlollx.songport.sync.Listening.Report {
+        val top = com.xlollx.songport.sync.Listening.TOP.toString()
+        val tracks = com.xlollx.songport.sync.Listening.deezerTracks(dz(ctx, "GET", "/user/me/charts/tracks", mapOf("limit" to top)))
+        val artists = com.xlollx.songport.sync.Listening.deezerArtists(dz(ctx, "GET", "/user/me/charts/artists", mapOf("limit" to top)))
+        return com.xlollx.songport.sync.Listening.Report(tracks, artists)
     }
 
     override suspend fun playlists(ctx: Env): List<Playlist> {
@@ -187,6 +201,18 @@ class DeezerProvider(override val slot: String = "") : OAuthProvider() {
         }
         return out
     }
+
+    /** A playlist's entries by offset, the last pages first: the tracks a sync just added are there. */
+    override suspend fun findEntries(ctx: Env, playlistId: String, tracks: List<Track>, seen: (List<Track>) -> Unit): List<Track> {
+        if (MusicProvider.isLibrary(playlistId)) return super.findEntries(ctx, playlistId, tracks, seen)
+        return MusicProvider.entriesByOffset(tracks, 100, seen) { offset ->
+            val j = dz(ctx, "GET", "$API/playlist/$playlistId/tracks?limit=100&index=$offset")
+            j["data"].arr.mapNotNull { t -> toTrack(t)?.copy(addedAt = (t["time_add"].long ?: 0) * 1000) } to (j["total"].int ?: 0)
+        }
+    }
+
+    /** Removal goes by track id: an entry read a while ago names the track, whichever copy. */
+    override val keepsEntryIds: Boolean get() = true
 
     private fun toAlbum(a: JsonElement?): Track? {
         val id = a["id"].long?.toString() ?: return null

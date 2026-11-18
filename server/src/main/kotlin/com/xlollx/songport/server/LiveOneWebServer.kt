@@ -26,12 +26,12 @@ import java.net.URLEncoder
  * presets is not either (the call is not known). Unofficial: it can stop working when the player changes.
  */
 class LiveOneWebServerProvider(override val slot: String = "") : CookieConnector {
+    override val beta: Boolean get() = true
     override val serviceId = SERVICE
     override val displayName = "LiveOne (web)"
     override val familyName: String get() = "LiveOne"
     override val brandColor = 0xFFE4002B
     override val noteName = "provider_note_liveone"
-    override val alpha: Boolean get() = true
     override val supportsLikedSongs = true
     override val supportsLikedTarget = true
     /** Another account: its own cookies, kv file and caches (see [ServerWebHost]). */

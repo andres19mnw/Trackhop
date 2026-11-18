@@ -33,6 +33,19 @@ data class Track(
     /** Anno di uscita (0 = non noto) e data di aggiunta alla playlist in epoch ms (0 = non nota): per gli ordinamenti. */
     val year: Int = 0,
     val addedAt: Long = 0,
+    /**
+     * MusicBrainz recording ids, lowercase: on a personal server's track the ones its file is tagged
+     * with, on a source track the ones MusicBrainz lists for its ISRC (see sync/MusicBrainz). Two
+     * tracks sharing one are the same recording. Only lives during a run: never saved.
+     */
+    @kotlinx.serialization.Transient val mbids: List<String> = emptyList(),
+    /**
+     * A followed podcast's RSS feed address, where it is known (an OPML file, Apple's podcast
+     * directory): the surest way to tell one show from another (see sync/Podcasts). Null for songs.
+     */
+    val feedUrl: String? = null,
+    /** A followed podcast's id in Apple's podcast directory (iTunes), where it is known. */
+    val itunesId: String? = null,
 ) {
     val artistLine: String get() = artists.joinToString(", ")
     val isrcNorm: String? get() = isrc?.trim()?.uppercase()?.takeIf { it.length >= 10 }
@@ -108,6 +121,18 @@ data class SyncJob(
     val ignoredSourceIds: List<String> = emptyList(),
     /** Sync gemella nella direzione opposta (bidirezionale). */
     val linkedJobId: String? = null,
+    /**
+     * In a two-way pair (both halves carry it): a track removed on one side is removed on the other
+     * too. The engine tells a removal from an addition by what both sides held after the last
+     * complete run ([com.xlollx.songport.data.PairState]); without it a pair only ever adds.
+     */
+    val twoWayRemovals: Boolean = false,
+    /**
+     * The device this sync's schedule runs on, when it came here with a configuration file written
+     * elsewhere: it arrives turned off, so the same sync does not run from two devices at once (each
+     * would add what is missing, twice). Turning it on here clears it.
+     */
+    val scheduledOn: String? = null,
     /** Playlist scritta dall'AI dell'utente: la descrizione data, per riconoscerla e per allungarla. */
     val aiPrompt: String? = null,
     /** Versioni (vedi MusicProvider.playlistVersion) viste all'ultimo giro riuscito: uguali = niente da fare. */
@@ -118,6 +143,10 @@ data class SyncJob(
     val keepOrder: Boolean = false,
     /** The card's colour, chosen by the user to tell syncs apart at a glance (a key like "teal"); null = the default look. */
     val color: String? = null,
+    /** How the card wears [color] (a CardAccent key in the app); null = the style chosen in Settings. */
+    val accentStyle: String? = null,
+    /** The glow of the route's two brand colours on the card: null = as in Settings (cards with no colour), true/false = this card's own choice. */
+    val routeGlow: Boolean? = null,
     /**
      * The "↔" half of a two-way pair, made by the editor from the sync [linkedJobId] names: it is
      * edited through that sync, and keeps its own name, ignore list and reports.
@@ -141,7 +170,34 @@ data class SyncJob(
      * (a Spotify daylist, several titles a day), and the sync keeps its own name from then on.
      */
     val sourceRenamedAt: Long? = null,
+    /** Starred by the user: shown first in the list, and found by the "Favourites" filter. */
+    val favorite: Boolean = false,
+    /**
+     * The sync's one label (a [Label.id]): the card wears the label's colour, kept in [color] too
+     * so an older Trackhop still shows it. One of the ready colours is a label by its key ("teal");
+     * null = no colour, or a colour of the user's own with no name. See sync/Labels.
+     */
+    val label: String? = null,
+    /** The user's tags, key to value ("genre" to "metal"); the value may be empty (a key alone). */
+    val tags: Map<String, String> = emptyMap(),
+    /**
+     * A one-off transfer (a setlist made a playlist, or added to one), run once: never shown or run
+     * as a sync (the Syncs list and its counters, widgets, Sync all, schedules, stats, backups), kept
+     * for its summary and review in Tools › Recent transfers, and deleted once reviewed or after a
+     * week ([com.xlollx.songport.sync.OneOffs]).
+     */
+    val oneOff: Boolean = false,
+    /** When a [oneOff] was made (epoch ms). */
+    val createdEpoch: Long = 0,
 )
+
+/**
+ * A colour with a name ("Gym", "From Spotify"), shared by the syncs that wear it: renaming or
+ * recolouring it changes them all. [color] is a ready colour's key or "#RRGGBB". A ready colour
+ * the user named has its key as [id].
+ */
+@Serializable
+data class Label(val id: String, val color: String, val name: String = "")
 
 /**
  * A radio station a sync listens to: its stream (Icecast/Shoutcast, which send the title of the
@@ -212,6 +268,11 @@ data class SyncReport(
     val ignored: Int = 0,
     /** Abbinamenti incerti da confermare o cambiare. */
     val reviewTracks: List<MatchReview> = emptyList(),
+    /**
+     * Among [reviewTracks], the source ids a recent run of this sync already asked about (an old
+     * match that now reads as a live version, not settled yet): still listed, not announced again.
+     */
+    val reviewAsked: List<String> = emptyList(),
     /** Brani tolti dalla destinazione con "rispecchia rimozioni": si possono ripristinare. */
     val removedTracks: List<Track> = emptyList(),
     /** What this run added, for the list behind the "added" figure (the first 500). */
@@ -232,8 +293,15 @@ data class SyncReport(
     val heldBack: Int = 0,
     /** The search stopped early (limits of the service): the next run continues it. */
     val searchInterrupted: Boolean = false,
+    /**
+     * The run failed or stopped because of the connection, not the service ([com.xlollx.songport.net.NetError.Kind]'s
+     * name: OFFLINE, TIMEOUT, UNREACHABLE); [error] then says it in plain words. Null otherwise and in older reports.
+     */
+    val netError: String? = null,
 ) {
     val ok: Boolean get() = error == null
+    /** Stopped because there was no internet: what it did stays, and it runs again once the connection is back. */
+    val offline: Boolean get() = netError == "OFFLINE"
 }
 
 /**
@@ -270,6 +338,32 @@ data class SyncPlan(
      * set only in the preview, where running anyway is a deliberate choice.
      */
     val targetShrunkFrom: Int = 0,
+    /** When the target was read (epoch ms, 0 = not read: created now) and its version just then, where the service has one. */
+    val targetReadAt: Long = 0,
+    val targetVersion: String? = null,
+    /** Extra copies on the target of a track the source holds once: taken out by this run (see SyncEngine). */
+    val duplicates: List<Track> = emptyList(),
+    /** A two-way pair that follows removals: what this run knows of the pair's common state; null otherwise. */
+    val twoWay: TwoWayPlan? = null,
+    /** Among [uncertain], the source ids a recent run already asked about (see [SyncReport.reviewAsked]). */
+    val reviewAsked: Set<String> = emptySet(),
+)
+
+/**
+ * What one run of a half of a two-way pair with removals hands to its end, where the pair's common
+ * state is written again. Ids are the source's on the left, the target's on the right.
+ */
+data class TwoWayPlan(
+    /** Source track -> the target track it matches, for every track both sides list now. */
+    val present: Map<String, String>,
+    /** Source track -> the target track this run adds for it: common once the addition goes through. */
+    val adding: Map<String, String>,
+    /** Links of the last state still open: a removal that waits for the other half, or was held back. */
+    val kept: List<Pair<String, String>>,
+    /** Both listings were whole and the search finished: only then is the state written again. */
+    val complete: Boolean,
+    /** No state yet (the first run with the option, or the pair's playlists changed): this run only notes it. */
+    val first: Boolean,
 )
 
 /** Progresso di una sync in corso, mostrato nella UI. */

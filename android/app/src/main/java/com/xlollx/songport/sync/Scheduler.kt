@@ -1,5 +1,6 @@
 package com.xlollx.songport.sync
 
+import com.xlollx.songport.platform.env
 import com.xlollx.songport.providers.*
 import android.content.Context
 import android.os.Build
@@ -35,8 +36,11 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         val batch = inputData.getStringArray(KEY_JOBS)
         val jobs = when {
             batch != null -> batch.mapNotNull { store.job(it) }
-            jobId == ALL -> store.data.jobs.filter { it.enabled }
+            jobId == ALL -> store.data.syncs.filter { it.enabled }
             else -> listOfNotNull(store.job(jobId))
+        }.filter {
+            // Handed over to the user's server: it runs there, never here too (ServerLink).
+            it.id !in store.data.handedOver
         }.filter {
             // A scheduled wake of a sync at a time of day: nothing to do until its time.
             !scheduled || batch != null || jobId == ALL || !com.xlollx.songport.sync.Timing.timed(it) ||
@@ -81,16 +85,27 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                     Diagnostics.log(ctx, "sync", "end ${job.name}: +${report.added} -${report.removed} nf=${report.unmatched.size} src=${report.sourceCount} dst=${report.targetCount}" + (report.error?.let { " ERR $it" } ?: ""))
                     // Una sync programmata morta per mancanza di rete non ha "fallito": WorkManager la
                     // riprova col suo backoff, quindi niente notifica d'errore per una giornata persa.
-                    val networkGone = scheduled && !report.ok && isTransientNetwork(report.error)
+                    val networkGone = scheduled && !report.ok && (report.netError != null || isTransientNetwork(report.error))
                     if (networkGone) {
                         retryLater.set(true)
                         Diagnostics.log(ctx, "sync", "no network for ${job.name}: will retry")
                     }
+                    // Started by hand and stopped because the internet went away: it waits for the
+                    // connection and starts again by itself, rather than ending as a failure to retry.
+                    val requeued = !scheduled && report.offline && OfflineQueue.requeueAfterLoss(ctx, job.id)
+                    if (!report.offline) OfflineQueue.settled(ctx, job.id)
                     SupportPrompt.offer(store, report)
                     com.xlollx.songport.automation.Automation.announce(ctx, report)
                     val notable = report.added > 0 || report.removed > 0 || !report.ok
-                    if (!networkGone && !quiet && store.data.settings.notifyOnSync && (scheduled || !report.ok) && notable) {
+                    // A one-off transfer (a setlist to a playlist) always says how it went: its review opens from there.
+                    if (!networkGone && !requeued && !quiet && store.data.settings.notifyOnSync && (scheduled || !report.ok || job.oneOff) && (notable || job.oneOff)) {
                         Notifications.syncResult(ctx, report)
+                    }
+                    // The channels set up in Settings › Notification channels (Telegram, ntfy…): sent here, before the
+                    // worker ends, so a process closed right after still delivered them. A failure only goes to the log.
+                    if (!networkGone && !requeued) for ((c, m) in com.xlollx.songport.notify.Notify.deliveries(ctx.env, job, report)) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.xlollx.songport.notify.Notify.send(c, m) }
+                            ?.let { Diagnostics.log(ctx, "notify", "${c.name} (${c.kind.label}): $it") }
                     }
                 } finally {
                     SyncState.finish(job.id)
@@ -158,11 +173,120 @@ class UnplayableWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
     }
 }
 
+/**
+ * The daily look for a newer Trackhop (the GitHub build only: stores and updaters tell about their
+ * own): a notification once per new version, so it is seen without opening the app. Tap downloads it.
+ */
+class UpdateCheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        val ctx = applicationContext
+        com.xlollx.songport.update.AppUpdates.check(ctx)
+        val found = com.xlollx.songport.update.UpdateState.available.value ?: return Result.success()
+        val name = found.versionName ?: return Result.success()
+        val prefs = ctx.getSharedPreferences("app_update_notice", Context.MODE_PRIVATE)
+        if (prefs.getString("notified", null) == name) return Result.success()
+        if (Notifications.appUpdate(ctx, name, found.url)) prefs.edit().putString("notified", name).apply()
+        return Result.success()
+    }
+}
+
+/**
+ * The look for news of the artists followed (Discover › Followed artists, [ArtistAlerts]): the
+ * sources and caches of the Discover pages, one artist after another. The artists a run had no time
+ * for are looked up by a second run a little later; the news is said once, when all are done.
+ */
+class ArtistAlertsWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        val ctx = applicationContext
+        val s = Store.get(ctx).data.settings
+        val plan = ArtistAlerts.plan(s) ?: return Result.success()
+        val env = ctx.env
+        val country = Concerts.savedCountry(env) ?: com.xlollx.songport.ui.defaultConcertCountry(ctx)
+        val out = ArtistAlerts.check(env, s.followedArtists, plan.periodDays, ArtistAlerts.live(country, Concerts.savedRange(env)))
+        if (out.remaining > 0) Scheduler.continueArtistAlerts(ctx, plan)
+        if (out.notify.isNotEmpty()) Notifications.artistAlerts(ctx, out.notify)
+        return Result.success()
+    }
+}
+
 object Scheduler {
     /** The unique periodic work of a sync (the UI tests read its state). */
     internal fun name(jobId: String) = "sync-$jobId"
     private const val BACKUP_WORK = "backup-export"
     private const val UNPLAYABLE_WORK = "unplayable-check"
+    private const val UPDATE_WORK = "app-update-check"
+    private const val ALERTS_WORK = "artist-alerts"
+    private const val ALERTS_MORE_WORK = "artist-alerts-more"
+    private const val KEEP_ALIVE_WORK = "session-keep-alive"
+
+    /** What the keep-alive waits for: the network, a battery not low. */
+    internal fun keepAliveConstraints(): Constraints = Constraints.Builder()
+        .setRequiredNetworkType(NetworkType.CONNECTED)
+        .setRequiresBatteryNotLow(true)
+        .build()
+
+    /** The twice-daily renewal of a web session ([SessionKeepAlive]) while a connector that needs it is there. */
+    fun applyKeepAlive(ctx: Context) {
+        val wm = WorkManager.getInstance(ctx)
+        if (!SessionKeepAlive.wanted(Store.get(ctx).data.settings.connectors)) {
+            wm.cancelUniqueWork(KEEP_ALIVE_WORK)
+            return
+        }
+        val req = PeriodicWorkRequestBuilder<KeepAliveWorker>(SessionKeepAlive.EVERY_HOURS, TimeUnit.HOURS)
+            .setConstraints(keepAliveConstraints())
+            .build()
+        wm.enqueueUniquePeriodicWork(KEEP_ALIVE_WORK, ExistingPeriodicWorkPolicy.KEEP, req)
+    }
+
+    /** What the background look of the artists followed waits for: the network (Wi-Fi when asked), a battery not low. */
+    internal fun alertConstraints(plan: ArtistAlerts.Plan): Constraints = Constraints.Builder()
+        .setRequiredNetworkType(if (plan.unmetered) NetworkType.UNMETERED else NetworkType.CONNECTED)
+        .setRequiresBatteryNotLow(plan.batteryNotLow)
+        .build()
+
+    /** The daily (or weekly) look for news of the artists followed, in line with the settings and the list. */
+    fun applyArtistAlerts(ctx: Context) {
+        val wm = WorkManager.getInstance(ctx)
+        val plan = ArtistAlerts.plan(Store.get(ctx).data.settings)
+        if (plan == null) {
+            wm.cancelUniqueWork(ALERTS_WORK); wm.cancelUniqueWork(ALERTS_MORE_WORK)
+            return
+        }
+        com.xlollx.songport.NotificationAsk.onUse()
+        val req = PeriodicWorkRequestBuilder<ArtistAlertsWorker>(plan.periodDays, TimeUnit.DAYS)
+            .setConstraints(alertConstraints(plan))
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
+            .build()
+        // The same plan keeps its run time: following one more artist does not push the next look a day away.
+        val key = "${plan.periodDays}|${plan.unmetered}"
+        val prefs = ctx.getSharedPreferences("artist_alerts", Context.MODE_PRIVATE)
+        val same = prefs.getString("plan", null) == key
+        wm.enqueueUniquePeriodicWork(ALERTS_WORK, if (same) ExistingPeriodicWorkPolicy.KEEP else ExistingPeriodicWorkPolicy.UPDATE, req)
+        prefs.edit().putString("plan", key).apply()
+    }
+
+    /** The artists the last look had no time for, a little later (after the run asking it, which may be this very work). */
+    internal fun continueArtistAlerts(ctx: Context, plan: ArtistAlerts.Plan) {
+        val req = OneTimeWorkRequestBuilder<ArtistAlertsWorker>()
+            .setConstraints(alertConstraints(plan))
+            .setInitialDelay(20, TimeUnit.MINUTES)
+            .build()
+        WorkManager.getInstance(ctx).enqueueUniqueWork(ALERTS_MORE_WORK, ExistingWorkPolicy.APPEND_OR_REPLACE, req)
+    }
+
+    /** The daily update notification on or off with Settings › About's switch (only builds that check GitHub themselves). */
+    fun applyUpdateCheck(ctx: Context) {
+        val wm = WorkManager.getInstance(ctx)
+        val u = com.xlollx.songport.update.AppUpdates
+        if (!u.configurable || !u.enabled(ctx) || u.handledElsewhere(ctx)) {
+            wm.cancelUniqueWork(UPDATE_WORK)
+            return
+        }
+        val req = PeriodicWorkRequestBuilder<UpdateCheckWorker>(1, TimeUnit.DAYS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        wm.enqueueUniquePeriodicWork(UPDATE_WORK, ExistingPeriodicWorkPolicy.KEEP, req)
+    }
 
     /** Allinea il controllo settimanale dei brani non riproducibili alle impostazioni. */
     fun applyUnplayable(ctx: Context) {
@@ -236,6 +360,9 @@ object Scheduler {
         store.data.jobs.forEach { applyWork(ctx, it) }
         applyBackup(ctx)
         applyUnplayable(ctx)
+        applyUpdateCheck(ctx)
+        applyArtistAlerts(ctx)
+        applyKeepAlive(ctx)
         // At every start of the process, in the background too: the radio's alarm armed, no listening started from here.
         RadioPlan.refresh(ctx, start = false)
     }
@@ -262,13 +389,43 @@ object Scheduler {
      * (passaggio Wi-Fi/dati), e una sync lunga finiva "cancellata" a ogni cambio di rete. Se la
      * rete manca davvero, sono le chiamate ai servizi a fallire, con i loro tentativi.
      */
-    fun runNow(ctx: Context, jobId: String) {
+    /**
+     * Answers whether it started: false when the phone has no internet, and the run waits for it
+     * ([OfflineQueue]) instead, however many times it is asked while offline. [force] (the queue's own
+     * worker, once the connection is back) starts it.
+     */
+    fun runNow(ctx: Context, jobId: String, force: Boolean = false): Boolean {
+        // A sync handed over to the user's server: the server is asked to run it.
+        if (ServerLink.handedOver(ctx, jobId) != null) { ServerLink.runHandedOver(ctx, jobId); return true }
+        if (!force) {
+            OfflineQueue.init(ctx)
+            val offline = com.xlollx.songport.net.Connectivity.isOffline
+            // Asked again while it waits: still offline, it keeps waiting (a second tap is not a way round);
+            // back online, it starts now.
+            if (jobId in OfflineQueue.waiting.value) { if (offline) return false else OfflineQueue.cancel(ctx, jobId) }
+            else if (offline) {
+                val store = Store.get(ctx)
+                if (jobId != SyncWorker.ALL) {
+                    // Files and servers at home need no internet: those run as before.
+                    if (OfflineQueue.needsInternet(store.job(jobId))) { OfflineQueue.add(ctx, jobId); return false }
+                } else {
+                    // Sync all: the syncs that need the internet wait for it, the others run now.
+                    val (waits, now) = store.data.syncs.filter { it.enabled && it.id !in store.data.handedOver }.partition { OfflineQueue.needsInternet(it) }
+                    if (waits.isNotEmpty()) {
+                        waits.forEach { OfflineQueue.add(ctx, it.id) }
+                        if (now.isNotEmpty()) runInSequence(ctx, now.map { it.id })
+                        return false
+                    }
+                }
+            }
+        }
         com.xlollx.songport.NotificationAsk.onUse()
         val req = OneTimeWorkRequestBuilder<SyncWorker>()
             .setInputData(workDataOf(SyncWorker.KEY_JOB to jobId, SyncWorker.KEY_SCHEDULED to false))
             .addTag("sync")
             .build()
         WorkManager.getInstance(ctx).enqueueUniqueWork("run-$jobId", ExistingWorkPolicy.KEEP, req)
+        return true
     }
 
     /**
@@ -283,5 +440,18 @@ object Scheduler {
             .addTag("sync")
             .build()
         WorkManager.getInstance(ctx).enqueueUniqueWork("run-$batchId", ExistingWorkPolicy.KEEP, req)
+    }
+
+    /**
+     * Several syncs asked for at once (automation by tag or label): one worker for them all, since
+     * "one per account" only holds inside one worker. Offline, waiting for the connection or handed
+     * over to the server, each goes the way [runNow] takes it.
+     */
+    fun runTogether(ctx: Context, jobIds: List<String>) {
+        OfflineQueue.init(ctx)
+        val offline = com.xlollx.songport.net.Connectivity.isOffline
+        val (batch, alone) = jobIds.partition { !offline && it !in OfflineQueue.waiting.value && ServerLink.handedOver(ctx, it) == null }
+        alone.forEach { runNow(ctx, it) }
+        if (batch.size > 1) runInSequence(ctx, batch) else batch.forEach { runNow(ctx, it) }
     }
 }

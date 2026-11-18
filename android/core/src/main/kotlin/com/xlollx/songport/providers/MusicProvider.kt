@@ -43,14 +43,21 @@ interface MusicProvider {
         else -> true
     }
 
+    /**
+     * A library list of this service that came with Trackhop 1.18 (TIDAL's liked tracks, Apple Music's
+     * favorites and recent plays, YouTube Music's podcasts): [libraryEntries] offers it only with
+     * [com.xlollx.songport.Features.v2]. A sync that already uses it reads and writes it as ever.
+     */
+    fun libraryIsV2(playlistId: String, asTarget: Boolean): Boolean = false
+
     /** Le voci speciali da mostrare accanto alle playlist. */
     fun libraryEntries(ctx: Env, asTarget: Boolean): List<Playlist> = listOfNotNull(
         Playlist(LIKED_ID, ctx.text("liked_songs")).takeIf { supportsLibrary(LIKED_ID, asTarget) },
         Playlist(ALBUMS_ID, ctx.text("saved_albums")).takeIf { supportsAlbums },
         Playlist(ARTISTS_ID, ctx.text("followed_artists")).takeIf { supportsArtists },
-        Playlist(PODCASTS_ID, ctx.text("followed_podcasts")).takeIf { supportsPodcasts },
+        Playlist(PODCASTS_ID, ctx.text("followed_podcasts")).takeIf { supportsLibrary(PODCASTS_ID, asTarget) },
         Playlist(RECENT_ID, ctx.text("recently_played")).takeIf { !asTarget && supportsRecent },
-    )
+    ).filter { com.xlollx.songport.Features.libraryOffered(this, it.id, asTarget) }
     /** False per sorgenti locali (file) che non richiedono login. */
     val requiresAuth: Boolean get() = true
     /**
@@ -124,12 +131,23 @@ interface MusicProvider {
 
     /** Putting a playlist's tracks in a given order, where the API has a move: Spotify, YouTube Music, Deezer. */
     val canReorder: Boolean get() = false
+    /** The moves came with Trackhop 1.18 (TIDAL, YouTube): offered only with [com.xlollx.songport.Features.v2]. */
+    val reorderIsV2: Boolean get() = false
     /** [current] as the playlist lists it now, [ordered] the same tracks in the wanted order (ids and item ids as listed). */
     suspend fun reorderTracks(ctx: Env, playlistId: String, current: List<Track>, ordered: List<Track>) {}
 
-    /** Mettere una copertina a una playlist propria: solo dove l'API lo permette (Spotify). */
+    /**
+     * Putting a picture on a playlist of one's own, where the service lets a client do it: Spotify
+     * (both routes), YouTube (Data API), YouTube Music, SoundCloud, TIDAL (likely refused: see
+     * [TidalProvider.setPlaylistCover]), Jellyfin, Emby, Plex.
+     */
     val canSetCover: Boolean get() = false
-    /** [jpeg]: at most 256 KB, as Spotify wants it. */
+    /** Covers here came with Trackhop 1.18: a sync sets them only with [com.xlollx.songport.Features.v2]. */
+    val coverIsV2: Boolean get() = false
+    /**
+     * [jpeg]: square, 360 to 640 px, at most 190 KB ([com.xlollx.songport.sync.Covers]), which every
+     * service above takes. A failure throws: the caller logs it and goes on, a cover never fails a sync.
+     */
     suspend fun setPlaylistCover(ctx: Env, playlistId: String, jpeg: ByteArray) {}
 
     /** Rinominare ed eliminare le proprie playlist: dove l'API lo permette (Apple Music e Amazon no). */
@@ -150,8 +168,56 @@ interface MusicProvider {
     val notConfiguredName: String? get() = null
     /** True se [search] usa l'ISRC del brano quando c'e' (Spotify, Apple Music, TIDAL, Deezer): vale la pena procurarglielo. */
     val searchesByIsrc: Boolean get() = false
+    /**
+     * True for a personal server whose files can carry MusicBrainz tags (Navidrome and other Subsonic
+     * servers, Jellyfin, Emby, Plex): [search] then takes a track's [Track.mbids] and answers with the
+     * file tagged with one of them, and the candidates it lists carry their own.
+     */
+    val matchesByMbid: Boolean get() = false
+    /**
+     * True when [search] asks the service for the title alone and leaves the artists to the scoring
+     * (Jellyfin, Emby, Plex): asking again with other artists would only repeat the same requests.
+     */
+    val searchesTitleOnly: Boolean get() = false
+
+    /**
+     * Every song of the server's library, each with the MusicBrainz recording ids its file is tagged
+     * with ([Track.mbids]): for the "songs without MusicBrainz tags" report. [onProgress] gets the
+     * songs read so far. Only where [matchesByMbid]; nothing is ever written.
+     */
+    suspend fun librarySongs(ctx: Env, onProgress: (Int) -> Unit = {}): List<Track> = emptyList()
+
+    /** What the server lets Trackhop do with lyrics (Tools › Synced lyrics, 1.18): see [LyricsSupport]. */
+    val lyricsSupport: LyricsSupport get() = LyricsSupport.NONE
+
+    /**
+     * Every song of the server's library, each with whether the server has lyrics for it and its file's
+     * path where the server reports one: for the "songs without lyrics" report. Read only; only where
+     * [lyricsSupport] is REPORT_ONLY, SERVER_API or SIDECAR. [onProgress] gets the songs read so far.
+     */
+    suspend fun lyricsSongs(ctx: Env, onProgress: (Int) -> Unit = {}): List<LyricsSong> = emptyList()
+
+    /**
+     * Hands [text] to the server as [track]'s lyrics, synced (LRC) or plain: only where [lyricsSupport]
+     * is SERVER_API. Asks first whether the song has lyrics now: then nothing is written and the answer
+     * is false. Never replaces or deletes lyrics.
+     */
+    suspend fun saveLyrics(ctx: Env, track: Track, text: String, synced: Boolean): Boolean =
+        throw com.xlollx.songport.model.ProviderException("$displayName: lyrics cannot be added through its API")
+
     /** Ricerche in parallelo tollerate dal servizio (1 per le interfacce web non ufficiali, che bloccano le raffiche). */
     val searchParallelism: Int get() = 4
+    /**
+     * The lock the connector holds while it lists a whole playlist, shared by the connectors that name
+     * the same one: two such reads run one after the other, the second waiting for the first (see
+     * [com.xlollx.songport.sync.ServiceReads], which says who holds it). Null: reads run side by side.
+     */
+    val readGate: String? get() = null
+    /**
+     * True when many syncs reaching the service at once can be turned away (the services that take
+     * searches one or two at a time): the Syncs screen suggests spreading their times (issue #56).
+     */
+    val spreadSchedules: Boolean get() = searchParallelism < 4
     /** Pause after each real search (ms): for services that block a burst of searches for hours. */
     val searchSpacingMs: Long get() = 0
     /** True se il servizio passa da un'app plugin installata a parte (vedi BridgePlugin). */
@@ -187,6 +253,12 @@ interface MusicProvider {
     suspend fun tracks(ctx: Env, playlistId: String): List<Track>
     /** Candidati per un brano di un altro servizio: prima per ISRC (se supportato), poi per testo. */
     suspend fun search(ctx: Env, track: Track): List<Track>
+    /**
+     * [search] for [track] on its way to [playlistId] here (null: a playlist still to be made). The
+     * same as [search] unless the service searches another catalogue for another target: on Amazon
+     * Music an album is looked for among albums only for the saved albums, as a playlist takes songs.
+     */
+    suspend fun searchFor(ctx: Env, track: Track, playlistId: String?): List<Track> = search(ctx, track)
     suspend fun createPlaylist(ctx: Env, name: String, description: String): Playlist
     suspend fun addTracks(ctx: Env, playlistId: String, tracks: List<Track>)
 
@@ -208,6 +280,32 @@ interface MusicProvider {
      */
     val listsUntitledEntries: Boolean get() = false
     suspend fun removeTracks(ctx: Env, playlistId: String, tracks: List<Track>)
+    /**
+     * True where [removeTracks] takes out the one entry a track names by its [Track.itemId] and
+     * leaves the other copies of the same track in place (YouTube, TIDAL, Plex, Subsonic). Where a
+     * removal is by track id every copy goes: a sync then never removes a duplicate by itself.
+     */
+    val removesSingleEntry: Boolean get() = false
+
+    /**
+     * The entries of [playlistId] that hold [tracks] (by id), as [tracks] lists them: with the entry
+     * id a removal needs, which a search result lacks. Every entry read on the way also goes to
+     * [seen], for the caller to remember. Default: the whole playlist. A service that reads in pages
+     * stops as soon as each of [tracks] has turned up, so further copies may be left out.
+     */
+    suspend fun findEntries(ctx: Env, playlistId: String, tracks: List<Track>, seen: (List<Track>) -> Unit = {}): List<Track> {
+        val ids = tracks.mapTo(HashSet()) { it.id }
+        return tracks(ctx, playlistId).also(seen).filter { it.id in ids }
+    }
+
+    /**
+     * True where an entry read a few minutes ago still names that same entry or one that is gone,
+     * never another: removal by a lasting entry id (YouTube, TIDAL, Qobuz) or by the track itself
+     * (Spotify, Deezer). The review screen may then remove with the entries the last sync read,
+     * without reading the playlist again. False where an entry is a position, which moves when the
+     * playlist changes (Subsonic, Lyrion).
+     */
+    val keepsEntryIds: Boolean get() = false
 
     /**
      * [removeTracks], answering which of [tracks] (by id) the playlist still lists after the
@@ -285,16 +383,89 @@ interface MusicProvider {
     /**
      * In the coroutine context while a sync job that keeps the source order adds tracks: a service
      * that lists by the second of saving (Spotify's liked songs) then saves one track a second, in
-     * order. Without it, the same tracks go in batches at full speed, in no guaranteed order.
+     * order. Without it, the same tracks go in batches at full speed, in no guaranteed order. The
+     * engine also moves a target into the source's order inside it ([reorderTracks]): the services
+     * whose moves cost (TIDAL, YouTube) move only then, never for another tool.
      */
     object OrderedAdds : kotlin.coroutines.CoroutineContext.Element {
         object Key : kotlin.coroutines.CoroutineContext.Key<OrderedAdds>
         override val key: kotlin.coroutines.CoroutineContext.Key<*> get() = Key
     }
 
+    /**
+     * A read that wants the playlist as it is now: a connector that keeps listings for a while (the
+     * Bridge's, two minutes) reads it again instead. Run [tracks] inside it ("Start over" on the poster).
+     */
+    object FreshRead : kotlin.coroutines.CoroutineContext.Element {
+        object Key : kotlin.coroutines.CoroutineContext.Key<FreshRead>
+        override val key: kotlin.coroutines.CoroutineContext.Key<*> get() = Key
+    }
+
     companion object {
         /** True inside [OrderedAdds]. */
         suspend fun addsInOrder(): Boolean = kotlin.coroutines.coroutineContext[OrderedAdds.Key] != null
+
+        /** True inside [FreshRead]. */
+        suspend fun readsFresh(): Boolean = kotlin.coroutines.coroutineContext[FreshRead.Key] != null
+
+        /**
+         * [findEntries] for a playlist read by offset, [size] entries a page ([page] answers one page
+         * and the playlist's total): the first page, then from the last page back, where a sync adds
+         * its tracks. Stops as soon as each of [tracks] has turned up.
+         */
+        suspend fun entriesByOffset(
+            tracks: List<Track>, size: Int, seen: (List<Track>) -> Unit,
+            page: suspend (offset: Int) -> Pair<List<Track>, Int>,
+        ): List<Track> {
+            val ids = tracks.mapTo(HashSet()) { it.id }
+            val missing = HashSet(ids)
+            val out = ArrayList<Track>()
+            suspend fun read(offset: Int): Int {
+                val (entries, total) = page(offset)
+                seen(entries)
+                entries.filter { it.id in ids }.forEach { out += it; missing -= it.id }
+                return total
+            }
+            val total = read(0)
+            var offset = (total - 1) / size * size
+            while (missing.isNotEmpty() && offset >= size) {
+                read(offset)
+                offset -= size
+            }
+            return out
+        }
+
+        /**
+         * [find], a quick route that may be missing (an older Bridge does not know it) or fail: then
+         * [whole], the whole playlist read as before. Never a failed removal because of the quick route.
+         */
+        suspend fun entriesOrWhole(ctx: Env, tag: String, find: suspend () -> List<Track>, whole: suspend () -> List<Track>): List<Track> =
+            try {
+                find()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ctx.log(tag, "entries not found the quick way (${e.message?.take(120)}): reading the whole playlist")
+                whole()
+            }
+
+        /** [findEntries] for a playlist read page after page: [next] answers a page (null: the first) and the next one's key, null at the end. */
+        suspend fun entriesInPages(
+            tracks: List<Track>, seen: (List<Track>) -> Unit,
+            next: suspend (key: String?) -> Pair<List<Track>, String?>,
+        ): List<Track> {
+            val ids = tracks.mapTo(HashSet()) { it.id }
+            val missing = HashSet(ids)
+            val out = ArrayList<Track>()
+            var key: String? = null
+            do {
+                val (entries, following) = next(key)
+                seen(entries)
+                entries.filter { it.id in ids }.forEach { out += it; missing -= it.id }
+                key = following
+            } while (key != null && missing.isNotEmpty())
+            return out
+        }
 
         const val LIKED_ID = "__liked__"
         const val ALBUMS_ID = "__albums__"
@@ -365,6 +536,8 @@ object Providers {
         Factory(JellyfinProvider.SERVICE) { JellyfinProvider(it) },
         Factory(EmbyProvider.SERVICE) { EmbyProvider(it) },
         Factory(PlexProvider.SERVICE) { PlexProvider(it) },
+        Factory(LyrionProvider.SERVICE) { LyrionProvider(it) },
+        Factory(MopidyProvider.SERVICE) { MopidyProvider(it) },
         Factory(LastFmProvider.SERVICE) { LastFmProvider(it) },
         Factory(ListenBrainzProvider.SERVICE) { ListenBrainzProvider(it) },
     )
@@ -403,7 +576,9 @@ object Providers {
      * se il token o la sessione nell'app plugin sono ancora validi.
      */
     fun connectors(): List<MusicProvider> = connectorIds.mapNotNull { id -> cached.firstOrNull { it.id == id } }
+    /** The connector [id] names; also the "New releases" source and the shared playlists, which every build has and no list shows. */
     fun byId(id: String): MusicProvider? = testDoubles.firstOrNull { it.id == id } ?: cached.firstOrNull { it.id == id }
+        ?: NewReleasesProvider.takeIf { id == it.id } ?: com.xlollx.songport.shared.SharedProvider.takeIf { id == it.id }
     /** Un'istanza per servizio (account principale). */
     fun services(): List<MusicProvider> = cached.filter { it.slot.isEmpty() }
     /** Tutte le istanze (account) di un servizio. */

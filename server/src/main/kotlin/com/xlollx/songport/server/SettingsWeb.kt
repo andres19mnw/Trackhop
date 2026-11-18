@@ -1,5 +1,6 @@
 package com.xlollx.songport.server
 
+import com.xlollx.songport.notify.Notify
 import com.xlollx.songport.server.Html.h
 import kotlinx.coroutines.runBlocking
 
@@ -37,6 +38,12 @@ internal object HomeSide {
 /** True when this person is told about updates: the one who runs Trackhop (the admin, on a shared server). */
 internal fun Web.seesUpdates(): Boolean = Updates.configured && env.may(Permissions.ADMIN)
 
+/** The line under the header while the server has no internet (its last runs found none); "" otherwise. */
+internal fun Web.offlineBanner(): String {
+    runner.offlineSince ?: return ""
+    return """<p class="net-note" role="status"><span aria-hidden="true">☁︎</span> ${h(env.text("net_offline_server"))}</p>"""
+}
+
 /** The line under the header when a newer version is out. */
 internal fun Web.updateBanner(): String {
     if (!seesUpdates()) return ""
@@ -60,6 +67,18 @@ internal fun Web.settingsPage(r: Web.Req) {
                 if (!seesUpdates()) return send(r.ex, 403, page("Settings", NOT_ALLOWED))
                 Updates.setEnabled(r.form["check"] == "on")
                 return redirect(r.ex, "/settings?ok=${q("Saved.")}#updates")
+            }
+            "ticketmaster" -> {
+                saveTicketmasterKey(r.form)
+                return redirect(r.ex, "/settings?ok=${q("Saved.")}#ticketmaster")
+            }
+            "setlistfm" -> {
+                saveSetlistfmKey(r.form)
+                return redirect(r.ex, "/settings?ok=${q("Saved.")}#setlistfm")
+            }
+            "discogs" -> {
+                saveDiscogsToken(r.form)
+                return redirect(r.ex, "/settings?ok=${q("Saved.")}#discogs")
             }
             "check" -> {
                 if (!seesUpdates()) return send(r.ex, 403, page("Settings", NOT_ALLOWED))
@@ -96,6 +115,12 @@ internal fun Web.settingsPage(r: Web.Req) {
     if (env.may(Permissions.API)) {
         val n = Notify.channels(env).count { it.enabled }
         body.append("""<div class="card"><h3><a href="/settings/notifications">Notifications</a></h3><p class="muted">Telegram, ntfy, Gotify, Discord, Slack, Matrix or Pushover, when a sync changes something, fails or waits for you. ${if (n == 0) "None set up." else "$n ${if (n == 1) "channel" else "channels"} on."}</p></div>""")
+    }
+    // The keys of Concerts, Setlists and Records and merch, which are 1.18's (Features).
+    if (Features.v2) {
+        body.append(ticketmasterKeyCard())
+        body.append(setlistfmKeyCard())
+        body.append(discogsTokenCard())
     }
     if (seesUpdates()) body.append(updatesCard())
     body.append(

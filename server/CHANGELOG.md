@@ -1,9 +1,63 @@
 # Trackhop Desktop & Server: changes
 
 Docker (`ghcr.io/xlollx/trackhop`) and Trackhop Desktop share this version (`server/VERSION`) and are
-released together as `server-v<version>`. The app keeps its own (`v1.x`), and the engine each
+released together as `server-v<version>`. The app keeps its own (`v1.x`, `v2.x`), and the engine each
 server version runs is the app's of the same commit, shown in the page footer. Up to the app's 1.3.8
 the Docker image carried the app's version.
+
+## 2.0.0
+
+Released together with the app's 2.0. Discover from your music (new releases, concerts, setlists, records and
+merch, Wrapped from what you really play, followed artists), shared playlists' mailboxes, syncs handed over from
+the phone, podcasts, covers on more services and an encrypted full backup; then two-way pairs, favourites and
+labels, Lyrion and Mopidy, Missing on my server and more.
+
+- **New releases**: Tools › New releases lists the new albums, EPs and singles of a playlist's artists from Deezer and MusicBrainz, and what is announced; make them a playlist on any service, or a weekly *New releases* sync that keeps every track. `GET /api/v1/releases`, `trackhop releases` and the MCP tool `find_new_releases`; a new notification event tells when a weekly New releases sync found new music.
+- **Concerts**: Tools › Concerts lists the upcoming dates of a playlist's artists in a country, from Ticketmaster and MusicBrainz, with ticket-site searches for artists without dates; your own Ticketmaster key in Settings or `TICKETMASTER_API_KEY`. `GET /api/v1/concerts`, `trackhop concerts` and the MCP tool `find_concerts`.
+- **Setlists**: Tools › Setlists shows what a playlist's artists played live, from setlist.fm, and saves a setlist as a File playlist to send to any service. It needs your own free setlist.fm key, in Settings or `SETLISTFM_API_KEY`. `GET /api/v1/setlists`, `trackhop setlists` and the MCP tool `find_setlists`.
+- **Records and merch**: Tools › Records and merch finds a playlist's artists' CDs, vinyl and cassettes on Discogs, the official sites and shops MusicBrainz links them to, and searches on Bandcamp, Discogs, eBay and the web; plain links. With your own Discogs token (Settings), the copies for sale and the lowest price. `GET /api/v1/records`, `trackhop records` and the MCP tool `find_records`.
+- **Wrapped, playlist poster and followed artists**: Tools › Wrapped makes your Wrapped from what you really played (Last.fm, ListenBrainz, your own server's play counts, Spotify, Deezer, TIDAL, YouTube Music) with its card as a PNG; Tools › Playlist poster lists the songs you play most in the cover's colours, to print; Tools › Followed artists tells your notification channels of your artists' new releases, concerts, merch and records, checked every day. Concerts also reads Spotify's tour dates where Spotify (web) is connected. In the API, the `trackhop` command and MCP.
+- **Shared playlists' mailboxes**: a group sharing a playlist can meet on your server. The app makes the group's mailbox with your API token and gets the group's key, shown once; that key only reads and writes the signed items of its own group, nothing else on the server, and a new key ends the old one. `GET`/`POST /api/v1/groups`, `GET`/`DELETE /api/v1/groups/{group}`, `POST /api/v1/groups/{group}/key` and `GET`/`POST /api/v1/groups/{group}/items`.
+- **Hand-over from the app**: a phone can hand a sync over to your server and bring it back. `POST /api/v1/syncs` takes an `id` of your own, which makes the call safe to repeat: sent again, it answers the sync made the first time.
+- **Review choices shared with the app**: `GET`/`POST /api/v1/syncs/{sync}/decisions` give and take in the review's choices (ignored, matched by hand, kept), each with its time; for each track the newest choice wins on both sides.
+- **Podcasts**: YouTube Music's followed podcasts as a source; followed podcasts exported as OPML, with their feeds looked up.
+- **Playlist covers on more services**: Spotify (web), YouTube Music, TIDAL, YouTube, Jellyfin, Emby and Plex take the source's cover.
+- **More of your library**: TIDAL liked tracks, Apple Music favorites and recent plays, ListenBrainz's playlists made for you.
+- **Encrypted full backup**: Backup & restore › Your set-up can save the file with the sign-ins (`tokens.json`), client secrets and pasted web cookies, locked with a password (AES-256-GCM, PBKDF2 with 600,000 rounds); restoring one asks its password and whether this server replaces the other device. `POST /api/v1/config/encrypted`, `POST /api/v1/config` with the `X-Backup-Password` header, `trackhop config --encrypted` and `trackhop config import <file> --replaces-device --replace-sign-ins`. A phone's Bridge sessions are not used on a server, and the other way round.
+- **Synced lyrics from your server**: Tools › Synced lyrics lists the songs of a connected Navidrome (and other Subsonic servers), Jellyfin, Emby, Plex or Lyrion server without lyrics, looks them up on LRCLIB and shows what it found before anything is written. Jellyfin takes them through its API; for Navidrome, Emby and Plex they are saved as `.lrc` (synced) or `.txt` (plain) next to the audio file, once the server's music folder is mapped to a folder here (mounted read-write on Docker). Nothing is ever replaced. Mopidy has no lyrics. `GET /api/v1/tools/nolyrics`, `POST /api/v1/tools/nolyrics/lookup` and `/save`, `trackhop nolyrics` and the MCP tool `find_songs_without_lyrics`.
+- **Two-way pairs on the web page**: make a two-way pair from the page; the pair is turned on or off and deleted as one. A pair can follow removals too: a track removed on one side goes from the other, and removals held back for a check are confirmed from the page. A playlist renamed on either side updates both halves of the pair.
+- **Favourites, labels and tags**: star a sync, name a colour as a label, add key/value tags; filter and search by them on the page, and in the API (filters, run a group by tag or label), the `trackhop` command and the MCP tools.
+- **No more doubles from two devices**: a set-up brought in from another device keeps its scheduled syncs paused, shown as *Scheduled on* and the device's name; a playlist is read again just before it is written; a track a sync added twice is removed by the next run.
+- **MusicBrainz matching for your own server**: Navidrome, Jellyfin, Emby and Plex answer with the file tagged with the source track's recording; the *MusicBrainz tags* report in Tools, the API, the CLI and MCP lists the songs without those tags.
+- **Lyrion Music Server and Mopidy** (beta): playlists read, created, filled and mirrored on your own Lyrion or Mopidy server.
+- **Missing on my server**: one list of the tracks your syncs to your own server could not find, by album, ticked when you get them, exported as CSV, M3U, text, JSON or a Lidarr Custom List (with a read-only list key). `GET /api/v1/wanted`, `trackhop wanted`, the MCP tool `list_missing_on_server` and the `wanted.added` webhook.
+- **Quicker review**: removing a wrong match reads the target playlist only as far as needed, or not at all right after a run.
+- **Diagnostics**: a report with a ready GitHub issue, secrets and names left out, which first looks for the same issue on GitHub; from the API, `trackhop diagnostics` and MCP.
+- **Crowded schedules on the page**: when many syncs reach one service at once, a card proposes new times to confirm; the same through the API, CLI and MCP; a two-way pair counts once.
+- **Safer notification channels**: a channel that comes with a set-up file stays off until you turn it on; saved keys stay with a channel only while its server or webhook address is the same; the ntfy topic is kept as a secret; failures and technical reports leave out webhook addresses, tokens and keys.
+- **Official APIs**: Spotify apps in Development Mode find relinked tracks again; YouTube's searches are counted in their own daily allowance; Jellyfin is asked on its current routes first (the older ones as a fallback) and a playlist's order is kept there too; the Deezer texts say new developer apps can no longer be made (an existing one keeps working); Navidrome and other OpenSubsonic servers sign in with an API key; TIDAL lists your own playlists with its current filter.
+
+## 1.9.2
+
+- **TIDAL saved albums and followed artists sync again**: TIDAL's API no longer has the collection paths Trackhop used (reads and writes answered "Resource not found"); they now go through its new saved-albums and followed-artists resources.
+- **Better matching of numbered parts and remastered titles** (#57): a bare number after a title is its part when the other title names one ("Magnetic Fields III" is Part 3, never Part 2), another part is never matched nor proposed; more remaster forms leave the search ("Digital Remaster", "24-bit", "Remasterizado"); an album named "A / B" matches either name; Jellyfin and Emby also search the artist's own songs when no title is close.
+
+## 1.9.1
+
+- **Better matching on your own media servers** (#57): Jellyfin, Emby, Plex and Navidrome/Subsonic also search the bare title (without "Pt. 4", subtitles or "- Remastered", with and without accents) when the first answers bring only other songs; dotted initials are one word ("U.S.A" is "USA"); tracks missed before an update to matching are searched again on the next run instead of staying "not found" for a week. Different parts of a piece are still never matched to each other.
+
+## 1.9.0
+
+- **Files your way** (#49): artist and album read from file names and folders ("Artist - Album - Title", phone library paths), or from your own patterns (templates or `re:`) with a Try button; tick files to delete them or download them as a .zip; *Send to a service* on each File playlist.
+- **Last.fm loved tracks as a target** (#51): sign in with the password too and Trackhop loves and unloves tracks; only the session key is kept.
+- **Anghami signs in with Google** (#53); *Start over* resets a web sign-in.
+- **Qobuz** (#56): a read the site refuses is asked again after 15 s and 45 s, and calls are paced across syncs; the error says what happened.
+- **Matching** (#57): "Pt. 4", "Part IV" and "Part 4" are one title; different part numbers are different pieces; Jellyfin also searches by the bare title.
+- **Gentler with busy services**: a service that refuses a burst of searches is asked more slowly; Apple Music gets the songs again when a new playlist is not visible yet.
+- **Support**: a small menu at the top and in the footer to choose Ko-fi or GitHub Sponsors.
+- **The API does what the page does**: syncs made, changed (timing, removals, colour), deleted, moved, stopped, paused and resumed; a preview of what a run would do; every run, page by page, with its tracks and notes; a run's review from a script (ignore, keep, discard, pick, replace, restore); File playlists deleted or zipped, and the name patterns for imported files (#49) read, set and tried; a set-up brought back in (with a dry run first); notification channels added, changed and removed; the settings; a search on a service; tracks found on another service; duplicates found and removed; a playlist exported as a file; your numbers; the background tasks. Every call is described in `/api/v1/openapi.json`.
+- **Webhook events**: `sync.started` and `sync.failed` next to `sync.finished` and `backup.finished`, chosen in Tools › API.
+- **The `trackhop` command** has a command for each of them (`new`, `edit`, `delete`, `move`, `stop`, `preview`, `runs`, `report`, `review`, `search`, `convert`, `duplicates`, `export`, `patterns`, `config import`, `notify add`, `webhook`, `settings`, `stats`…), `trackhop help <command>`, and Tab completion for bash, zsh and fish (`trackhop completion`). The MCP server offers the same to AI assistants.
 
 ## 1.8.1
 

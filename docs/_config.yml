@@ -22,6 +22,11 @@ defaults:
       path: "guide/index.md"
     values:
       permalink: /guide/
+  # robots.txt keeps its name, so the sitemap plugin sees ours and does not write its own over it.
+  - scope:
+      path: "robots.txt"
+    values:
+      permalink: /robots.txt
   # Google's verification file and the Deezer redirect page are not for search engines.
   - scope:
       path: "google3df636f9c5610d0d.html"
@@ -36,3 +41,6 @@ exclude:
   - google-shared-client.md
   - play-testers.md
   - guide/getting-the-word-out.md
+  # The tools' tests (node --test docs/assets/tools/*.test.mjs) are not part of the site.
+  - assets/tools/*.test.mjs
+  - assets/tools/package.json

@@ -12,4 +12,9 @@
     <string name="bridge_needed_hint">Este servicio necesita una app de plugin de conector que no está instalada. Trackhop no incluye ni descarga plugins.</string>
     <string name="provider_note_deezer_bridge">Deezer a través de un plugin conector que guarda el inicio de sesión de Deezer; una alternativa a la vía oficial con tu propio ID de app, que sigue disponible como \"Deezer\".</string>
     <string name="provider_note_soundcloud_account">SoundCloud a través de un plugin conector que guarda el inicio de sesión de SoundCloud: tus listas y canciones que te gustan como orígenes y destinos.</string>
+    <string name="setlists_browse">Explorar setlist.fm</string>
+    <string name="setlists_browse_need_plugin">Explorar setlist.fm necesita una versión más reciente del plugin de conexiones: actualízalo y vuelve a intentarlo.</string>
+    <string name="setup_why_deezer">Deezer ya no permite crear nuevas apps de desarrollador. Si ya tienes una, usa aquí su Application ID: sigue funcionando. Si no, la opción Deezer (plugin) funciona sin ella, mediante un plugin de conexión que ya tengas. La página de redirección https la proporciona el proyecto.</string>
+    <string name="backup_full_web_missing">No se incluyeron los inicios de sesión web: el plugin de conector instalado no los entregó (es demasiado antiguo o no es el oficial). Actualízalo y vuelve a guardar.</string>
+    <string name="backup_full_web_failed">No se pudieron restaurar los inicios de sesión web (falta el plugin de conector o es demasiado antiguo): vuelve a iniciar sesión en esos servicios.</string>
 </resources>

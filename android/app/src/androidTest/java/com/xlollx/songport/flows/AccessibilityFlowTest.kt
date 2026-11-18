@@ -81,10 +81,10 @@ class AccessibilityFlowTest : FlowTest() {
         audit("Syncs")
         // The card's menu: every entry named and 48 dp tall.
         clickDesc(s(R.string.more_actions))
-        waitText(s(R.string.job_color))
+        waitText(s(R.string.job_style))
         audit("Sync card menu")
         androidx.test.espresso.Espresso.pressBack()
-        waitGone(s(R.string.job_color))
+        waitGone(s(R.string.job_style))
 
         click(s(R.string.new_sync))
         waitText(s(R.string.editor_source))
@@ -102,7 +102,8 @@ class AccessibilityFlowTest : FlowTest() {
         click(s(R.string.tab_discover))
         waitText(s(R.string.discover_wrapped_title))
         audit("Discover")
-        click(s(R.string.tools_poster_title))
+        // The cards are a lazy grid and the Poster is last by default: scrolled to before the tap.
+        clickTile(s(R.string.tools_poster_title))
         waitText(s(R.string.card_cover_title))
         audit("Poster")
         back()

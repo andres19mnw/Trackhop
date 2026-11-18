@@ -221,7 +221,10 @@ object Notifications {
 
     /** Testo riassuntivo di un report, condiviso tra notifiche e UI. */
     fun summary(context: Context, r: SyncReport): String {
-        if (!r.ok) return context.getString(R.string.result_error, r.error)
+        // The connection's failure is already said in plain words; an older report's line, or one passed
+        // on as text, gets them here.
+        if (!r.ok && r.netError != null) return r.error.orEmpty()
+        if (!r.ok) return context.getString(R.string.result_error, com.xlollx.songport.ui.userText(context, r.error))
         val parts = ArrayList<String>()
         if (r.added > 0 || r.removed > 0) parts += context.getString(R.string.result_added_removed, r.added, r.removed)
         if (r.unmatched.isNotEmpty()) parts += context.getString(R.string.result_unmatched, r.unmatched.size)
@@ -249,6 +252,100 @@ object Notifications {
         ContextCompat.getSystemService(context, NotificationManager::class.java)?.notify(id, n)
     }
 
+    private const val UPDATE_CHANNEL_ID = "app_updates"
+    private const val UPDATE_ID = 4244
+
+    /** "Trackhop X is out": a tap downloads its APK. Its own channel, so it can be muted alone. False when it could not be posted. */
+    fun appUpdate(context: Context, version: String, url: String?): Boolean {
+        if (!canPost(context)) return false
+        val mgr = context.getSystemService(NotificationManager::class.java)
+        mgr.createNotificationChannel(
+            NotificationChannel(UPDATE_CHANNEL_ID, context.getString(R.string.notif_update_channel), NotificationManager.IMPORTANCE_DEFAULT)
+                .apply { description = context.getString(R.string.notif_update_channel_desc) }
+        )
+        // An explicit intent to our own screen, which opens the download page (CodeQL: no implicit
+        // intent inside a PendingIntent).
+        val get = Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN_RELEASE, url ?: MainActivity.RELEASES_URL)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pi = PendingIntent.getActivity(context, UPDATE_ID, get, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val n = NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.notif_update_title, version))
+            .setContentText(context.getString(R.string.notif_update_text))
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .build()
+        mgr.notify(UPDATE_ID, n)
+        return true
+    }
+
+    private const val ALERTS_CHANNEL_ID = "artist_alerts"
+    private const val ALERTS_ID = 4245
+
+    /**
+     * "3 updates from your artists: new single by ADTR, Architects concert in Milan, new merch from
+     * BMTH": one notification per look, on its own channel; a tap opens Discover › Followed artists.
+     */
+    fun artistAlerts(context: Context, news: List<com.xlollx.songport.sync.ArtistAlerts.News>) {
+        if (news.isEmpty() || !canPost(context)) return
+        val mgr = context.getSystemService(NotificationManager::class.java)
+        mgr.createNotificationChannel(
+            NotificationChannel(ALERTS_CHANNEL_ID, context.getString(R.string.alerts_channel), NotificationManager.IMPORTANCE_DEFAULT)
+                .apply { description = context.getString(R.string.alerts_channel_desc) }
+        )
+        val open = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_TOOL, MainActivity.TOOL_FOLLOWED)
+        }
+        val pi = PendingIntent.getActivity(context, ALERTS_ID, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val lines = com.xlollx.songport.sync.ArtistAlerts.group(news).size
+        val title = context.resources.getQuantityString(R.plurals.alerts_notif_title, lines, lines)
+        val text = com.xlollx.songport.sync.ArtistAlerts.summary(com.xlollx.songport.platform.AndroidEnv.of(context), news).replaceFirstChar { it.titlecase() }
+        val n = NotificationCompat.Builder(context, ALERTS_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .build()
+        mgr.notify(ALERTS_ID, n)
+    }
+
+    private const val SIGN_IN_ID = 4246
+
+    /**
+     * "SoundCloud: sign in again to keep your syncs running": a web session gone for good. A tap
+     * opens Accounts on that connector. One per connector (tagged with its id), so two sessions gone
+     * are two notifications. False when it could not be posted.
+     */
+    fun signInAgain(context: Context, service: String, connectorId: String): Boolean {
+        if (!canPost(context)) return false
+        ensureChannel(context)
+        val open = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_FOCUS_CONNECTOR, connectorId)
+        }
+        // Its own request code per connector: another connector's notification keeps its own target.
+        val pi = PendingIntent.getActivity(context, SIGN_IN_ID xor connectorId.hashCode(), open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val text = context.getString(R.string.notif_signin_again_text)
+        val n = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.notif_signin_again_title, service))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .build()
+        ContextCompat.getSystemService(context, NotificationManager::class.java)?.notify(connectorId, SIGN_IN_ID, n)
+        return true
+    }
+
+    /** Takes back [connectorId]'s "sign in again" ([signInAgain]): the person signed in, or out. */
+    fun cancelSignInAgain(context: Context, connectorId: String) {
+        ContextCompat.getSystemService(context, NotificationManager::class.java)?.cancel(connectorId, SIGN_IN_ID)
+    }
+
     /** "N tracks can no longer be played": opens the Unplayable tracks tool. */
     fun unplayable(context: Context, id: Int, count: Int) {
         if (!canPost(context)) return
@@ -272,18 +369,31 @@ object Notifications {
 
     fun syncResult(context: Context, report: SyncReport) {
         if (!canPost(context)) return
+        // A one-off transfer: its songs to review, else Tools (Recent transfers); a sync: the log.
+        val job = com.xlollx.songport.data.Store.get(context).job(report.jobId)
+        val oneOff = job?.oneOff == true
         val open = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(MainActivity.EXTRA_TAB, MainActivity.TAB_LOG)
+            when {
+                oneOff && com.xlollx.songport.sync.OneOffs.toReview(report) > 0 -> putExtra(MainActivity.EXTRA_REVIEW, report.id)
+                oneOff -> putExtra(MainActivity.EXTRA_TAB, MainActivity.TAB_TOOLS)
+                else -> putExtra(MainActivity.EXTRA_TAB, MainActivity.TAB_LOG)
+            }
         }
         val pi = PendingIntent.getActivity(context, report.jobId.hashCode(), open,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val text = summary(context, report)
+        // 1.18: the same message as the other channels (result, route, figures, what to do); a run with
+        // nothing to tell, or before 1.18, the summary as ever.
+        val rich = if (Features.v2 && job != null) runCatching {
+            val releases = job.source.provider == com.xlollx.songport.providers.NewReleasesProvider.SERVICE
+            com.xlollx.songport.notify.Notify.richMessage(com.xlollx.songport.platform.AndroidEnv.of(context), job, report, com.xlollx.songport.notify.Notify.Event.entries.toSet(), releases)?.rich
+        }.getOrNull() else null
+        val text = rich?.let { listOfNotNull(it.countsLine.ifEmpty { null }, it.detail).joinToString(" · ").ifEmpty { it.route } } ?: summary(context, report)
         val n = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(context.getString(R.string.notif_sync_title, report.jobName))
+            .setContentTitle(rich?.let { "${it.icon} ${it.title}" } ?: context.getString(R.string.notif_sync_title, report.jobName))
             .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(rich?.lines?.joinToString("\n") ?: text))
             .setContentIntent(pi)
             .setAutoCancel(true)
             .setGroup(RESULTS_GROUP)

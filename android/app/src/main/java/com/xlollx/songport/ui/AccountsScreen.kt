@@ -1,5 +1,12 @@
 package com.xlollx.songport.ui
 
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.style.TextAlign
@@ -11,13 +18,10 @@ import android.net.Uri
 import com.xlollx.songport.sync.QuotaMeter
 import com.xlollx.songport.providers.YouTubeProvider
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.AlertDialog
 import com.xlollx.songport.data.Store
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
@@ -55,6 +59,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,6 +70,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -93,7 +100,7 @@ import kotlinx.coroutines.withContext
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun AccountsScreen(snackbar: SnackbarHostState, showAdd: Boolean, onShowAdd: (Boolean) -> Unit, onSetup: (MusicProvider) -> Unit, onManageFiles: () -> Unit = {}) {
+fun AccountsScreen(snackbar: SnackbarHostState, showAdd: Boolean, onShowAdd: (Boolean) -> Unit, onSetup: (MusicProvider) -> Unit, onManageFiles: () -> Unit = {}, onSendTo: (id: String, name: String) -> Unit = { _, _ -> }) {
     val ctx = LocalContext.current
     val store = remember { Store.get(ctx) }
     val data by store.state.collectAsState()
@@ -132,9 +139,10 @@ fun AccountsScreen(snackbar: SnackbarHostState, showAdd: Boolean, onShowAdd: (Bo
         ) { name ->
             naming = null
             addConnector(store, service, name)
+            com.xlollx.songport.sync.Scheduler.applyKeepAlive(ctx)
         }
     }
-    var renaming by remember { mutableStateOf<MusicProvider?>(null) }
+    var renaming by rememberSaveable(stateSaver = ProviderSaver) { mutableStateOf<MusicProvider?>(null) }
     renaming?.let { p ->
         NameDialog(stringResource(R.string.connector_rename), p.label(ctx), onDismiss = { renaming = null }) { name ->
             renaming = null
@@ -143,7 +151,7 @@ fun AccountsScreen(snackbar: SnackbarHostState, showAdd: Boolean, onShowAdd: (Bo
     }
 
     fun remove(p: MusicProvider) {
-        val inUse = data.jobs.any { it.source.provider == p.id || it.target.provider == p.id }
+        val inUse = data.syncs.any { it.source.provider == p.id || it.target.provider == p.id }
         if (inUse) {
             scope.launch { snackbar.showSnackbar(ctx.getString(R.string.account_remove_blocked)) }
             return
@@ -157,6 +165,7 @@ fun AccountsScreen(snackbar: SnackbarHostState, showAdd: Boolean, onShowAdd: (Bo
                 else s.extraAccounts + (p.serviceId to s.extraAccounts[p.serviceId].orEmpty().filter { it != p.slot }),
             )
         }
+        com.xlollx.songport.sync.Scheduler.applyKeepAlive(ctx)
     }
 
     // Reading the settings here subscribes this scope to the store: a new connector shows up at once.
@@ -167,11 +176,20 @@ fun AccountsScreen(snackbar: SnackbarHostState, showAdd: Boolean, onShowAdd: (Bo
         EmptyState(Icons.Filled.AccountCircle, stringResource(R.string.connectors_empty_title), stringResource(R.string.connectors_empty_body))
         return
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp + LocalBottomBarInset.current), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // A connector asked by a notification (ConnectorFocus): scrolled to; the intro is the first item.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val focusAsked by ConnectorFocus.request.collectAsState()
+    LaunchedEffect(focusAsked, providers) {
+        val id = focusAsked ?: return@LaunchedEffect
+        val index = providers.indexOfFirst { it.id == id }
+        if (index >= 0) runCatching { listState.animateScrollToItem(index + 1) }
+        ConnectorFocus.request.value = null
+    }
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp + LocalBottomBarInset.current), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item(key = "intro") { TrustBanner() }
         items(providers, key = { it.id }) { p ->
             key(refresh) {
-                if (p.serviceId == LocalFilesProvider.serviceId) FilesCard(snackbar, onRemove = { remove(p) }, onManage = onManageFiles)
+                if (p.serviceId == LocalFilesProvider.serviceId) FilesCard(snackbar, onRemove = { remove(p) }, onManage = onManageFiles, onSendTo = onSendTo)
                 // A source with nothing to sign in to (the charts): its name, what it is, remove.
                 else if (!p.requiresAuth) PlainSourceCard(p, onRemove = { remove(p) })
                 else ProviderCard(
@@ -179,12 +197,15 @@ fun AccountsScreen(snackbar: SnackbarHostState, showAdd: Boolean, onShowAdd: (Bo
                     // Read here, where the connector names are observed: the card itself is skipped
                     // when only the name changes (same provider), and a rename would not show.
                     label = p.label(ctx),
+                    trouble = remember(data.reports, p.id) { lastRunTrouble(data, p) },
                     quotaUsed = if (p.serviceId == YouTubeProvider.SERVICE) QuotaMeter.used(data, YouTubeProvider.SERVICE) else null,
+                    searchesUsed = if (p.serviceId == YouTubeProvider.SERVICE) QuotaMeter.searchesUsed(data, YouTubeProvider.SERVICE) else null,
                     onSetup = onSetup,
                     onConnect = { connectFor = p },
                     onRename = { renaming = p },
                     onRemove = { remove(p) },
                     onChanged = { refresh++ },
+                    onMessage = { m -> scope.launch { snackbar.showSnackbar(m) } },
                 )
             }
         }
@@ -222,7 +243,7 @@ internal fun addableServices(ctx: android.content.Context): List<MusicProvider> 
 @Composable
 private fun PickServiceDialog(connectors: List<String>, onDismiss: () -> Unit, onPick: (MusicProvider) -> Unit) {
     val ctx = LocalContext.current
-    AlertDialog(
+    FitDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.connector_pick_title)) },
         text = {
@@ -236,11 +257,11 @@ private fun PickServiceDialog(connectors: List<String>, onDismiss: () -> Unit, o
             // routes, each saying what it asks and what it is.
             var family by remember { mutableStateOf<String?>(null) }
             val chosen = family?.let { families[it] }
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+            Column {
                 if (chosen == null) {
                     serviceGroups(families.keys.toList(), families).forEach { (groupRes, names) ->
                         if (names.isEmpty()) return@forEach
-                        Text(stringResource(groupRes), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
+                        Text(stringResource(groupRes), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp).semantics { heading() })
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             names.forEach { name ->
                                 val members = families.getValue(name)
@@ -263,7 +284,7 @@ private fun PickServiceDialog(connectors: List<String>, onDismiss: () -> Unit, o
                     }
                     if (unavailable.isNotEmpty()) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
-                            Text(stringResource(R.string.services_group_unavailable), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                            Text(stringResource(R.string.services_group_unavailable), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).semantics { heading() })
                             HelpButton(Helps.unavailable)
                         }
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -275,7 +296,7 @@ private fun PickServiceDialog(connectors: List<String>, onDismiss: () -> Unit, o
                         IconButton(onClick = { family = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.nav_back)) }
                         ServiceLogo(chosen.first(), 32.dp)
                         Spacer(Modifier.width(12.dp))
-                        Text(family!!, style = MaterialTheme.typography.titleMedium)
+                        Text(family!!, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.connector_pick_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).padding(vertical = 6.dp))
@@ -284,8 +305,10 @@ private fun PickServiceDialog(connectors: List<String>, onDismiss: () -> Unit, o
                     // The easiest route first, so a first-timer's eye lands on it.
                     chosen.sortedBy { if (it.route == MusicProvider.Route.EASY) 0 else 1 }.forEach { s ->
                         val taken = !s.supportsMultipleAccounts && connectors.any { Providers.byId(it)?.serviceId == s.serviceId }
+                        // Each way in on its own card, a full target: what it asks and what it is.
                         Row(
-                            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable(enabled = !taken) { onPick(s) }.padding(horizontal = 8.dp, vertical = 10.dp),
+                            Modifier.padding(top = 8.dp).fillMaxWidth().heightIn(min = 56.dp).clip(ToolCardShape).background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                .clickable(enabled = !taken) { onPick(s) }.padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
@@ -316,9 +339,10 @@ private fun PickServiceDialog(connectors: List<String>, onDismiss: () -> Unit, o
 
 @Composable
 private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var name by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
+    var name by rememberSaveable { mutableStateOf(initial) }
+    val close = rememberDiscardGuard(name != initial, onClose = onDismiss)
+    FitDialog(
+        onDismissRequest = close,
         title = { Text(title) },
         text = {
             OutlinedTextField(
@@ -349,25 +373,50 @@ private fun ProviderCard(
     p: MusicProvider,
     label: String,
     quotaUsed: Long?,
+    searchesUsed: Long? = null,
     onSetup: (MusicProvider) -> Unit,
     onConnect: () -> Unit,
     onRename: () -> Unit,
     onRemove: () -> Unit,
     onChanged: () -> Unit,
+    onMessage: (String) -> Unit = {},
+    /** The newest run through this connector failed because of it (its name in the error), lately. */
+    trouble: Boolean = false,
 ) {
     val ctx = LocalContext.current
     // Letture dal token cifrato: una volta per scheda, non a ogni ridisegno (key(refresh) le rinnova).
     val configured = remember(p.id) { p.isConfigured(ctx) }
     val connected = remember(p.id) { p.isConnected(ctx) }
     val account = remember(p.id) { p.accountName(ctx) }
-    // The edge tells the state at a glance: the success tone when connected, a hairline otherwise.
-    val edge = if (connected) Tones.onSuccessContainer().copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-    Card(
-        Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        border = androidx.compose.foundation.BorderStroke(1.dp, edge),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-    ) {
+    // A web session gone for good (SoundCloud): connected on paper, but only a new sign-in brings it back.
+    val expired = remember(p.id) { connected && p is SoundCloudBridgeProvider && p.sessionExpired(ctx.env) }
+    // A card of the page, as a section of Tools or Settings: the pill says the state, a session gone wears the error's line.
+    // The edge tells the state at a glance (owner, 12/11: keep the outline round connector cards):
+    // the error tone when the session is gone, the success tone when connected, a hairline otherwise.
+    // In between, amber: connected, but the newest sync through it failed on its side.
+    val edge = when {
+        expired -> MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+        connected && trouble -> toneContent(Tone.Warning).copy(alpha = 0.7f)
+        connected -> Tones.onSuccessContainer().copy(alpha = 0.45f)
+        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+    }
+    PageCard(shape = MaterialTheme.shapes.large, edge = edge) {
+        // Little room for the words (a narrow phone, a large font): the state goes under the name and the
+        // line on encryption above the buttons, instead of each squeezing the other.
+        val tight = LocalConfiguration.current.screenWidthDp / LocalDensity.current.fontScale < 300f
+        val state: @Composable () -> Unit = {
+            if (expired) StatusPill(stringResource(R.string.session_expired), Tone.Error)
+            else if (connected && trouble) StatusPill(stringResource(R.string.account_last_sync_failed), Tone.Warning)
+            else if (connected) StatusPill(stringResource(R.string.connected), Tone.Ok, Icons.Filled.CheckCircle)
+            else if (!configured) StatusPill(stringResource(R.string.not_configured), Tone.Neutral)
+        }
+        val encrypted: @Composable (Modifier) -> Unit = { m ->
+            Row(m, verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Lock, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.account_encrypted), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ServiceLogo(p, 48.dp)
@@ -376,10 +425,11 @@ private fun ProviderCard(
                     Text(
                         label + (if (!p.canWrite) " · " + stringResource(R.string.read_only) else "") +
                             (if (p.alpha) " · " + stringResource(R.string.alpha) else if (p.beta) " · " + stringResource(R.string.beta) else ""),
-                        style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         when {
+                            expired -> stringResource(R.string.session_expired_hint)
                             connected -> stringResource(R.string.connected_as, account ?: p.displayName)
                             p.slot.isEmpty() -> stringResource(p.noteRes)
                             else -> stringResource(R.string.not_connected)
@@ -387,40 +437,51 @@ private fun ProviderCard(
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
+                    if (tight) { Spacer(Modifier.height(4.dp)); state() }
                 }
-                Spacer(Modifier.width(8.dp))
-                if (connected) StatusPill(stringResource(R.string.connected), Tone.Ok, Icons.Filled.CheckCircle)
-                else if (!configured) StatusPill(stringResource(R.string.not_configured), Tone.Neutral)
+                if (!tight) { Spacer(Modifier.width(8.dp)); state() }
             }
-            if (connected && quotaUsed != null) QuotaCard(used = quotaUsed, sharedCredentials = !p.usesOwnCredentials(ctx))
+            if (connected && quotaUsed != null) QuotaCard(used = quotaUsed, sharedCredentials = !p.usesOwnCredentials(ctx), searches = searchesUsed)
             // Detto una volta, dove si sceglie di usarlo: meglio qui che come sorpresa a sync finita.
             if (p.alpha || p.beta) {
-                Spacer(Modifier.height(6.dp))
-                Text(stringResource(if (p.alpha) R.string.alpha_note else R.string.beta_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                Spacer(Modifier.height(8.dp))
+                PageNote(stringResource(if (p.alpha) R.string.alpha_note else R.string.beta_note))
             }
             if (p.usesOwnCredentials(ctx)) {
-                Spacer(Modifier.height(6.dp))
-                Text(stringResource(R.string.setup_using_own), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                PageNote(stringResource(R.string.setup_using_own), icon = Icons.Filled.Key)
             } else if (!configured && !connected) {
-                Spacer(Modifier.height(6.dp))
-                Text(stringResource(p.notConfiguredRes ?: R.string.not_configured_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(8.dp))
+                PageNote(stringResource(p.notConfiguredRes ?: R.string.not_configured_hint), tone = Tone.Error)
             }
             Spacer(Modifier.height(8.dp))
+            if (connected && tight) encrypted(Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                if (connected) {
-                    Icon(Icons.Filled.Lock, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        stringResource(R.string.account_encrypted), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
-                    )
-                } else Spacer(Modifier.weight(1f))
+                if (connected && !tight) encrypted(Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
                 var testing by remember { mutableStateOf(false) }
                 if (testing) ConnectionTestDialog(p) { testing = false }
                 // YouTube Music: the channel the account acts as (its own, or a brand account), where the connectors offer it.
                 var choosingChannel by remember { mutableStateOf(false) }
                 val channels = p is YouTubeBridgeProvider && connected && remember(p.id) { p.channelsSupported(ctx.env) }
                 if (choosingChannel && p is YouTubeBridgeProvider) YtmChannelDialog(p, onDismiss = { choosingChannel = false }) { choosingChannel = false; onChanged() }
+                var startingOver by remember { mutableStateOf(false) }
+                val cardScope = rememberCoroutineScope()
+                if (startingOver && p is com.xlollx.songport.providers.StartsOver) FitDialog(
+                    onDismissRequest = { startingOver = false },
+                    title = { Text(stringResource(R.string.start_over_title, p.label(ctx))) },
+                    text = { Text(stringResource(R.string.start_over_body, p.displayName)) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            startingOver = false
+                            cardScope.launch {
+                                kotlinx.coroutines.withContext(Dispatchers.IO) { p.startOver(ctx.env) }
+                                onMessage(ctx.getString(R.string.start_over_done, p.label(ctx)))
+                                onChanged()
+                            }
+                        }) { Text(stringResource(R.string.start_over)) }
+                    },
+                    dismissButton = { TextButton(onClick = { startingOver = false }) { Text(stringResource(R.string.cancel)) } },
+                )
                 val actions = listOfNotNull(
                     if (connected) MenuAction(stringResource(R.string.account_test), { testing = true }) else null,
                     if (channels) MenuAction(stringResource(R.string.ytm_channel), { choosingChannel = true }) else null,
@@ -428,6 +489,9 @@ private fun ProviderCard(
                     if (connected && p.revokeUrl != null) MenuAction(stringResource(R.string.account_revoke, p.displayName), {
                         ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(p.revokeUrl)))
                     }) else null,
+                    // A web connector starts over: signed out, its sites' data forgotten (connected or not:
+                    // a site can remember a sign-in the connector never got, #53).
+                    if (p is com.xlollx.songport.providers.StartsOver) MenuAction(stringResource(R.string.start_over), { startingOver = true }) else null,
                     MenuAction(stringResource(R.string.connector_rename), onRename),
                     MenuAction(stringResource(R.string.account_remove), onRemove, destructive = true),
                 ).let { base ->
@@ -438,6 +502,8 @@ private fun ProviderCard(
                 }
                 OverflowMenu(actions)
                 when {
+                    // The dead session is cleared first (its cookie would be taken again by the sign-in), then a fresh sign-in.
+                    expired -> Button(onClick = { p.disconnect(ctx); onConnect() }) { Text(stringResource(R.string.sign_in_again)) }
                     connected -> OutlinedButton(onClick = { p.disconnect(ctx); onChanged() }) { Text(stringResource(R.string.disconnect)) }
                     // Servizio che passa da un'app compagna non ancora installata: il pulsante la scarica.
                     !configured && p.installUrl != null -> Button(onClick = {
@@ -454,12 +520,29 @@ private fun ProviderCard(
 
 /** File playlists: import, paste, export, delete. Shown in Tools always and in Accounts when the File connector is added. */
 @Composable
-internal fun FilesCard(snackbar: SnackbarHostState, onRemove: (() -> Unit)? = null, onManage: () -> Unit = {}) {
+internal fun FilesCard(
+    snackbar: SnackbarHostState,
+    onRemove: (() -> Unit)? = null,
+    onManage: () -> Unit = {},
+    onSendTo: (id: String, name: String) -> Unit = { _, _ -> },
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var lists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
     var version by remember { mutableIntStateOf(0) }
     LaunchedEffect(version) { lists = withContext(Dispatchers.IO) { LocalFilesProvider.playlists(ctx) } }
+
+    // "Send to a service" right after the import: the list is there, where should it go?
+    fun offerSend(id: String, name: String, tracks: Int) {
+        scope.launch {
+            val res = snackbar.showSnackbar(
+                message = ctx.getString(R.string.csv_imported, tracks),
+                actionLabel = ctx.getString(R.string.files_send_to),
+                duration = SnackbarDuration.Long,
+            )
+            if (res == SnackbarResult.ActionPerformed) onSendTo(id, name)
+        }
+    }
 
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> pendingImport = uri }
@@ -472,17 +555,57 @@ internal fun FilesCard(snackbar: SnackbarHostState, onRemove: (() -> Unit)? = nu
                 runCatching {
                     // Bytes, not a UTF-8 reader: a BOM or a Windows-1252 .m3u decodes as written.
                     val text = ctx.contentResolver.openInputStream(uri)?.use { com.xlollx.songport.sync.PlaylistFiles.decode(it.readBytes()) } ?: ""
-                    LocalFilesProvider.importFile(ctx, displayName(ctx, uri), text)
+                    LocalFilesProvider.importFileAsPlaylist(ctx, displayName(ctx, uri), text)
                 }
             }
             onMain {
-                result.onSuccess { n -> version++; snackbar.showSnackbar(ctx.getString(R.string.csv_imported, n)) }
-                    .onFailure { snackbar.showSnackbar(it.message ?: ctx.getString(R.string.error_generic)) }
+                result.onSuccess { pl ->
+                    version++
+                    offerSend(pl.id, pl.name, pl.trackCount.coerceAtLeast(0))
+                }.onFailure { snackbar.showSnackbar(it.userMessage(ctx)) }
             }
         }
     }
 
-    var pasteOpen by remember { mutableStateOf(false) }
+    // How "A - B - C" names in imported files are read (#49).
+    var namesOpen by rememberSaveable { mutableStateOf(false) }
+    var patternsOpen by rememberSaveable { mutableStateOf(false) }
+    if (patternsOpen) {
+        val store = remember { Store.get(ctx) }
+        FilePatternsDialog(
+            initial = store.state.value.settings.fileNamePatterns,
+            onDismiss = { patternsOpen = false },
+            onSave = { lines ->
+                patternsOpen = false
+                store.updateSettings { it.copy(fileNameLayout = com.xlollx.songport.sync.PlaylistFiles.NameLayout.CUSTOM.name, fileNamePatterns = lines) }
+                scope.launch { snackbar.showSnackbar(ctx.getString(R.string.files_names_saved)) }
+            },
+        )
+    }
+    if (namesOpen) {
+        val store = remember { Store.get(ctx) }
+        val settings by store.state.collectAsState()
+        ChoiceDialog(
+            title = stringResource(R.string.files_names),
+            options = listOf(
+                com.xlollx.songport.sync.PlaylistFiles.NameLayout.AUTO to stringResource(R.string.files_names_auto),
+                com.xlollx.songport.sync.PlaylistFiles.NameLayout.ARTIST_TITLE to stringResource(R.string.files_names_two),
+                com.xlollx.songport.sync.PlaylistFiles.NameLayout.ARTIST_ALBUM_TITLE to stringResource(R.string.files_names_three),
+                com.xlollx.songport.sync.PlaylistFiles.NameLayout.CUSTOM to stringResource(R.string.files_names_custom),
+            ),
+            selected = com.xlollx.songport.sync.PlaylistFiles.NameLayout.of(settings.settings.fileNameLayout),
+            onDismiss = { namesOpen = false },
+            onSelect = { v ->
+                namesOpen = false
+                // Own patterns: chosen once they are written (and editable each time it is picked).
+                if (v == com.xlollx.songport.sync.PlaylistFiles.NameLayout.CUSTOM) { patternsOpen = true; return@ChoiceDialog }
+                store.updateSettings { it.copy(fileNameLayout = v.name) }
+                scope.launch { snackbar.showSnackbar(ctx.getString(R.string.files_names_saved)) }
+            },
+        )
+    }
+
+    var pasteOpen by rememberSaveable { mutableStateOf(false) }
     if (pasteOpen) PasteListDialog(
         onDismiss = { pasteOpen = false },
         onImport = { name, text ->
@@ -490,36 +613,44 @@ internal fun FilesCard(snackbar: SnackbarHostState, onRemove: (() -> Unit)? = nu
             scope.launch {
                 try {
                     val link = com.xlollx.songport.sync.SetlistImport.linkIn(text)
-                    val n = if (link != null) {
-                        val s = com.xlollx.songport.sync.SetlistImport.fetch(link)
-                        withContext(Dispatchers.IO) { LocalFilesProvider.importTracks(ctx, if (name.isBlank()) s.name else name, s.tracks) }
-                        s.tracks.size
-                    } else withContext(Dispatchers.IO) { LocalFilesProvider.importFile(ctx, "$name.txt", text) }
+                    val pl = if (link != null) {
+                        val s = com.xlollx.songport.sync.SetlistImport.fetch(com.xlollx.songport.platform.AndroidEnv.of(ctx), link)
+                        val id = withContext(Dispatchers.IO) { LocalFilesProvider.importTracks(ctx, if (name.isBlank()) s.name else name, s.tracks) }
+                        Playlist(id, id, s.tracks.size)
+                    } else withContext(Dispatchers.IO) { LocalFilesProvider.importFileAsPlaylist(ctx, "$name.txt", text) }
                     onMain {
                         version++
-                        snackbar.showSnackbar(ctx.getString(R.string.csv_imported, n))
+                        // A pasted list, like an imported file, can go straight to a service.
+                        offerSend(pl.id, pl.name, pl.trackCount.coerceAtLeast(0))
                     }
-                } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
-                    onMain { snackbar.showSnackbar(e.message ?: ctx.getString(R.string.error_generic)) }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: com.xlollx.songport.sync.SetlistImport.NoKey) {
+                    // No key: setlist.fm's own site opens on the link where the build has it (GitHub, F-Droid; the store builds with a connector plugin).
+                    val site = com.xlollx.songport.providers.BuiltIn.setlistSite(ctx, null, com.xlollx.songport.sync.SetlistImport.linkIn(text))
+                    onMain { if (site != null) ctx.startActivity(site.second) else snackbar.showSnackbar(e.userMessage(ctx)) }
+                } catch (e: Exception) {
+                    onMain { snackbar.showSnackbar(e.userMessage(ctx)) }
                 }
             }
         },
     )
 
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    PageCard(shape = MaterialTheme.shapes.large, edge = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ProviderBadge(LocalFilesProvider, 40.dp)
+                ProviderBadge(LocalFilesProvider, 48.dp)
                 Spacer(Modifier.width(12.dp))
-                Text(LocalFilesProvider.label(ctx), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                if (onRemove != null) OverflowMenu(listOf(MenuAction(stringResource(R.string.account_remove), onRemove, destructive = true)))
+                Text(LocalFilesProvider.label(ctx), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                OverflowMenu(listOfNotNull(
+                    MenuAction(stringResource(R.string.files_names), { namesOpen = true }),
+                    onRemove?.let { MenuAction(stringResource(R.string.account_remove), it, destructive = true) },
+                ))
             }
             Spacer(Modifier.height(6.dp))
             Text(stringResource(LocalFilesProvider.noteRes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // The how-to only while there is nothing yet: once files exist, the list speaks for itself.
             if (lists.isEmpty()) {
                 Spacer(Modifier.height(6.dp))
-                Text(stringResource(R.string.csv_playlists_hint), style = MaterialTheme.typography.bodySmall)
+                PageNote(stringResource(R.string.csv_playlists_hint))
             }
             Spacer(Modifier.height(10.dp))
             if (lists.isEmpty()) Text(stringResource(R.string.csv_empty), style = MaterialTheme.typography.bodyMedium)
@@ -534,9 +665,9 @@ internal fun FilesCard(snackbar: SnackbarHostState, onRemove: (() -> Unit)? = nu
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            // Wraps where the two do not fit side by side (a narrow phone, a large font).
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = { pasteOpen = true }) { Text(stringResource(R.string.paste_list)) }
-                Spacer(Modifier.width(8.dp))
                 Button(onClick = {
                     importLauncher.launch(
                         arrayOf(
@@ -557,12 +688,12 @@ internal fun FilesCard(snackbar: SnackbarHostState, onRemove: (() -> Unit)? = nu
 @Composable
 private fun PlainSourceCard(p: MusicProvider, onRemove: () -> Unit) {
     val ctx = LocalContext.current
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    PageCard(shape = MaterialTheme.shapes.large, edge = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ProviderBadge(p, 40.dp)
+                ProviderBadge(p, 48.dp)
                 Spacer(Modifier.width(12.dp))
-                Text(p.label(ctx), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text(p.label(ctx), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 OverflowMenu(listOf(MenuAction(stringResource(R.string.account_remove), onRemove, destructive = true)))
             }
             Spacer(Modifier.height(6.dp))
@@ -581,10 +712,11 @@ private fun displayName(ctx: android.content.Context, uri: Uri): String {
 /** Un blocco di testo "Artista - Titolo" per riga diventa una playlist da file. */
 @Composable
 private fun PasteListDialog(onDismiss: () -> Unit, onImport: (String, String) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var text by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
+    var name by rememberSaveable { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf("") }
+    val close = rememberDiscardGuard(name.isNotBlank() || text.isNotBlank(), onClose = onDismiss)
+    FitDialog(
+        onDismissRequest = close,
         title = { Text(stringResource(R.string.paste_list)) },
         text = {
             Column {
@@ -601,7 +733,7 @@ private fun PasteListDialog(onDismiss: () -> Unit, onImport: (String, String) ->
 
 /** Streaming services, personal servers, then the rest (stats services, files), each in its own group. */
 private fun serviceGroups(names: List<String>, families: Map<String, List<MusicProvider>>): List<Pair<Int, List<String>>> {
-    val servers = setOf("subsonic", "jellyfin", "emby", "plex")
+    val servers = setOf("subsonic", "jellyfin", "emby", "plex", "lyrion", "mopidy")
     val other = setOf("lastfm", "listenbrainz", "csv")
     fun kind(n: String) = families.getValue(n).first().serviceId.let { if (it in servers) 1 else if (it in other) 2 else 0 }
     return listOf(
@@ -619,6 +751,7 @@ private val UNAVAILABLE_ON_PLAY = listOf(
     Triple("anghami", 0xFF8D3DEB, "Anghami"),
     Triple("qobuz", QobuzBridgeProvider.BRAND, "Qobuz"),
     Triple("qqmusic", 0xFF31C27C, "QQ Music"),
+    Triple("jiosaavn", 0xFF2BC5B4, "JioSaavn"),
 )
 
 /** A greyed-out tile for a service this version cannot reach: the mark and the name, nothing to tap. */
@@ -627,7 +760,7 @@ private fun UnavailableServiceTile(serviceId: String, brandColor: Long, name: St
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.width(84.dp).heightIn(min = 96.dp).alpha(0.45f),
+        modifier = Modifier.width(serviceTileWidth()).heightIn(min = 96.dp).alpha(0.45f),
     ) {
         Column(Modifier.padding(horizontal = 6.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Top) {
             ServiceLogo(serviceId, brandColor, name, 40.dp)
@@ -637,6 +770,10 @@ private fun UnavailableServiceTile(serviceId: String, brandColor: Long, name: St
     }
 }
 
+/** How wide a tile of the grid is: wider with a larger font, so a name of one word is not broken in two. */
+@Composable
+private fun serviceTileWidth(): Dp = 84.dp * LocalDensity.current.fontScale.coerceIn(1f, 1.5f)
+
 /** A service in the "add a service" grid: its mark, large, and its name. */
 @Composable
 internal fun ServiceGridTile(p: MusicProvider, name: String, enabled: Boolean, onClick: () -> Unit) {
@@ -644,7 +781,7 @@ internal fun ServiceGridTile(p: MusicProvider, name: String, enabled: Boolean, o
         onClick = onClick, enabled = enabled,
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.width(84.dp).heightIn(min = 96.dp).alpha(if (enabled) 1f else 0.45f),
+        modifier = Modifier.width(serviceTileWidth()).heightIn(min = 96.dp).alpha(if (enabled) 1f else 0.45f),
     ) {
         // Logo at the top and every label two lines tall: with names on one line and on two
         // ("YouTube Music", "Subsonic / Navidrome"), centring moved the logos up and down.
@@ -654,4 +791,17 @@ internal fun ServiceGridTile(p: MusicProvider, name: String, enabled: Boolean, o
             Text(name, style = MaterialTheme.typography.labelMedium, minLines = 2, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis)
         }
     }
+}
+
+/**
+ * Whether the newest run of a sync through [p] (as source or target), in the last three days,
+ * failed with [p] named in its error: the connector, not the other side, was the problem.
+ */
+internal fun lastRunTrouble(data: com.xlollx.songport.data.StoreData, p: MusicProvider): Boolean {
+    val jobs = data.syncs.filter { it.source.provider == p.id || it.target.provider == p.id }.map { it.id }.toSet()
+    if (jobs.isEmpty()) return false
+    val last = data.reports.filter { it.jobId in jobs }.maxByOrNull { it.startedEpoch } ?: return false
+    if (System.currentTimeMillis() - last.startedEpoch > 3 * 24 * 3600_000L) return false
+    val err = last.error ?: return false
+    return err.contains(p.displayName, ignoreCase = true)
 }

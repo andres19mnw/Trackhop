@@ -32,7 +32,7 @@ import kotlinx.serialization.json.JsonElement
  * Not an official route: Deezer's terms do not allow it and it can stop working when the player
  * changes. The Bridge shows the notice before sign-in.
  */
-class DeezerBridgeProvider(override val slot: String = "") : MusicProvider, WebAccounts.Connector {
+class DeezerBridgeProvider(override val slot: String = "") : MusicProvider, WebAccounts.Connector, StartsOver {
     override val serviceId = SERVICE
     override val displayName = if (BridgePlugin.builtIn) "Deezer (web)" else "Deezer (plugin)"
     override val route: MusicProvider.Route? get() = MusicProvider.Route.EASY
@@ -52,6 +52,8 @@ class DeezerBridgeProvider(override val slot: String = "") : MusicProvider, WebA
     override val notConfiguredName: String? = "bridge_needed_hint"
     /** The gateway and the public API both dislike bursts. */
     override val searchParallelism = 2
+    /** The connectors list one Deezer playlist at a time. */
+    override val readGate: String get() = SERVICE
 
     override fun isConfigured(ctx: Env): Boolean =
         BridgePlugin.installed(ctx) && runCatching { call(ctx, "deezer.status").containsKey("connected") }.getOrDefault(false)
@@ -70,6 +72,8 @@ class DeezerBridgeProvider(override val slot: String = "") : MusicProvider, WebA
     override suspend fun completeAuth(ctx: Env, params: Map<String, String>, verifier: String) { /* the connector completes the login itself */ }
     override fun disconnect(ctx: Env) { runCatching { call(ctx, "deezer.disconnect") } }
 
+    // Start over: the Bridge forgets the session and the sites' data; an older one only signs out.
+    override fun startOver(ctx: Env) { runCatching { call(ctx, "deezer.reset") }.onFailure { disconnect(ctx) } }
     override suspend fun playlists(ctx: Env): List<Playlist> = io(ctx, "deezer.playlists") { j -> j.arr.mapNotNull { toPlaylist(it) } }
 
     override suspend fun playlistInfo(ctx: Env, playlistId: String): Playlist =
@@ -82,7 +86,7 @@ class DeezerBridgeProvider(override val slot: String = "") : MusicProvider, WebA
         val out = ArrayList<Track>()
         var offset: Int? = 0
         while (offset != null) {
-            val b = call(ctx, "deezer.tracks", playlistId, Bundle().apply { putInt("offset", offset!!) })
+            val b = call(ctx, "deezer.tracks", playlistId, BridgePlugin.page(offset!!, MusicProvider.readsFresh()))
             out += parseJson(b.getString("json") ?: "[]").arr.mapNotNull { toTrack(it) }
             offset = if (b.containsKey("next")) b.getInt("next") else null
         }
@@ -125,6 +129,9 @@ class DeezerBridgeProvider(override val slot: String = "") : MusicProvider, WebA
         }
     }
 
+    /** Entries go by a lasting id (or the track's own): one read a few minutes ago names the same entry, or none. */
+    override val keepsEntryIds: Boolean get() = true
+
     /** By track id, like the official route: every copy of a track leaves the playlist. */
     override suspend fun removeTracks(ctx: Env, playlistId: String, tracks: List<Track>) {
         if (tracks.isEmpty()) return
@@ -166,6 +173,8 @@ class DeezerBridgeProvider(override val slot: String = "") : MusicProvider, WebA
         } catch (e: Exception) {
             throw ProviderException("Connector plugin: ${e.message ?: e.javaClass.simpleName}")
         } ?: throw ProviderException("Connector plugin: no answer")
+        // A session gone for good is told once ("sign in again"); a signed-in listing that answers ends that.
+        com.xlollx.songport.sync.SessionKeepAlive.noticeAnswer(ctx, id, familyName, method, b)
         b.getString("error")?.let { throw ProviderException("$displayName: $it") }
         return b
     }

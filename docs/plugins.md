@@ -31,6 +31,9 @@ It adds:
   longer registers new ones (the official route stays available in Trackhop).
 - **SoundCloud** with your account (beta): your sets and liked tracks as sources and destinations,
   and public SoundCloud links.
+- **LiveOne**, **Anghami** and **Qobuz** sign-in (beta), which have no official route in Trackhop.
+- The public **NetEase Cloud Music**, **QQ Music** and **Anghami** playlist links, and the songs of
+  **TikTok** videos: the store builds reach those pages only through the plugin.
 
 Read this before installing: the Bridge uses the same web interfaces the services' own web players use,
 not official APIs. That is against those services' terms of use, it can stop working whenever a service
@@ -40,8 +43,8 @@ the services' own pages and are never stored; the Bridge keeps the session cooki
 phone, and hands Trackhop only the data or short-lived tokens it needs.
 
 **The Trackhop APK from GitHub and the F-Droid version already include these connectors**: add the
-service from Accounts → + and sign in there, the notice comes first. The separate Bridge app is only
-for the Google Play version of Trackhop:
+service from Accounts › Add connector and sign in there, the notice comes first. The separate Bridge
+app is only for the Google Play and AppGallery versions of Trackhop:
 [latest release](https://github.com/xlollx/Trackhop-Bridge/releases/latest).
 
 ## Methods
@@ -67,12 +70,17 @@ plugin whose status answers carry no `slots`, since it would serve the first acc
 
 | Namespace | Methods |
 |-----------|---------|
-| (none) YouTube Music | `status`, `disconnect`, `playlists`, `playlistInfo`, `tracks`, `search`, `stats`, `create`, `add`, `remove`, `rename`, `delete`, `visibility`, `reorder` |
+| (none) YouTube Music | `status`, `disconnect`, `channels`, `channel`, `playlists`, `playlistInfo`, `tracks`, `search`, `stats`, `create`, `add`, `remove`, `rename`, `delete`, `visibility`, `reorder` |
 | `amazon.` | `status`, `disconnect`, `playlists`, `tracks`, `search`, `create`, `add`, `remove`, `rename`, `delete`, `visibility` |
 | `spotify.` | `status`, `disconnect`, `token`, `playlists`, `version`, `playlistInfo`, `tracks`, `search`, `track`, `create`, `add`, `remove`, `rename`, `delete`, `visibility`, `reorder` |
 | `apple.` | `status`, `disconnect`, `tokens` |
 | `deezer.` | `status`, `disconnect`, `playlists`, `playlistInfo`, `version`, `tracks`, `search`, `track`, `create`, `add`, `remove`, `rename`, `delete` |
 | `soundcloud.` | `status`, `disconnect`, `playlists`, `playlistInfo`, `version`, `tracks`, `search`, `create`, `add`, `remove`, `reorder`, `rename`, `visibility`, `delete` |
+| `liveone.` | `status`, `disconnect`, `presets`, `search`, `add` |
+| `anghami.` | `status`, `disconnect`, `playlists`, `tracks`, `search`, `create`, `add`, `remove`, `rename`, `delete` |
+| `qobuz.` | `status`, `disconnect`, `playlists`, `tracks`, `search`, `create`, `add`, `remove`, `rename`, `visibility`, `delete` |
+| `net.` | `status`, `fetch`, `chunk`: the public pages of the link sources and TikTok, for the store builds |
+| `audio.` | `recognize`: the song in a TikTok video's sound |
 
 ### Deezer (`deezer.*`, Trackhop Bridge 1.5.0)
 
@@ -118,6 +126,53 @@ SoundCloud links.
 | `soundcloud.delete` | set id | | empty |
 
 Sign-in activities are started with the actions `com.xlollx.songport.ytmbridge.DEEZER_LOGIN` and
-`com.xlollx.songport.ytmbridge.SOUNDCLOUD_LOGIN` (next to `LOGIN`, `AMAZON_LOGIN`, `SPOTIFY_LOGIN`
-and `APPLE_LOGIN`). Before the first Deezer or SoundCloud sign-in the notice is shown again, since
+`com.xlollx.songport.ytmbridge.SOUNDCLOUD_LOGIN` (next to `LOGIN`, `AMAZON_LOGIN`, `SPOTIFY_LOGIN`,
+`APPLE_LOGIN`, `LIVEONE_LOGIN`, `ANGHAMI_LOGIN` and `QOBUZ_LOGIN`). Before the first Deezer or SoundCloud sign-in the notice is shown again, since
 its text now names them.
+
+### Amazon Music saved albums and followed artists (`amazon.*` with `__albums__` or `__artists__`, Trackhop Bridge 1.11.0)
+
+The albums the user "liked" in the web player (Library › Albums) and the artists they follow
+(Library › Artists), through the methods that already take a playlist id: `amazon.tracks` with `arg`
+`__albums__` or `__artists__` answers `json`, the albums (`kind` `album`) or artists (`kind` `artist`,
+the name as `title`), ids being Amazon's ASINs; `amazon.add` with `ids` saves each album or follows
+each artist and answers `duplicates` empty, or `error` when Amazon did not take one; `amazon.remove`
+with `ids` removes each one and answers `kept`, the ones Amazon still names as saved or followed.
+`amazon.search` with the extra `kind` `album` or `artist` finds albums or artists. Trackhop asks for
+them only of a plugin whose status reports `version` 58 or more; an older one would read `__albums__`
+or `__artists__` as a playlist id.
+
+### TicketOne pages for Concerts (`ticketone.read`)
+
+For Discover › Concerts in Italy (Trackhop 2.0 and later): `arg` is the address of a search or artist page of
+www.ticketone.it (nothing else is opened). The plugin opens it in a WebView out of sight, at least
+1.5 seconds after the previous one, and answers in `json` what the page shows: `state` (`ready`,
+`empty`, `challenge`, `consent`, `waiting` or `error`), `ld` (the texts of its JSON-LD scripts),
+`cards` (event links with the text around them) and `artists` (artist links). Trackhop reads the
+dates out of it. A plugin that does not know the method answers `error` ("unknown method"), and
+Trackhop then shows the TicketOne search button only.
+
+### Vivaticket for Concerts (`vivaticket.read`, Trackhop Bridge 1.11.0)
+
+For Discover › Concerts in Italy (Trackhop 2.0 and later), in the store builds (the GitHub and F-Droid builds ask Vivaticket
+themselves): `arg` is an address of Vivaticket's gateway, `https://apigatewayb2cstore.vivaticket.com/api/`
+followed by `Home/Search/`, `Artist/` or `Event/` (nothing else is asked); `extras` may carry
+`userAgent`, Trackhop's own (a browser's is never used: the plugin then names itself as Trackhop).
+The plugin makes that one GET, without cookies, sign-in or key, at least a second after the previous
+one, follows no redirect, and answers `code` (the HTTP status) and `json` (the body). Trackhop paces
+the requests too, reads the dates out of the answers and, on an error status or an answer it no
+longer understands, leaves Vivaticket alone for an hour. Trackhop asks it only of a plugin whose
+status reports `version` 58 or more.
+
+### setlist.fm browsed without a key (`com.xlollx.songport.ytmbridge.SETLIST_BROWSE`, Trackhop Bridge 1.11.0)
+
+For Discover › Setlists (Trackhop 2.0 and later) in the store builds (the GitHub and F-Droid builds have their own screen):
+an activity Trackhop starts for a result with this action, with the extra `artist` (its search on
+setlist.fm opens) or `link` (a setlist.fm concert page). It shows www.setlist.fm in a plain WebView
+with its normal user agent; the person browses it and opens a concert. While a concert's page is
+shown, a bar offers **Add to a playlist** and **Make a playlist**; the tap reads that page once and
+answers `RESULT_OK` with `html` (the page's og:title tag, date box and song labels, as the page has
+them), `url` (the page's address) and `existing` (`true` for "Add to a playlist"). Nothing else is
+asked of setlist.fm, nothing in the background. Only Trackhop gets the answer: started by another
+app, the screen closes at once. Trackhop starts it only when the plugin's status reports `version`
+58 or more, and says to update the plugin otherwise.

@@ -11,7 +11,12 @@ import com.xlollx.songport.providers.MusicProvider
  * A music service in memory: a catalogue to search (by normalised title) and playlists to read
  * and write. Records what the engine asked of it.
  */
-class FakeProvider(override val serviceId: String, catalogue: List<Track> = emptyList()) : MusicProvider {
+class FakeProvider(
+    override val serviceId: String,
+    catalogue: List<Track> = emptyList(),
+    /** False for a route the user has not signed in to (the official API next to a web bridge). */
+    val signedIn: Boolean = true,
+) : MusicProvider {
     val catalogue = catalogue.toMutableList()
     val lists = LinkedHashMap<String, MutableList<Track>>()
     var version: String? = "v1"
@@ -25,8 +30,8 @@ class FakeProvider(override val serviceId: String, catalogue: List<Track> = empt
     override val searchParallelism: Int = 1
     override val canReorder: Boolean get() = true
 
-    override fun isConfigured(ctx: Env) = true
-    override fun isConnected(ctx: Env) = true
+    override fun isConfigured(ctx: Env) = signedIn
+    override fun isConnected(ctx: Env) = signedIn
     override fun accountName(ctx: Env): String? = "tester"
     override fun startAuth(ctx: Env) {}
     override suspend fun completeAuth(ctx: Env, params: Map<String, String>, verifier: String) {}

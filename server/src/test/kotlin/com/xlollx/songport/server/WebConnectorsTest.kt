@@ -339,7 +339,7 @@ class WebConnectorsTest {
             val list = get("/connectors").body()
             assertTrue(list.contains("Spotify (web) (unofficial, alpha)"))
             assertTrue(list.contains("Deezer (web) (unofficial, alpha)"))
-            assertTrue(list.contains("Qobuz (web) (unofficial, alpha)"))
+            assertTrue(list.contains("Qobuz (web) (unofficial, beta)"))
 
             val sp = get("/connectors/spotify_bridge").body()
             assertTrue(sp.contains("Cookies of open.spotify.com"))

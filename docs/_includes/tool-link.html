@@ -1,0 +1,99 @@
+{%- comment -%}
+  /link: one song or album link in, a button per service out (assets/tools/link-ui.js).
+  The texts are in _data/tools.yml, by the page's language. The lookups go from the visitor's
+  browser to the public catalogues of Apple (iTunes), Deezer and Spotify; nothing is stored.
+{%- endcomment -%}
+{%- assign lang = page.lang | default: 'en' -%}
+{%- assign s = site.data.tools[lang] -%}
+{%- assign k = s.link -%}
+{%- capture check -%}<svg class="i" aria-hidden="true"><use href="#lk-i-check"/></svg>{%- endcapture -%}
+{%- capture find -%}<svg class="i" aria-hidden="true"><use href="#lk-i-search"/></svg>{%- endcapture -%}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="lk-i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="lk-i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2"/></symbol>
+  <symbol id="lk-i-paste" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M9 5V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1M9 11h6M9 15h4"/></symbol>
+  <symbol id="lk-i-open" viewBox="0 0 24 24"><path d="M8 16L17 7M9 7h8v8"/></symbol>
+  <symbol id="lk-i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></symbol>
+  <symbol id="lk-i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="lk-i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></symbol>
+  <symbol id="lk-i-share" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></symbol>
+  <symbol id="lk-i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></symbol>
+  <symbol id="lk-i-guess" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8M12 16.8v.01"/></symbol>
+  <symbol id="lk-i-note" viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
+</svg>
+<div class="tool lk" id="link-tool">
+  <div class="lk-intro">
+    <p class="tool-kicker">{{ s.kicker }}</p>
+    <h1>{{ k.h1 }}</h1>
+    <p class="tool-lead">{{ k.lead }}</p>
+  </div>
+
+  <form class="lk-paste" novalidate>
+    <label for="lk-in">{{ k.label }}</label>
+    <div class="lk-row">
+      <div class="lk-field">
+        <svg class="i" aria-hidden="true"><use href="#lk-i-link"/></svg>
+        <input id="lk-in" name="u" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…" aria-describedby="lk-priv">
+        <button class="tool-btn ghost small lk-pastebtn" type="button" hidden><svg class="i" aria-hidden="true"><use href="#lk-i-paste"/></svg>{{ k.paste }}</button>
+      </div>
+      <button class="tool-btn lk-go" type="submit">{{ k.go }}</button>
+    </div>
+    <div class="lk-under">
+      <span class="tool-priv" id="lk-priv"><svg class="i" aria-hidden="true"><use href="#lk-i-lock"/></svg>{{ k.priv }}</span>
+    </div>
+    <div class="tool-error lk-err" id="lk-err" role="alert" hidden></div>
+  </form>
+  <noscript><p class="tool-error">{{ s.noscript }}</p></noscript>
+
+  <div class="lk-two">
+    <section class="lk-panel" aria-labelledby="lk-reads-h">
+      <h2 id="lk-reads-h">{{ k.reads_h }}</h2>
+      <ul class="lk-reads">
+        <li><b>{{ k.apple }}</b><code>music.apple.com/us/album/dreams/594061854?i=594061856</code><span class="lk-mark exact">{{ check }}{{ k.full }}</span></li>
+        <li><b>Deezer</b><code>deezer.com/track/63480987</code><span class="lk-mark exact">{{ check }}{{ k.full }}</span></li>
+        <li><b>Spotify</b><code>open.spotify.com/track/0ofHAoxe9vBkTCp2UQIavz</code><span class="lk-mark guess"><svg class="i" aria-hidden="true"><use href="#lk-i-guess"/></svg>{{ k.title_only }}</span></li>
+      </ul>
+      <p class="tool-muted">{{ k.reads_note }}</p>
+    </section>
+
+    <section class="lk-panel" aria-labelledby="lk-goes-h">
+      <h2 id="lk-goes-h">{{ k.goes_h }}</h2>
+      <ul class="lk-chips">
+        <li>Apple Music <span class="lk-mark exact">{{ check }}{{ k.exact }}</span></li>
+        <li>Deezer <span class="lk-mark exact">{{ check }}{{ k.exact }}</span></li>
+        {%- assign searched = "Spotify|YouTube Music|YouTube|TIDAL|Amazon Music|SoundCloud" | split: "|" -%}
+        {%- for name in searched %}
+        <li>{{ name }} <span class="lk-mark">{{ find }}{{ k.search }}</span></li>
+        {%- endfor %}
+      </ul>
+      <ul class="lk-legend">
+        <li><span class="lk-mark exact">{{ check }}{{ k.exact }}</span><span>{{ k.legend_exact }}</span></li>
+        <li><span class="lk-mark">{{ find }}{{ k.search }}</span><span>{{ k.legend_search }}</span></li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="lk-loaded" hidden>
+    <div class="lk-from">
+      <span class="lk-from-ic"><svg class="i" aria-hidden="true"><use href="#lk-i-link"/></svg></span>
+      <div><b></b><span></span></div>
+    </div>
+    <span class="tool-priv"><svg class="i" aria-hidden="true"><use href="#lk-i-lock"/></svg>{{ k.priv_short }}</span>
+    <button class="tool-btn ghost small lk-again" type="button">{{ k.again }}</button>
+  </div>
+  <p class="lk-sr" role="status"></p>
+  <div class="lk-result" hidden></div>
+
+  <div class="tool-cta"><span>{{ k.cta }}</span><a class="tool-btn" href="{{ s.home | relative_url }}">{{ s.get }}</a></div>
+
+  <div class="lk-about">
+    <h2>{{ k.how_h }}</h2>
+    <p>{{ k.how }}</p>
+    <h2>{{ k.why_h }}</h2>
+    <p>{{ k.why }}</p>
+    <h2>{{ k.stays_h }}</h2>
+    <p>{{ k.stays }}</p>
+  </div>
+</div>
+<script type="application/json" id="tool-strings">{{ s.js | jsonify }}</script>
+<script type="module" src="{{ '/assets/tools/link-ui.js' | relative_url }}?v={{ site.time | date: '%s' }}"></script>

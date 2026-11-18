@@ -30,9 +30,6 @@ import com.xlollx.songport.model.Track
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
@@ -78,6 +75,8 @@ import com.xlollx.songport.providers.LocalFilesProvider
 import com.xlollx.songport.providers.MusicProvider
 import com.xlollx.songport.providers.Providers
 import com.xlollx.songport.platform.env
+import com.xlollx.songport.Features
+import androidx.compose.foundation.layout.PaddingValues
 import com.xlollx.songport.sync.Scheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -188,7 +187,7 @@ fun AiPlaylistCard(snackbar: SnackbarHostState, onSyncStarted: () -> Unit) {
 
     LaunchedEffect(d.setupAsked) { if (d.setupAsked) { d.keyless = false; setupOpen = true; d.setupAsked = false } }
     d.done?.let { text ->
-        AlertDialog(
+        FitDialog(
             onDismissRequest = { d.done = null },
             icon = { Icon(Icons.Filled.CheckCircle, null, tint = Tones.onSuccessContainer()) },
             title = { Text(stringResource(R.string.ai_done_title)) },
@@ -233,7 +232,7 @@ fun AiPlaylistCard(snackbar: SnackbarHostState, onSyncStarted: () -> Unit) {
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
                     d.busy = false
-                    d.error = e.message ?: app.getString(R.string.error_generic)
+                    d.error = e.userMessage(app)
                 }
             }
         }
@@ -243,8 +242,6 @@ fun AiPlaylistCard(snackbar: SnackbarHostState, onSyncStarted: () -> Unit) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.ai_title), style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.width(8.dp))
-                StatusPill(stringResource(R.string.beta), Tone.Neutral)
             }
             Spacer(Modifier.height(6.dp))
             // Two ways in: no key at all (open music data), or the user's own AI. Without an AI set up,
@@ -289,9 +286,7 @@ fun AiPlaylistCard(snackbar: SnackbarHostState, onSyncStarted: () -> Unit) {
                 LaunchedEffect(c.vendor, c.model, c.apiKey, c.baseUrl) {
                     if (d.checked?.first == c) return@LaunchedEffect
                     d.checking = true
-                    val r = AiClient.check(c)
-                    d.checked = c to r
-                    d.checking = false
+                    try { d.checked = c to AiClient.check(c) } finally { d.checking = false }
                 }
             }
             when {
@@ -348,7 +343,7 @@ fun AiPlaylistCard(snackbar: SnackbarHostState, onSyncStarted: () -> Unit) {
                             else AiMatch.available(app, c, target, request, emptyList()) { found, want -> d.step = "$found/$want" }.found
                         }
                         d.busy = false; d.step = ""
-                        outcome.onFailure { e -> d.error = e.message ?: app.getString(R.string.error_generic) }
+                        outcome.onFailure { e -> d.error = e.userMessage(app) }
                         val tracks = outcome.getOrNull() ?: return@launch
                         if (tracks.isEmpty()) d.error = app.getString(R.string.ai_empty) else { d.proposedKeyless = false; d.proposed = tracks }
                     }
@@ -451,7 +446,7 @@ private fun KeylessForm(targets: List<MusicProvider>, target: MusicProvider) {
                     }.found
                 }
                 d.busy = false; d.step = ""
-                outcome.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; d.error = e.message ?: app.getString(R.string.error_generic) }
+                outcome.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; d.error = e.userMessage(app) }
                 val tracks = outcome.getOrNull() ?: return@launch
                 if (tracks.isEmpty()) d.error = app.getString(R.string.lb_nothing) else { d.proposedKeyless = true; d.proposed = tracks }
             }
@@ -469,32 +464,21 @@ private fun SeedPlaylistPicker() {
     }
     val source = sources.firstOrNull { it.id == d.mixSourceId } ?: sources.firstOrNull { it.requiresAuth } ?: sources.firstOrNull() ?: return
     var lists by remember(source.id) { mutableStateOf<List<Playlist>?>(null) }
-    var open by remember { mutableStateOf(false) }
     LaunchedEffect(source.id) {
         if (d.mixSourceId != source.id) d.mixSourceId = source.id
         lists = runCatching { source.playlists(ctx.applicationContext) }.getOrElse { e ->
             if (e is kotlinx.coroutines.CancellationException) throw e
-            d.error = e.message ?: ctx.getString(R.string.error_generic); emptyList()
+            d.error = e.userMessage(ctx); emptyList()
         }
     }
     ServicePicker(sources, source.id, { id ->
         if (id != d.mixSourceId) { d.mixSourceId = id; d.mixPlaylistId = ""; d.mixPlaylistName = ""; d.persist(ctx) }
     })
-    androidx.compose.foundation.layout.Box {
-        OutlinedButton(enabled = lists != null, onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-            if (lists == null) { CircularProgressIndicator(Modifier.size(14.dp)); Spacer(Modifier.width(6.dp)) }
-            Text(d.mixPlaylistName.ifEmpty { stringResource(R.string.lb_playlist_pick) }, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            lists.orEmpty().forEach { p ->
-                DropdownMenuItem(
-                    text = { Text(if (p.trackCount >= 0) "${p.name} (${p.trackCount})" else p.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    onClick = { open = false; d.mixPlaylistId = p.id; d.mixPlaylistName = p.name; d.persist(ctx) },
-                )
-            }
-        }
-    }
+    PlaylistChoice(
+        stringResource(R.string.editor_playlist), lists, lists?.firstOrNull { it.id == d.mixPlaylistId }, source,
+        onPick = { p -> d.mixPlaylistId = p.id; d.mixPlaylistName = p.name; d.persist(ctx) },
+        placeholder = stringResource(R.string.lb_playlist_pick), title = d.mixPlaylistName.ifEmpty { null },
+    )
     Text(stringResource(R.string.lb_playlist_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
@@ -503,7 +487,7 @@ private fun SeedPlaylistPicker() {
 private fun ModelRow(c: AiClient.Config, onChange: () -> Unit, onModel: (String) -> Unit) {
     val ctx = LocalContext.current
     val d = AiDraft
-    var open by remember { mutableStateOf(false) }
+    var open by rememberSaveable { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(c.vendor.label + " · ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -515,7 +499,7 @@ private fun ModelRow(c: AiClient.Config, onChange: () -> Unit, onModel: (String)
                     val r = runCatching { AiClient.models(c) }
                     loading = false
                     r.onSuccess { d.models = it; if (it.isEmpty()) d.error = ctx.getString(R.string.ai_models_none) else open = true }
-                        .onFailure { e -> d.error = e.message ?: ctx.getString(R.string.error_generic) }
+                        .onFailure { e -> d.error = e.userMessage(ctx) }
                 }
             }) {
                 if (loading) { CircularProgressIndicator(Modifier.size(14.dp)); Spacer(Modifier.width(6.dp)) }
@@ -543,7 +527,7 @@ private fun ModelRow(c: AiClient.Config, onChange: () -> Unit, onModel: (String)
 @Composable
 fun AiSetupDialog(initial: AiClient.Config?, onDismiss: () -> Unit, onSaved: (AiClient.Config?) -> Unit) {
     // Closed on purpose: the unsaved key is forgotten (see AiSetupDraft).
-    val close = { AiSetupDraft.closing = true; AiSetupDraft.key = null; onDismiss() }
+    val cancel = { AiSetupDraft.closing = true; AiSetupDraft.key = null; onDismiss() }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     // What is being chosen survives leaving the app and coming back (the activity may be made anew
@@ -555,19 +539,29 @@ fun AiSetupDialog(initial: AiClient.Config?, onDismiss: () -> Unit, onSaved: (Ai
     var imageModel by rememberSaveable { mutableStateOf(initial?.imageModel.orEmpty()) }
     var models by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var modelsOpen by rememberSaveable { mutableStateOf(false) }
-    androidx.compose.runtime.SideEffect { if (!AiSetupDraft.closing) AiSetupDraft.key = key }
-    androidx.compose.runtime.DisposableEffect(Unit) { AiSetupDraft.closing = false; onDispose { if (AiSetupDraft.closing) AiSetupDraft.key = null } }
+    // 1.18: a Cloudflare account that draws the covers; its token, like the key, only in this process.
+    val cfSaved = remember { AiClient.imageKey(ctx.env) }
+    var cfAccount by rememberSaveable { mutableStateOf(cfSaved?.accountId.orEmpty()) }
+    var cfToken by remember { mutableStateOf(AiSetupDraft.cfToken ?: cfSaved?.token.orEmpty()) }
+    androidx.compose.runtime.SideEffect { if (!AiSetupDraft.closing) { AiSetupDraft.key = key; AiSetupDraft.cfToken = cfToken } }
+    androidx.compose.runtime.DisposableEffect(Unit) { AiSetupDraft.closing = false; onDispose { if (AiSetupDraft.closing) { AiSetupDraft.key = null; AiSetupDraft.cfToken = null } } }
+    fun saveCf() { if (Features.v2) AiClient.saveImageKey(ctx.env, AiClient.ImageKey(cfAccount, cfToken)) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     /** "" = the test passed; text = its error; null = not tried. */
     var checkResult by remember { mutableStateOf<String?>(null) }
     fun current() = AiClient.Config(vendor, key.trim(), model.trim(), baseUrl.trim(), if (vendor == AiClient.Vendor.CUSTOM) imageModel.trim() else "")
+    // Back or a tap beside it with a key or a choice not saved: asked first.
+    val changed = vendor != (initial?.vendor ?: AiClient.Vendor.OPENAI) || key.trim() != initial?.apiKey.orEmpty().trim() ||
+        model.trim() != initial?.model.orEmpty().trim() || baseUrl.trim() != initial?.baseUrl.orEmpty().trim() || imageModel.trim() != initial?.imageModel.orEmpty().trim() ||
+        cfAccount.trim() != cfSaved?.accountId.orEmpty() || cfToken.trim() != cfSaved?.token.orEmpty()
+    val close = rememberDiscardGuard(changed, onClose = cancel)
 
-    AlertDialog(
+    FitDialog(
         onDismissRequest = close,
         title = { Text(stringResource(R.string.ai_setup_title)) },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+            Column {
                 Text(stringResource(R.string.ai_vendor), style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(4.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -596,7 +590,7 @@ fun AiSetupDialog(initial: AiClient.Config?, onDismiss: () -> Unit, onSaved: (Ai
                     if (vendor.keyUrl.isNotEmpty()) TextButton(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(vendor.keyUrl))) } }) { Text(stringResource(R.string.ai_key_get)) }
                 }
                 // The plain answer to "where does my key go?", with the one host it goes to, spelled out.
-                var trustOpen by remember { mutableStateOf(false) }
+                var trustOpen by rememberSaveable { mutableStateOf(false) }
                 TextButton(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp), onClick = { trustOpen = !trustOpen }) {
                     Icon(Icons.Filled.Lock, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
                     Text(stringResource(R.string.ai_trust_title), style = MaterialTheme.typography.labelLarge)
@@ -622,7 +616,7 @@ fun AiSetupDialog(initial: AiClient.Config?, onDismiss: () -> Unit, onSaved: (Ai
                                 try {
                                     models = AiClient.models(current())
                                     if (models.isEmpty()) error = ctx.getString(R.string.ai_models_none) else modelsOpen = true
-                                } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message ?: ctx.getString(R.string.error_generic) }
+                                } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.userMessage(ctx) }
                                 loading = false
                             }
                         }) { Text(stringResource(R.string.ai_models_load)) }
@@ -651,6 +645,45 @@ fun AiSetupDialog(initial: AiClient.Config?, onDismiss: () -> Unit, onSaved: (Ai
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+                // Covers: what this provider needs to draw them, said before anyone meets a 429.
+                Spacer(Modifier.height(8.dp))
+                androidx.compose.material3.Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(stringResource(R.string.ai_images_title), style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            when (vendor) {
+                                AiClient.Vendor.OPENAI -> stringResource(R.string.ai_images_openai)
+                                AiClient.Vendor.GEMINI -> stringResource(R.string.ai_images_gemini)
+                                AiClient.Vendor.CUSTOM -> stringResource(R.string.ai_images_custom)
+                                else -> stringResource(R.string.ai_images_none, vendor.label)
+                            },
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (vendor == AiClient.Vendor.OPENAI || vendor == AiClient.Vendor.GEMINI)
+                            Text(stringResource(R.string.ai_images_model_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (Features.v2) {
+                            // Free covers whatever the AI above: drawn first by Cloudflare, by the AI above when that fails.
+                            Spacer(Modifier.height(4.dp))
+                            Text(stringResource(R.string.ai_cf_title), style = MaterialTheme.typography.labelLarge)
+                            Text(stringResource(R.string.ai_cf_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            val uri = androidx.compose.ui.platform.LocalUriHandler.current
+                            TextButton(onClick = { runCatching { uri.openUri("https://developers.cloudflare.com/workers-ai/get-started/rest-api/") } }, contentPadding = PaddingValues(0.dp)) {
+                                Text(stringResource(R.string.ai_cf_how))
+                            }
+                            OutlinedTextField(
+                                value = cfAccount, onValueChange = { cfAccount = it }, singleLine = true,
+                                label = { Text(stringResource(R.string.ai_cf_account)) },
+                                supportingText = { Text(stringResource(R.string.ai_cf_account_hint)) }, modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = cfToken, onValueChange = { cfToken = it }, singleLine = true,
+                                label = { Text(stringResource(R.string.ai_cf_token)) },
+                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
                 checkResult?.let { r ->
                     if (r.isEmpty()) Text(stringResource(R.string.ai_check_ok), color = Tones.onSuccessContainer(), style = MaterialTheme.typography.bodySmall)
                     else Text(r, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -659,12 +692,12 @@ fun AiSetupDialog(initial: AiClient.Config?, onDismiss: () -> Unit, onSaved: (Ai
             }
         },
         confirmButton = {
-            TextButton(enabled = current().complete, onClick = { AiClient.save(ctx, current()); AiDraft.models = emptyList(); AiSetupDraft.closing = true; AiSetupDraft.key = null; onSaved(current()) }) { Text(stringResource(R.string.save)) }
+            TextButton(enabled = current().complete, onClick = { AiClient.save(ctx, current()); saveCf(); AiDraft.models = emptyList(); AiSetupDraft.closing = true; AiSetupDraft.key = null; onSaved(current()) }) { Text(stringResource(R.string.save)) }
         },
         dismissButton = {
             Row {
-                if (initial != null) TextButton(onClick = { AiClient.clear(ctx); AiDraft.models = emptyList(); AiSetupDraft.closing = true; AiSetupDraft.key = null; onSaved(null) }) { Text(stringResource(R.string.ai_forget), color = MaterialTheme.colorScheme.error) }
-                TextButton(onClick = close) { Text(stringResource(R.string.cancel)) }
+                if (initial != null) TextButton(onClick = { AiClient.clear(ctx); if (Features.v2) AiClient.saveImageKey(ctx.env, null); AiDraft.models = emptyList(); AiSetupDraft.closing = true; AiSetupDraft.key = null; onSaved(null) }) { Text(stringResource(R.string.ai_forget), color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = cancel) { Text(stringResource(R.string.cancel)) }
             }
         },
     )
@@ -674,9 +707,11 @@ fun AiSetupDialog(initial: AiClient.Config?, onDismiss: () -> Unit, onSaved: (Ai
 @Composable
 private fun AiReviewDialog(tracks: List<Track>, targetLabel: String, onDismiss: () -> Unit, onConfirm: (List<Track>) -> Unit) {
     var kept by remember { mutableStateOf(tracks) }
-    AlertDialog(
+    FitDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.ai_review_title)) },
+        // A list of its own: it scrolls, under the line above it.
+        scroll = false,
         text = {
             Column {
                 Text(stringResource(R.string.ai_review_hint, targetLabel), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -713,8 +748,8 @@ fun AiExtendDialog(job: SyncJob, onClose: () -> Unit) {
     val d = AiDraft
     var config by remember { mutableStateOf(AiClient.config(ctx)) }
     val use = AiClient.pick(config, NanoAi.state, NanoAi.NAME)
-    var setupOpen by remember { mutableStateOf(use == null) }
-    var count by remember { mutableStateOf(10f) }
+    var setupOpen by rememberSaveable { mutableStateOf(use == null) }
+    var count by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(10f) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var proposed by remember { mutableStateOf<List<Track>?>(null) }
@@ -737,13 +772,13 @@ fun AiExtendDialog(job: SyncJob, onClose: () -> Unit) {
                     Scheduler.runNow(app, job.id)
                     onClose()
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
-                    error = e.message ?: app.getString(R.string.error_generic)
+                    error = e.userMessage(app)
                 }
             }
         }
         return
     }
-    AlertDialog(
+    FitDialog(
         onDismissRequest = onClose,
         title = { Text(stringResource(R.string.ai_extend_title)) },
         text = {
@@ -773,7 +808,7 @@ fun AiExtendDialog(job: SyncJob, onClose: () -> Unit) {
                             else AiMatch.fresh(AiClient.generateAll(c, request), existing)
                         }
                         busy = false
-                        outcome.onFailure { e -> error = e.message ?: app.getString(R.string.error_generic) }
+                        outcome.onFailure { e -> error = e.userMessage(app) }
                         val tracks = outcome.getOrNull() ?: return@launch
                         if (tracks.isEmpty()) error = app.getString(R.string.ai_empty) else proposed = tracks
                     }
@@ -796,9 +831,9 @@ fun AiExpandPlaylistDialog(provider: MusicProvider, playlist: Playlist, onClose:
     val d = AiDraft
     var config by remember { mutableStateOf(AiClient.config(ctx)) }
     val use = AiClient.pick(config, NanoAi.state, NanoAi.NAME)
-    var setupOpen by remember { mutableStateOf(use == null) }
-    var prompt by remember { mutableStateOf("") }
-    var count by remember { mutableStateOf(10f) }
+    var setupOpen by rememberSaveable { mutableStateOf(use == null) }
+    var prompt by rememberSaveable { mutableStateOf("") }
+    var count by rememberSaveable { mutableStateOf(10f) }
     var busy by remember { mutableStateOf(false) }
     var step by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -826,14 +861,15 @@ fun AiExpandPlaylistDialog(provider: MusicProvider, playlist: Playlist, onClose:
                     onClose()
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
                     busy = false
-                    error = e.message ?: app.getString(R.string.error_generic)
+                    error = e.userMessage(app)
                 }
             }
         }
         return
     }
-    AlertDialog(
-        onDismissRequest = { if (!busy) onClose() },
+    val close = rememberDiscardGuard(prompt.isNotBlank(), onClose = onClose)
+    FitDialog(
+        onDismissRequest = { if (!busy) close() },
         title = { Text(stringResource(R.string.ai_extend_title)) },
         text = {
             Column {
@@ -863,7 +899,7 @@ fun AiExpandPlaylistDialog(provider: MusicProvider, playlist: Playlist, onClose:
                             AiMatch.available(app, c, provider, AiClient.Prompt(prompt, count.toInt(), emptyList(), language, names), existing) { found, want -> step = "$found/$want" }.found
                         }
                         busy = false
-                        outcome.onFailure { e -> error = e.message ?: app.getString(R.string.error_generic) }
+                        outcome.onFailure { e -> error = e.userMessage(app) }
                         val tracks = outcome.getOrNull() ?: return@launch
                         if (tracks.isEmpty()) error = app.getString(R.string.ai_empty) else proposed = tracks
                     }
@@ -949,6 +985,7 @@ private const val NANO_POLL_MS = 8_000L
 /** The key typed in [AiSetupDialog] and not saved yet, kept across a remade activity in memory only. */
 object AiSetupDraft {
     @Volatile var key: String? = null
+    @Volatile var cfToken: String? = null
     /** Set when the dialog is closed on purpose (saved or cancelled), so the draft is dropped. */
     @Volatile var closing = false
 }

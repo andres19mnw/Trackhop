@@ -26,10 +26,13 @@
    "image":"{{ '/store/icon512.png' | absolute_url }}","screenshot":"{{ '/store/screenshots.png' | absolute_url }}",
    "softwareHelp":"https://trackhop.org/guide/","downloadUrl":"https://github.com/xlollx/Trackhop/releases",
    "author":{"@type":"Person","name":"xlollx","url":"https://github.com/xlollx"},
-   "sameAs":["https://github.com/xlollx/Trackhop","https://f-droid.org/packages/com.xlollx.songport/","https://apps.microsoft.com/detail/9PFX74Q2XN9P","https://snapcraft.io/trackhop","https://hub.docker.com/r/xlollx/trackhop","https://www.instagram.com/trackhop.app/"]}
+   "sameAs":["https://github.com/xlollx/Trackhop","https://f-droid.org/packages/com.xlollx.songport/","https://apps.microsoft.com/detail/9PFX74Q2XN9P","https://snapcraft.io/trackhop","https://hub.docker.com/r/xlollx/trackhop","https://www.instagram.com/trackhop.app/","https://t.me/trackhop_app"]}
   </script>
   {%- endif %}
   <link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}?v={{ site.time | date: '%s' }}">
+  {%- if page.css %}
+  <link rel="stylesheet" href="{{ page.css | relative_url }}?v={{ site.time | date: '%s' }}">
+  {%- endif %}
 {% if page.i18n %}{% assign alts = site.data.i18n_pages[page.i18n] %}{% for a in alts %}
   <link rel="alternate" hreflang="{{ a[0] }}" href="https://trackhop.org{{ a[1] }}">{% endfor %}
   <link rel="alternate" hreflang="x-default" href="https://trackhop.org{{ alts.en }}">{% endif %}
@@ -42,7 +45,14 @@
       <a href="{{ '/privacy-policy' | relative_url }}">Privacy</a>
       <a href="https://github.com/xlollx/Trackhop">GitHub</a>
       <a class="xlate notranslate" id="xlate" hidden rel="nofollow" translate="no"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm6.9 6h-2.95a15.6 15.6 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.9 8ZM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96ZM4.26 14a8.2 8.2 0 0 1 0-4h3.38a16.5 16.5 0 0 0 0 4H4.26Zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56A7.99 7.99 0 0 1 5.08 16Zm2.95-8H5.08a7.99 7.99 0 0 1 4.33-3.56A15.6 15.6 0 0 0 8.03 8ZM12 19.96A14.1 14.1 0 0 1 10.09 16h3.82A14.1 14.1 0 0 1 12 19.96ZM14.34 14H9.66a14.7 14.7 0 0 1 0-4h4.68a14.7 14.7 0 0 1 0 4Zm.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8.03 8.03 0 0 1-4.33 3.56ZM16.36 14a16.5 16.5 0 0 0 0-4h3.38a8.2 8.2 0 0 1 0 4h-3.38Z"/></svg><span></span></a>
-      <a class="coffee" href="https://ko-fi.com/xlollx" target="_blank" rel="noopener" aria-label="Buy me a coffee on Ko-fi">☕<span class="long"> Buy me a coffee</span></a>
+      <details class="support-menu">
+        <summary class="coffee" aria-label="Support Trackhop">☕<span class="long"> Support</span></summary>
+        <div class="pop">
+          <p>Optional: nothing is unlocked, everything stays free. Thank you!</p>
+          <a href="https://ko-fi.com/xlollx" target="_blank" rel="noopener"><span class="i">☕</span><span><b>Ko-fi</b><small>One-off · card or PayPal · no account needed</small></span></a>
+          <a href="https://github.com/sponsors/xlollx" target="_blank" rel="noopener"><span class="i">♥</span><span><b>GitHub Sponsors</b><small>Monthly or one-off · with a GitHub account</small></span></a>
+        </div>
+      </details>
       <button class="menu" type="button" aria-label="All pages" aria-expanded="false" aria-controls="allpages"><span></span><span></span><span></span></button>
     </nav>
   </header>
@@ -52,6 +62,18 @@
    <div class="drawer-panel">
     <div class="drawer-head"><strong>All pages</strong><select class="lang" aria-label="Language of the pages"><option value="en">English</option><option value="it">Italiano</option><option value="es">Español</option><option value="pt">Português</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="pl">Polski</option><option value="ru">Русский</option><option value="tr">Türkçe</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="zh">中文</option></select><button class="close" type="button" aria-label="Close">×</button></div>
     <nav class="drawer-nav">
+      <div class="tools-strip" data-tools="en">
+        <h4>Tools on this site, nothing to install</h4>
+        <a href="{{ '/link' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2"/></svg></span><span><b>A link for every service</b><small>Open a song or album on any service</small></span></a>
+        <a href="{{ '/convert' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></svg></span><span><b>Convert a playlist file</b><small>CSV, M3U, XSPF, iTunes library and more</small></span></a>
+        <a href="{{ '/wrapped' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M10 20V5M15 20v-7M20 20V9"/></svg></span><span><b>Your Wrapped, any time</b><small>From your own data export</small></span></a>
+      </div>
+      <div class="tools-strip" data-tools="it">
+        <h4>Strumenti sul sito, senza installare</h4>
+        <a href="{{ '/it/link' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2"/></svg></span><span><b>Un link per ogni servizio</b><small>Apri un brano o un album su ogni servizio</small></span></a>
+        <a href="{{ '/it/convert' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></svg></span><span><b>Convertire un file di playlist</b><small>CSV, M3U, XSPF, libreria iTunes e altri</small></span></a>
+        <a href="{{ '/it/wrapped' | relative_url }}"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M10 20V5M15 20v-7M20 20V9"/></svg></span><span><b>Il tuo Wrapped, quando vuoi</b><small>Dal tuo export dei dati</small></span></a>
+      </div>
       <div class="grp" data-lang="en">
       <h4>Get Trackhop</h4>
       <a href="{{ '/' | relative_url }}">Android app</a>
@@ -76,27 +98,45 @@
       <a href="{{ '/guide/spotify-to-amazon-music' | relative_url }}">Spotify → Amazon Music</a>
       <a href="{{ '/guide/apple-music-to-youtube-music' | relative_url }}">Apple Music ↔ YouTube Music</a>
       <a href="{{ '/guide/sync-playlists' | relative_url }}">Keep playlists in sync</a>
+      <a href="{{ '/guide/two-way-sync' | relative_url }}">Two-way playlist sync</a>
+      <a href="{{ '/guide/organise-syncs' | relative_url }}">Favourites, labels and tags</a>
+      <a href="{{ '/guide/notification-channels' | relative_url }}">Notifications on Telegram, ntfy, Discord</a>
       <a href="{{ '/guide/free-playlist-sync' | relative_url }}">Free playlist sync</a>
       <a href="{{ '/guide/transfer-liked-songs' | relative_url }}">Transfer liked songs</a>
       <a href="{{ '/guide/merge-playlists-remove-duplicates' | relative_url }}">Merge playlists, remove duplicates</a>
       <a href="{{ '/guide/spotify-to-navidrome-jellyfin' | relative_url }}">Spotify → Navidrome, Jellyfin, Plex</a>
       <a href="{{ '/guide/self-hosted-playlist-sync' | relative_url }}">Self-hosted playlist sync</a>
+      <a href="{{ '/guide/missing-on-my-server' | relative_url }}">Missing on my server, a list for Lidarr</a>
+      <a href="{{ '/guide/lyrion' | relative_url }}">Lyrion Music Server</a>
+      <a href="{{ '/guide/mopidy' | relative_url }}">Mopidy</a>
       <a href="{{ '/guide/export-playlist-csv' | relative_url }}">Export to CSV or M3U, backups</a>
       <a href="{{ '/guide/shazam' | relative_url }}">Shazams in a playlist</a>
       <a href="{{ '/guide/radio' | relative_url }}">Songs from a radio</a>
       <a href="{{ '/guide/shared-links' | relative_url }}">Shared links</a>
       <a href="{{ '/guide/soundcloud' | relative_url }}">SoundCloud links</a>
       <a href="{{ '/guide/netease-qq-music' | relative_url }}">NetEase Cloud Music and QQ Music links</a>
+      <a href="{{ '/guide/jiosaavn' | relative_url }}">JioSaavn links</a>
       <a href="{{ '/guide/cards' | relative_url }}">Compatibility cards and posters</a>
       <a href="{{ '/guide/unplayable-tracks' | relative_url }}">Unplayable tracks</a>
       </div>
       <div class="grp" data-lang="en">
       <h4>Even with just one service</h4>
       <a href="{{ '/guide/save-discover-weekly' | relative_url }}">Save Discover Weekly and daylist</a>
+      <a href="{{ '/guide/without-a-paid-service' | relative_url }}">Without a paid service</a>
       <a href="{{ '/guide/backup-spotify-playlists' | relative_url }}">Back up all your playlists</a>
       <a href="{{ '/guide/remove-duplicates-spotify' | relative_url }}">Remove duplicate songs</a>
       <a href="{{ '/guide/fix-greyed-out-songs' | relative_url }}">Fix greyed-out songs</a>
       <a href="{{ '/guide/wrapped-anytime' | relative_url }}">Your Wrapped, whenever you want</a>
+      </div>
+      <div class="grp" data-lang="en">
+      <h4>New in 2.0</h4>
+      <a href="{{ '/guide/shared-playlists' | relative_url }}">A playlist shared by a group</a>
+      <a href="{{ '/guide/phone-and-server' | relative_url }}">Your phone and your Trackhop server</a>
+      <a href="{{ '/guide/new-releases' | relative_url }}">New releases from your artists</a>
+      <a href="{{ '/guide/concerts' | relative_url }}">Concerts of your artists</a>
+      <a href="{{ '/guide/setlists' | relative_url }}">Setlists as playlists</a>
+      <a href="{{ '/guide/records' | relative_url }}">Records and merch</a>
+      <a href="{{ '/guide/artist-alerts' | relative_url }}">Alerts for your artists</a>
       </div>
       <div class="grp" data-lang="en">
       <h4>Compared with</h4>
@@ -114,6 +154,8 @@
       <a href="{{ '/guide/trasferire-playlist-spotify-apple-music' | relative_url }}">Spotify → Apple Music</a>
       <a href="{{ '/guide/trasferire-playlist-spotify-youtube-music' | relative_url }}">Spotify → YouTube Music</a>
       <a href="{{ '/guide/salvare-discover-weekly' | relative_url }}">Salvare Discover Weekly e daylist</a>
+      <a href="{{ '/guide/senza-abbonamento' | relative_url }}">Senza abbonamento</a>
+      <a href="{{ '/guide/trackhop-su-iphone' | relative_url }}">Trackhop su iPhone</a>
       <a href="{{ '/guide/backup-playlist-spotify' | relative_url }}">Backup automatico delle playlist</a>
       <a href="{{ '/guide/rimuovere-duplicati-playlist' | relative_url }}">Rimuovere i brani doppi</a>
       <a href="{{ '/guide/brani-non-riproducibili' | relative_url }}">Sistemare i brani in grigio</a>
@@ -133,6 +175,7 @@
       <h4>Desktop, server, automation</h4>
       <a href="{{ '/guide/desktop' | relative_url }}">Trackhop Desktop</a>
       <a href="{{ '/guide/docker' | relative_url }}">Docker server</a>
+      <a href="{{ '/guide/iphone' | relative_url }}">On iPhone and iPad</a>
       <a href="{{ '/guide/cli' | relative_url }}">The trackhop command</a>
       <a href="{{ '/guide/docker' | relative_url }}#api">REST API and webhook</a>
       <a href="{{ '/plugins' | relative_url }}">Plugins</a>
@@ -141,6 +184,7 @@
       <h4>Help</h4>
       <a href="{{ '/guide/troubleshooting' | relative_url }}">Troubleshooting</a>
       <a href="{{ '/guide/reporting-a-problem' | relative_url }}">Reporting a problem</a>
+      <a href="{{ '/guide/help-add-a-service' | relative_url }}">Help add a service from your country</a>
       <a href="{{ '/guide/security' | relative_url }}">Is it safe? VirusTotal checks</a>
       <a href="{{ '/privacy-policy' | relative_url }}">Privacy policy</a>
       <a href="{{ '/press' | relative_url }}">Press kit</a>
@@ -162,6 +206,7 @@
       <div class="grp" data-lang="ru">
       <h4>По-русски</h4>
       <a href="{{ '/guide/perenos-pleylistov' | relative_url }}">Перенос плейлистов</a>
+      <a href="{{ '/guide/help-add-a-service-ru' | relative_url }}">Помогите добавить сервис</a>
       </div>
       <div class="grp" data-lang="tr">
       <h4>Türkçe</h4>
@@ -179,6 +224,7 @@
       <h4>中文</h4>
       <a href="{{ '/guide/netease-qq-music-zh' | relative_url }}">网易云音乐和 QQ 音乐歌单</a>
       <a href="{{ '/guide/playlist-transfer-zh' | relative_url }}">迁移歌单</a>
+      <a href="{{ '/guide/help-add-a-service-zh' | relative_url }}">帮忙加入你所在国家的音乐服务</a>
       </div>
       <button type="button" class="more-en" hidden>More pages in English</button>
     </nav>
@@ -209,6 +255,11 @@
         var own = d.querySelector('.grp[data-lang="' + l + '"]');
         if (own && l !== 'en') own.parentNode.insertBefore(own, own.parentNode.firstChild);
         more.hidden = l === 'en';
+        var navEl = d.querySelector('.drawer-nav');
+        Array.prototype.slice.call(d.querySelectorAll('.tools-strip')).reverse().forEach(function (t) {
+          t.hidden = t.getAttribute('data-tools') !== (l === 'it' ? 'it' : 'en');
+          navEl.insertBefore(t, navEl.firstChild);
+        });
       }
       sel.addEventListener('change', function () { try { localStorage.setItem('menuLang', sel.value); } catch (e) {} lang_(sel.value); });
       more.addEventListener('click', function () { d.querySelectorAll('.grp[data-lang="en"]').forEach(function (g) { g.hidden = false; }); more.hidden = true; });
@@ -258,9 +309,35 @@
       <a href="https://github.com/xlollx/Trackhop/security">Security</a>
       <a href="{{ '/press' | relative_url }}">Press kit</a>
       <a class="ig" href="https://www.instagram.com/trackhop.app/" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>Instagram</a>
+      <a class="ig" href="https://t.me/trackhop_app" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="currentColor"><path d="M2.6 11.4l17.1-6.6c.8-.3 1.5.2 1.2 1.4l-2.9 13.7c-.2 1-.8 1.2-1.6.8l-4.4-3.3-2.1 2.1c-.2.2-.4.4-.9.4l.3-4.5 8.2-7.4c.4-.3-.1-.5-.6-.2L6.8 14.2l-4.3-1.4c-.9-.3-.9-.9.1-1.4z"/></svg>Telegram</a>
     </div>
     <p class="support">Trackhop is free, with nothing locked. If it saves you time, you can <a href="https://ko-fi.com/xlollx" target="_blank" rel="noopener">buy me a coffee</a> (card or PayPal) or <a href="https://github.com/sponsors/xlollx" target="_blank" rel="noopener">sponsor it on GitHub</a>.</p>
     <p>Trackhop is free software under AGPL-3.0-only. It is not affiliated with any music service; their names are used only to indicate compatibility.</p>
   </footer>
+  <script>
+  (function () {
+    var src = '{{ "/assets/v/v.js" | relative_url }}?v={{ site.time | date: "%s" }}';
+    function go() { import(src).then(function (m) { m.open(); }).catch(function () {}); }
+    var typed = '';
+    document.addEventListener('keydown', function (e) {
+      var t = e.target;
+      if (e.ctrlKey || e.metaKey || e.altKey || !e.key || e.key.length !== 1) return;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      typed = (typed + e.key.toLowerCase()).slice(-5);
+      if (typed === 'vanni') { typed = ''; go(); }
+    });
+    var brand = document.querySelector('.top .brand'), taps = 0, last = 0;
+    var home = '{{ "/" | relative_url }}';
+    if (brand) brand.addEventListener('click', function (e) {
+      if (location.pathname !== home) return;
+      e.preventDefault();
+      var now = Date.now();
+      taps = now - last < 1500 ? taps + 1 : 1;
+      last = now;
+      if (taps === 1) window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (taps >= 5) { taps = 0; go(); }
+    });
+  })();
+  </script>
 </body>
 </html>

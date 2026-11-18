@@ -99,7 +99,12 @@ fun ShareTrackSheet(
             // A Shazam share names its song in the text: nothing to ask anyone.
             ShazamShare.SERVICE -> ShazamShare.track(text)
             // A TikTok video: the song its public page names.
-            TikTokShare.SERVICE -> when (val sound = withContext(Dispatchers.IO) { TikTokShare.sound(link) }) {
+            // No internet: said as the connection's, not as a page that could not be read.
+            TikTokShare.SERVICE -> when (val sound = withContext(Dispatchers.IO) { runCatching { TikTokShare.sound(link) } }.getOrElse { e ->
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                sourceNote = netWords(ctx, e) ?: ctx.getString(R.string.tiktok_unreadable); null
+            }) {
+                null -> null
                 is TikTokShare.Sound.Song -> { if (sound.recognized) sourceNote = ctx.getString(R.string.tiktok_recognized); sound.track }
                 is TikTokShare.Sound.Original -> { sourceNote = ctx.getString(R.string.tiktok_original_sound); null }
                 TikTokShare.Sound.Unknown -> { sourceNote = ctx.getString(R.string.tiktok_unreadable); null }
@@ -140,7 +145,7 @@ fun ShareTrackSheet(
             }.also { if (it == null) trace("timed out") }
         } catch (e: CancellationException) { throw e } catch (e: Exception) {
             trace("failed: $e")
-            onMain { onMessage(e.message ?: ctx.getString(R.string.error_generic)) }; null
+            onMain { onMessage(e.userMessage(ctx)) }; null
         }
         // Shown from the main thread: a write from the worker the lookup ended on could leave the
         // sheet on "Finding it…" (see onMain).
@@ -186,7 +191,7 @@ fun ShareTrackSheet(
             }
             // From Shazam, and no sync of the Shazam playlist yet: the way to have every Shazam everywhere.
             if (ref.service == ShazamShare.SERVICE && onNewSync != null &&
-                store.data.jobs.none { it.shazam || it.source.playlistName.contains("shazam", ignoreCase = true) }
+                store.data.syncs.none { it.shazam || it.source.playlistName.contains("shazam", ignoreCase = true) }
             ) {
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
                     Column(Modifier.padding(14.dp)) {

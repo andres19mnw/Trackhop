@@ -71,24 +71,65 @@ object PlaylistFiles {
         }
     }
 
-    fun parse(fileName: String, text: String): List<Track> = parseClean(fileName, text.removePrefix("\uFEFF"))
+    /**
+     * How a name with three parts, "A - B - C", reads in the formats that only carry a name (M3U,
+     * PLS, plain text): [ARTIST_TITLE] keeps "B - C" as the title, as for "Artist - Song - Radio
+     * Edit"; [ARTIST_ALBUM_TITLE] takes B as the album; [AUTO] decides per file, the album layout
+     * when most names have three parts (#49); [CUSTOM] reads with the user's [NamePatterns] first.
+     */
+    enum class NameLayout { AUTO, ARTIST_TITLE, ARTIST_ALBUM_TITLE, CUSTOM;
+        companion object { fun of(name: String?): NameLayout = entries.firstOrNull { it.name == name } ?: AUTO }
+    }
 
-    private fun parseClean(fileName: String, text: String): List<Track> = when (detect(fileName, text)) {
-        Format.M3U -> parseM3u(text)
-        Format.PLS -> parsePls(text)
+    fun parse(fileName: String, text: String, layout: NameLayout = NameLayout.AUTO, patterns: List<NamePatterns.Pattern> = emptyList()): List<Track> {
+        val clean = text.removePrefix("\uFEFF")
+        val format = detect(fileName, clean)
+        val custom = if (layout == NameLayout.CUSTOM) patterns else emptyList()
+        val tracks = parseClean(format, clean, custom)
+        return when {
+            format != Format.M3U && format != Format.PLS && format != Format.TEXT -> tracks
+            layout == NameLayout.CUSTOM -> tracks
+            else -> withLayout(tracks, layout)
+        }
+    }
+
+    /**
+     * The tracks read from names, with "Album - Title" titles split when [layout] says so (AUTO: at
+     * least two names and four in five of them have a third part). Tracks with an album already (a
+     * library path) or without an artist are left as they are.
+     */
+    fun withLayout(tracks: List<Track>, layout: NameLayout): List<Track> {
+        if (layout == NameLayout.ARTIST_TITLE || layout == NameLayout.CUSTOM) return tracks
+        fun splittable(t: Track) = t.artists.isNotEmpty() && t.album.isBlank() && DASH.split(t.title, 2).let { it.size == 2 && it.all(String::isNotBlank) }
+        if (layout == NameLayout.AUTO) {
+            val named = tracks.count { it.artists.isNotEmpty() && it.album.isBlank() }
+            val three = tracks.count(::splittable)
+            if (three < 2 || three * 5 < named * 4) return tracks
+        }
+        return tracks.map { t ->
+            if (!splittable(t)) return@map t
+            val (album, rest) = DASH.split(t.title, 2)
+            val title = withoutTrackNumber(rest.trim()).ifBlank { rest.trim() }
+            CsvCodec.withStableId(t.copy(title = title, album = album.trim()))
+        }
+    }
+
+    private fun parseClean(format: Format, text: String, patterns: List<NamePatterns.Pattern>): List<Track> = when (format) {
+        Format.M3U -> parseM3u(text, patterns)
+        Format.PLS -> parsePls(text, patterns)
         Format.ITUNES_XML -> parseItunesXml(text)
         Format.XSPF -> parseXspf(text)
         Format.OPML -> parseOpml(text)
         Format.JSON -> parseJson(text)
         Format.CSV -> CsvCodec.parse(text)
-        Format.TEXT -> parseText(text)
+        Format.TEXT -> parseText(text, patterns)
     }
 
     // ---------------------------------------------------------------- M3U
 
     private val EXTINF = Regex("""^#EXTINF:\s*(-?\d+(?:\.\d+)?)?\s*(?:[^,]*)?,\s*(.*)$""")
 
-    fun parseM3u(text: String): List<Track> {
+    fun parseM3u(text: String, patterns: List<NamePatterns.Pattern> = emptyList()): List<Track> {
         val out = ArrayList<Track>()
         var pendingSeconds = 0L
         var pendingLabel: String? = null
@@ -101,7 +142,8 @@ object PlaylistFiles {
                 pendingLabel = m.groupValues[2].trim().ifBlank { null }
                 continue
             }
-            val t = pendingLabel?.let { label -> splitArtistTitle(label).let { (artist, title) -> Track(id = "", title = title, artists = artist) } }
+            val t = (pendingLabel?.let { NamePatterns.read(it, patterns) } ?: NamePatterns.read(line, patterns))?.track()
+                ?: pendingLabel?.let { label -> splitArtistTitle(label).let { (artist, title) -> Track(id = "", title = title, artists = artist) } }
                 ?: fromPath(line)
             if (t.title.isNotBlank()) out += CsvCodec.withStableId(t.copy(durationMs = pendingSeconds * 1000))
             pendingSeconds = 0
@@ -115,14 +157,15 @@ object PlaylistFiles {
     private val PLS_ENTRY = Regex("""^(file|title|length)(\d+)\s*=\s*(.*)$""", RegexOption.IGNORE_CASE)
 
     /** PLS (Winamp, VLC, Clementine): File1=…, Title1=Artist - Title, Length1=seconds. */
-    fun parsePls(text: String): List<Track> {
+    fun parsePls(text: String, patterns: List<NamePatterns.Pattern> = emptyList()): List<Track> {
         val entries = java.util.TreeMap<Int, MutableMap<String, String>>()
         for (raw in text.lineSequence()) {
             val m = PLS_ENTRY.find(raw.trim()) ?: continue
             entries.getOrPut(m.groupValues[2].toInt()) { HashMap() }[m.groupValues[1].lowercase()] = m.groupValues[3].trim()
         }
         return entries.values.mapNotNull { e ->
-            val t = e["title"]?.takeIf { it.isNotBlank() }?.let { label -> splitArtistTitle(label).let { (artist, title) -> Track(id = "", title = title, artists = artist) } }
+            val t = (e["title"]?.takeIf { it.isNotBlank() }?.let { NamePatterns.read(it, patterns) } ?: e["file"]?.let { NamePatterns.read(it, patterns) })?.track()
+                ?: e["title"]?.takeIf { it.isNotBlank() }?.let { label -> splitArtistTitle(label).let { (artist, title) -> Track(id = "", title = title, artists = artist) } }
                 ?: e["file"]?.let { fromPath(it) } ?: return@mapNotNull null
             val secs = e["length"]?.toLongOrNull()?.takeIf { it > 0 } ?: 0
             t.takeIf { it.title.isNotBlank() }?.let { CsvCodec.withStableId(it.copy(durationMs = secs * 1000)) }
@@ -148,22 +191,61 @@ object PlaylistFiles {
         else -> NUMBER.replace(name, "")
     }.trim()
 
+    /** The folder a music library starts in: the next folder is the artist's. */
+    private val MUSIC_ROOTS = setOf("music", "my music", "musik", "musique", "musica", "música", "muziek", "mp3")
+    /** "(Disc 1) …", "CD2", "Disk 3": a disc of the album above it, not an album. */
+    private val DISC_FOLDER = Regex("""^[(\[]?\s*(?:disc|disk|cd)\s*\d+\b""", RegexOption.IGNORE_CASE)
+    /** "1977 - ", "2016.12 - ", "[1993] ": the year a folder name starts with, before the album's. */
+    private val YEAR_PREFIX = Regex("""^(?:\d{4}(?:[.-]\d{1,2}){0,2}\s+[-–—]\s+|[\[(]\d{4}[\])]\s*[-–—]?\s*)(?=\S)""")
+
+    private fun same(a: String, b: String): Boolean {
+        fun key(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+        return key(a).isNotEmpty() && key(a) == key(b)
+    }
+
     /**
-     * A track from a path without #EXTINF: "Artist - Title.mp3" as named, or the usual library layout
-     * Artist/Album/01 Title.mp3, relative or absolute, a file: URI or percent-encoded.
+     * A track from a path without #EXTINF: "Artist - Title.mp3" as named, or a library layout:
+     * Music/Artist/Album/01 Title.mp3, with folders between the artist and the album (a
+     * discography, "Demo albums") or a disc folder below the album, "1977 - " years before album
+     * names, and files named "Artist - Album - 02 Title" (#49). Relative or absolute, a file: URI or
+     * percent-encoded.
      */
     fun fromPath(path: String): Track {
         val p = (if (path.contains("://") || path.startsWith("file:")) runCatching { java.net.URLDecoder.decode(path.replace("+", "%2B"), "UTF-8") }.getOrDefault(path) else path)
             .replace('\\', '/').replace(URL_OR_DRIVE, "")
         val parts = p.split('/').filter { it.isNotBlank() }
         val name = withoutTrackNumber(parts.lastOrNull().orEmpty().substringBeforeLast('.').replace('_', ' ').trim())
+        val folders = parts.dropLast(1)
+        // "0" of /storage/emulated/0 and drive letters are not names; "1989" can be an album.
+        val generic = { f: String -> f.lowercase() in ROOT_FOLDERS || (f.length < 4 && f.all { it.isDigit() || it == ':' }) }
+
+        // The artist's and the album's folders: below a music root the first folder is the artist;
+        // otherwise the two folders above the file, as before.
+        val root = folders.indexOfLast { it.lowercase() in MUSIC_ROOTS }
+        val below = if (root >= 0) folders.drop(root + 1) else folders
+        var albumAt = below.lastIndex
+        if (albumAt >= 1 && DISC_FOLDER.containsMatchIn(below[albumAt])) albumAt--
+        val artistFolder = (if (root >= 0) below.firstOrNull()?.takeIf { albumAt >= 1 } else below.getOrNull(albumAt - 1))
+            ?.takeUnless(generic)
+        val albumFolder = below.getOrNull(albumAt)?.takeIf { artistFolder != null && !generic(it) }?.let { f ->
+            val noYear = YEAR_PREFIX.replace(f, "").trim()
+            // "SAULT - 'NINE'" in the folder of SAULT: the album is 'NINE'.
+            DASH.split(noYear, 2).let { d -> if (d.size == 2 && same(d[0], artistFolder!!)) d[1].trim() else noYear }
+        }.orEmpty()
+
+        // "Artist - Album - 02 Title": three parts whose artist or album the folders confirm.
+        val dashed = DASH.split(name)
+        if (dashed.size >= 3 && artistFolder != null && (same(dashed[0], artistFolder) || same(dashed[1], albumFolder))) {
+            val title = withoutTrackNumber(dashed.drop(2).joinToString(" - ")).ifBlank { dashed.drop(2).joinToString(" - ") }
+            return Track(id = "", title = title, artists = CsvCodec.splitArtists(dashed[0]), album = dashed[1].trim())
+        }
         val (artists, title) = splitArtistTitle(name)
-        if (artists.isNotEmpty() || parts.size < 3) return Track(id = "", title = title, artists = artists)
-        val album = parts[parts.size - 2]
-        val artist = parts[parts.size - 3]
-        val generic = { f: String -> f.lowercase() in ROOT_FOLDERS || f.all { it.isDigit() || it == ':' } }
-        if (generic(album) || generic(artist)) return Track(id = "", title = title)
-        return Track(id = "", title = title, artists = listOf(artist), album = album)
+        if (artists.isNotEmpty()) {
+            val album = if (artistFolder != null && artists.any { same(it, artistFolder) }) albumFolder else ""
+            return Track(id = "", title = title, artists = artists, album = album)
+        }
+        if (artistFolder == null || albumFolder.isEmpty()) return Track(id = "", title = title)
+        return Track(id = "", title = title, artists = listOf(artistFolder), album = albumFolder)
     }
 
     fun toM3u(tracks: List<Track>): String = buildString {
@@ -215,17 +297,70 @@ object PlaylistFiles {
         append("  </trackList>\n</playlist>\n")
     }
 
-    private val OPML_OUTLINE = Regex("""<outline\b([^>]*)>""", RegexOption.IGNORE_CASE)
-    private val OPML_ATTR = Regex("""(\w+)\s*=\s*"([^"]*)"""")
+    private val OPML_OUTLINE = Regex("""<outline\b((?:[^>"']|"[^"]*"|'[^']*')*)>""", RegexOption.IGNORE_CASE)
+    private val OPML_ATTR = Regex("""([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+    private val XML_COMMENT = Regex("""<!--[\s\S]*?-->""")
+    private val NUMERIC_ENTITY = Regex("""&#(x[0-9a-fA-F]+|\d+);""")
 
-    /** OPML delle iscrizioni ai podcast (Pocket Casts, AntennaPod, Apple Podcasts…): un show per outline con feed. */
-    fun parseOpml(text: String): List<Track> = OPML_OUTLINE.findAll(text).mapNotNull { m ->
-        val attrs = OPML_ATTR.findAll(m.groupValues[1]).associate { it.groupValues[1].lowercase() to unescapeXml(it.groupValues[2]) }
-        // Group headers are outlines too; only the ones pointing at a feed are shows.
-        if (attrs["xmlurl"].isNullOrBlank()) return@mapNotNull null
-        val title = (attrs["text"] ?: attrs["title"])?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-        CsvCodec.withStableId(Track(id = "", title = title, kind = Track.KIND_PODCAST))
-    }.toList()
+    /** An attribute's value as written in XML: entities read, line breaks and runs of spaces as one space. */
+    private fun xmlText(s: String): String = NUMERIC_ENTITY.replace(s) { m ->
+        val v = m.groupValues[1]
+        val code = if (v.startsWith("x") || v.startsWith("X")) v.substring(1).toIntOrNull(16) else v.toIntOrNull()
+        code?.takeIf { Character.isValidCodePoint(it) }?.let { String(Character.toChars(it)) } ?: m.value
+    }.let(::unescapeXml).replace(Regex("""\s+"""), " ").trim()
+
+    /**
+     * OPML delle iscrizioni ai podcast (AntennaPod, Pocket Casts, Podcast Addict, Apple Podcasts…): un
+     * show per outline con feed (`xmlUrl`, o `url` per un outline di tipo rss), con il suo indirizzo e,
+     * dove l'outline ne porta uno, l'id di Apple (`htmlUrl` verso podcasts.apple.com, `itunes:id`).
+     * Gruppi, commenti e outline senza nome si saltano.
+     */
+    fun parseOpml(text: String): List<Track> {
+        return OPML_OUTLINE.findAll(XML_COMMENT.replace(text, "")).mapNotNull { m ->
+            val attrs = OPML_ATTR.findAll(m.groupValues[1]).associate { a ->
+                a.groupValues[1].lowercase() to xmlText(a.groups[2]?.value ?: a.groupValues[3])
+            }
+            // Group headers are outlines too; only the ones pointing at a feed are shows.
+            val feed = attrs["xmlurl"]?.takeIf { it.isNotBlank() }
+                ?: attrs["url"]?.takeIf { it.isNotBlank() && attrs["type"].equals("rss", ignoreCase = true) }
+                ?: return@mapNotNull null
+            val title = listOf(attrs["text"], attrs["title"]).firstOrNull { !it.isNullOrBlank() } ?: return@mapNotNull null
+            val itunes = Podcasts.itunesId(attrs["itunes:id"]) ?: Podcasts.itunesId(attrs["htmlurl"])
+            val publisher = listOf(attrs["itunes:author"], attrs["author"]).firstOrNull { !it.isNullOrBlank() }
+            CsvCodec.withStableId(Track(id = "", title = title, artists = listOfNotNull(publisher), kind = Track.KIND_PODCAST, feedUrl = feed, itunesId = itunes))
+        }.toList()
+    }
+
+    /** Characters XML 1.0 does not allow, even escaped (control characters but tab and line breaks). */
+    private val XML_INVALID = Regex("""[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]""")
+
+    private fun xmlAttr(s: String): String =
+        escapeXml(XML_INVALID.replace(s, "").replace(Regex("""\s+"""), " ").trim())
+
+    /**
+     * OPML 2.0 subscriptions, as podcast apps import them: one `rss` outline per show with its feed.
+     * A show with no known feed (see [Podcasts.withFeeds]) is written as a plain outline with its name,
+     * which apps pass over, rather than left out without a word.
+     */
+    fun toOpml(name: String, shows: List<Track>): String = buildString {
+        append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        append("<opml version=\"2.0\">\n")
+        append("  <head><title>").append(xmlAttr(name)).append("</title></head>\n")
+        append("  <body>\n")
+        for (s in shows) {
+            val title = xmlAttr(s.title)
+            append("    <outline")
+            if (s.feedUrl.isNullOrBlank()) {
+                append(" text=\"").append(title).append("\" title=\"").append(title).append('"')
+            } else {
+                append(" type=\"rss\" text=\"").append(title).append("\" title=\"").append(title).append('"')
+                append(" xmlUrl=\"").append(xmlAttr(s.feedUrl!!)).append('"')
+            }
+            Podcasts.itunesId(s.itunesId)?.let { append(" htmlUrl=\"https://podcasts.apple.com/podcast/id").append(it).append('"') }
+            append("/>\n")
+        }
+        append("  </body>\n</opml>\n")
+    }
 
     private val XSPF_TRACK = Regex("""<track>([\s\S]*?)</track>""")
     private fun xspfField(body: String, tag: String): String? =
@@ -365,15 +500,15 @@ object PlaylistFiles {
 
     private val LIST_PREFIX = Regex("""^\s*\d+\s*[.)\-]\s+""")
 
-    fun parseText(text: String): List<Track> {
+    fun parseText(text: String, patterns: List<NamePatterns.Pattern> = emptyList()): List<Track> {
         val out = ArrayList<Track>()
         for (raw in text.lineSequence()) {
             val line = LIST_PREFIX.replace(raw.trim(), "").trim()
             if (line.isEmpty() || line.startsWith("#")) continue
             // JSON punctuation or a JSON object is not a track name.
             if (line.first() in "[]{}" || line == "```" || line.startsWith("```")) continue
-            val (artists, title) = splitArtistTitle(line)
-            if (title.isNotBlank()) out += CsvCodec.withStableId(Track(id = "", title = title, artists = artists))
+            val t = NamePatterns.read(line, patterns)?.track() ?: splitArtistTitle(line).let { (artists, title) -> Track(id = "", title = title, artists = artists) }
+            if (t.title.isNotBlank()) out += CsvCodec.withStableId(t)
         }
         return out
     }

@@ -27,11 +27,10 @@ It comes in two sizes, a tall one for **stories** and a **square** one for posts
 ## How is it different from Spotify Wrapped?
 
 Spotify Wrapped counts what you **played** during the year, from Spotify's own listening data.
-Trackhop cannot see your plays: it reads **what you keep**, your liked songs and the playlists you
-made, and makes the card from that. So it is not a replacement for the year-end recap; it is a
-portrait of your library, available whenever you want and on any service. The upside is that it
-works the same on services that have no Wrapped at all, and it can mix several of them into one
-card if you use more than one.
+Trackhop reads **what you keep**, your liked songs and the playlists you made, and makes the card
+from that. So it is not a replacement for the year-end recap; it is a portrait of your library,
+available whenever you want and on any service. The upside is that it works the same on services
+that have no Wrapped at all, and it can mix several of them into one card if you use more than one.
 
 ## How do I make my Wrapped card?
 
@@ -46,6 +45,28 @@ card if you use more than one.
 
 A big library takes a little while to read; the page shows how many songs it has found so far.
 
+## From what you really play
+
+Since Trackhop 2.0 the card is made from what you really **play**, when a connected service knows it.
+Trackhop picks the best one you have:
+
+1. **Last.fm** or **ListenBrainz**: every play counted (scrobbles), for the **last month**, **6
+   months** or **12 months**.
+2. **Your own server** (Navidrome and the other Subsonic servers, Jellyfin, Emby, Plex, Lyrion):
+   every play it served, counted song by song, over all time.
+3. **Spotify**: your top songs and artists for the same three periods, ranked by Spotify (no play
+   counts). **Spotify (web)** (GitHub and F-Droid version) reads the same ranking the way your
+   Spotify profile page shows it.
+4. **Deezer**: your top songs and artists as Deezer ranks them.
+5. **YouTube Music** (GitHub and F-Droid version): your recent plays, a weaker guide, since it keeps
+   no counts.
+6. **Apple Music**: your recent plays and Replay.
+
+The card then adds your **top songs** of the period with their covers, and, with Last.fm, the
+**discovery of the period**: the artist you played most who was not in your previous period. Under
+**Based on** you pick where to read from and the period; **Playlists** keeps today's card, made from
+what you keep. The card always says which it is.
+
 ## Does it keep my old cards?
 
 Yes. Every card you make goes into the **History** under it, with the date it was **Made on**. Tap
@@ -56,7 +77,9 @@ often move more than you would expect.
 ## Is my data sent anywhere?
 
 No. The card is computed on your phone from what your services already return to Trackhop.
-Trackhop has no server; nothing leaves the phone unless you share the image yourself.
+Trackhop has no server; nothing leaves the phone unless you share the image yourself. When the
+service does not say when songs came out, their titles are looked up anonymously in Deezer's
+public catalogue.
 
 ## More in the Discover tab
 

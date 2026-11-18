@@ -5,7 +5,8 @@ description: Keep your Navidrome, Jellyfin or Plex playlists in sync with Spotif
 
 # Self-hosted playlist sync
 
-You run your own music server, **Navidrome** (or another Subsonic server), **Jellyfin**, **Emby** (beta) or **Plex**,
+You run your own music server, **Navidrome** (or another Subsonic server), **Jellyfin**, **Emby** (beta), **Plex**,
+[**Lyrion Music Server**](lyrion) (beta) or [**Mopidy**](mopidy) (beta),
 and you still have playlists on a streaming service. Trackhop keeps the two in step: the same
 playlists on both sides, updated on a schedule, on hardware you own. No account, no cloud service
 in the middle, free and open source.
@@ -56,6 +57,30 @@ settings and the details for each service.
 - **Scriptable**: a [REST API, a webhook](docker#api) and a [command line](cli), for Home Assistant,
   n8n or cron.
 
-Step by step: [Spotify to Navidrome, Jellyfin or Plex](spotify-to-navidrome-jellyfin).
+## Tagged libraries match exactly
+
+If your files carry MusicBrainz tags (written by [MusicBrainz Picard](https://picard.musicbrainz.org/quick-start/)
+or beets), Trackhop looks up the MusicBrainz recording of each streaming track by its ISRC and takes
+the file tagged with that recording, whatever its title is written like. The lookup is anonymous
+(the ISRC only, at most one request a second) and remembered; when MusicBrainz does not answer, or a
+file has no tags, the sync matches by title, artists and duration as before. **Tools → MusicBrainz
+tags** counts and lists the songs on your server without tags. Trackhop only reads: it never
+rewrites a file's tags.
+
+## Missing on my server
+
+**Tools → Missing on my server** is the shopping list for your library: the tracks of your Spotify,
+Apple Music, TIDAL, Deezer or YouTube Music playlists that your Navidrome (or other Subsonic server),
+Jellyfin, Emby, Plex, Lyrion or Mopidy does not have. It is made from what your syncs to your server
+could not find, each track once even when several syncs or services want it: artist, title, album,
+length, ISRC, the MusicBrainz id when the syncs' lookups found it (this list never asks MusicBrainz
+itself), which syncs want it and since when. See it by album, tick what you got (it leaves the list)
+and download it as CSV, M3U, plain "Artist - Title" text or a list for Lidarr. On Docker and Desktop
+the same list is in the [API](docker#api) (`GET /api/v1/wanted`, also in Lidarr's *Custom List*
+shape), the [command line](cli) (`trackhop wanted`) and the AI assistant's tools, and the webhook
+can tell you when new tracks go missing (`wanted.added`). Trackhop downloads and buys nothing: what
+you do with the list is up to you.
+
+The list on its own page: [Missing on my server](missing-on-my-server). Step by step: [Spotify to Navidrome, Jellyfin or Plex](spotify-to-navidrome-jellyfin).
 
 [All guide pages](./)

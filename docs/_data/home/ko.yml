@@ -8,10 +8,10 @@ tabs_label: Trackhop 설치 위치
 tab_phone: Android
 tab_computer: 데스크톱
 tab_server: 셀프 호스팅
-play_alt: "Google Play: 곧 출시"
-play_note: '테스트 중'
-appgallery_alt: "Huawei AppGallery: 곧 출시"
-appgallery_note: "준비 중 · Google 서비스 없이 작동"
+play_alt: "Google Play에서 받기"
+play_note: '지금 이용 가능'
+appgallery_alt: "Huawei AppGallery에서 만나 보세요"
+appgallery_note: "Google 서비스 없이"
 store_bridge: '<b>Google Play 또는 AppGallery 버전이라면</b> Trackhop Bridge로 YouTube Music, Amazon Music 등을 추가하세요'
 fdroid_alt: F-Droid에서 받기
 fdroid_note: 소스에서 빌드 · 새 버전은 며칠 늦게 올라와요
@@ -28,7 +28,7 @@ mac_alt: macOS용 받기 (Apple silicon)
 mac_note: 'Apple silicon · <a href="%DL%/Trackhop-Desktop-v%V%-macos-x64.dmg">Intel용</a> · <a href="/guide/desktop#package-managers-and-stores">Homebrew</a>'
 linux_alt: Linux용 받기
 linux_note: '.deb · 또는 <a href="https://snapcraft.io/trackhop">Snap</a> · <a href="%DL%/Trackhop-Desktop-v%V%-linux.flatpak">Flatpak</a>'
-computer_more: 'Mac에서는 처음 한 번 오른쪽 클릭 › 열기로 실행하세요 (<a href="/guide/desktop#macos">이유</a>) · <a href="#docker">모든 다운로드</a>'
+computer_more: 'Mac에서는 처음 한 번 시스템 설정 › 개인정보 보호 및 보안 › 그래도 열기로 허용하세요 (<a href="/guide/desktop#macos">이유</a>) · <a href="#docker">모든 다운로드</a>'
 docker_alt: Docker에서 실행
 docker_note: '베타 · ghcr.io 또는 <a href="https://hub.docker.com/r/xlollx/trackhop">Docker Hub</a> · <a href="/guide/playlist-sync-nas">NAS에서</a>'
 azure_title: "베타: 내 Azure 구독에서 실행 (월 약 5달러)"
@@ -38,21 +38,23 @@ server_more: '웹 페이지, 예약 동기화, API · 온 가족이 <a href="/gu
 virustotal: 모든 다운로드는 VirusTotal 검사 완료
 downloads: "{n}회 다운로드"
 downloads_title: GitHub 릴리스 다운로드 수와 Docker Hub pull 수예요. F-Droid와 스토어는 수치를 공개하지 않으니 실제로는 더 많아요.
+playlists_synced: "공개 플레이리스트 {n}개 동기화 중"
+playlists_synced_title: "Trackhop이 동기화하는 Spotify와 YouTube의 공개 플레이리스트(설명에 “Synced with Trackhop”이 있는 것). 비공개 플레이리스트와 다른 서비스는 세지 않아 실제 수는 더 많아요."
 demo_alt: "Trackhop 둘러보기: 동기화 목록, 새 동기화, 계정, 도구, 공유된 곡, 호환성·포스터 카드, 재생할 수 없는 곡, 설정"
 what_title: 무엇을 하나요
 what_intro: 원본과 대상을 고르고, 얼마나 자주 할지 정하세요. Trackhop이 상대편에서 곡을 하나하나 찾아내고, 무엇이 바뀔지 보여 준 뒤, 두 플레이리스트를 계속 맞춰 줘요.
 card1_title: 어떤 서비스에서 어떤 서비스로든
-card1: 플레이리스트, 좋아요 표시한 곡, 저장한 앨범, 팔로우한 아티스트. 공개 플레이리스트라면 링크만 붙여 넣어도 돼요.
+card1: "플레이리스트, 좋아요 표시한 곡, 저장한 앨범, 팔로우한 아티스트. 공개 플레이리스트 링크를 붙여 넣어도 돼요. 2.0부터는 각자 다른 서비스를 쓰는 친구들과 플레이리스트 하나를 함께 쓸 수 있어요."
 card2_title: 일정에 맞춰 자동으로
-card2: 1시간마다, 6시간마다, 매일 또는 매주. 추가만 하거나 삭제까지 반영하고, 원본의 곡 순서도 그대로 유지해요.
+card2: "1시간마다, 6시간마다, 매일 또는 매주. 추가만 하거나 삭제까지 반영하고, 원본의 곡 순서도 그대로 유지해요. 삭제까지 포함한 양방향 동기화도 돼요."
 card3_title: 짐작은 하지 않아요
 card3: "동기화 전에는 항상 미리보기. 찾지 못한 곡은 검토 목록으로: 맞는 곡을 한 번만 고르면 Trackhop이 기억해요."
 card4_title: 내 계정은 내 것
 card4: 로그인은 각 서비스의 공식 페이지에서 해요. 액세스 토큰은 휴대폰에 암호화되어 저장되고 밖으로 나가지 않아요.
 card5_title: 내 음악 서버까지
-card5: "스트리밍 서비스와 함께 Navidrome 등 Subsonic 서버, Jellyfin, Plex도 지원해요. 파일도 돼요: CSV, M3U, XML, JSON. <a href='https://www.navidrome.org/apps/'>Navidrome 앱 카탈로그에 등재.</a>"
+card5: "스트리밍 서비스와 함께 Navidrome 등 Subsonic 서버, Jellyfin, Emby, Plex, Lyrion, Mopidy도 지원하고, 내 서버에 아직 없는 곡 목록도 보여 줘요. 파일도 돼요: CSV, M3U, XML, JSON. <a href='https://www.navidrome.org/apps/'>Navidrome 앱 카탈로그에 등재.</a>"
 card6_title: 플레이리스트 도구
-card6: 백업, 중복 제거, 합치기·나누기·정렬, 그리고 내 AI 키로 동작하는 플레이리스트 생성기.
+card6: "백업, 중복 제거, 합치기·나누기·정렬, 내 AI 키로 동작하는 플레이리스트 생성기. 2.0부터는 플레이리스트 아티스트의 신곡, 콘서트, 세트리스트, 음반도 볼 수 있어요."
 one_title: "서비스가 하나뿐이어도"
 one_intro: "두 번째 서비스는 필요 없습니다. Spotify, Apple Music, YouTube Music 등 하나만 써도 Trackhop이 플레이리스트를 챙겨 줍니다."
 one1_title: "Discover Weekly 저장"
@@ -138,3 +140,4 @@ instagram_alt: 'Instagram에서 Trackhop 팔로우'
 say_title: '사용자들의 이야기'
 say_intro: 'Trackhop 소개 영상과 게시물의 댓글, 후원자들의 메시지. 이름과 사진은 가렸습니다.'
 say_alt: 'Trackhop 사용자들의 댓글과 자동 동기화와 안전성을 칭찬하는 후원자 메시지 두 개, 그리고 X 게시물("a game changer for music lovers who use multiple platforms")'
+gallery_title: "둘러보기"

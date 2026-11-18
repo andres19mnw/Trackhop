@@ -7,7 +7,7 @@ description: Logos, screenshots and the facts about Trackhop, the free and open-
 
 Writing about Trackhop or showing it in a video? Everything you need is on this page, free to use.
 Questions, a test setup or an interview: **[xlollx@trackhop.org](mailto:xlollx@trackhop.org)**.
-News and posts on Instagram: **[@trackhop.app](https://www.instagram.com/trackhop.app/)**.
+News and posts on Instagram, **[@trackhop.app](https://www.instagram.com/trackhop.app/)**, and Telegram, **[t.me/trackhop_app](https://t.me/trackhop_app)**.
 
 <p><a class="press-dl" href="/assets/press/Trackhop-press-kit.zip" download>Download the press kit (.zip, 2.4 MB)</a><br>
 <small>Logo, banners (wide and square), 10 phone and 5 desktop screenshots</small></p>
@@ -43,11 +43,12 @@ with no account, no subscription and no server in between: everything runs on yo
 | Price | Free, no in-app purchases, no ads |
 | License | AGPL-3.0-only |
 | Platforms | Android 8.0+, Windows, macOS, Linux, Docker |
-| Get it | [F-Droid](https://f-droid.org/packages/com.xlollx.songport/), [GitHub](https://github.com/xlollx/Trackhop/releases/latest), [Obtainium](https://github.com/ImranR98/Obtainium), [Microsoft Store](https://apps.microsoft.com/detail/9PFX74Q2XN9P) (Desktop); Google Play and Huawei AppGallery coming soon |
+| Get it | [Google Play](https://play.google.com/store/apps/details?id=com.xlollx.songport), [F-Droid](https://f-droid.org/packages/com.xlollx.songport/), [GitHub](https://github.com/xlollx/Trackhop/releases/latest), [Obtainium](https://github.com/ImranR98/Obtainium), [Microsoft Store](https://apps.microsoft.com/detail/9PFX74Q2XN9P) (Desktop), [Huawei AppGallery](https://appgallery.huawei.com/app/C119677919) |
 | Services | Spotify, YouTube Music, Apple Music, TIDAL, Deezer, Amazon Music, SoundCloud, Qobuz, Navidrome/Subsonic, Jellyfin, Plex, Last.fm and ListenBrainz (as sources), playlist files |
 | Languages | English, Italian, Spanish, Portuguese, French, German, Polish, Russian, Turkish, Japanese, Korean, Chinese |
-| Website | [trackhop.org](https://trackhop.org) |
+| Website | [trackhop.org](https://trackhop.org) (trackhop.app is a different, unrelated service) |
 | Instagram | [@trackhop.app](https://www.instagram.com/trackhop.app/) |
+| Telegram | [t.me/trackhop_app](https://t.me/trackhop_app) |
 | Source code | [github.com/xlollx/Trackhop](https://github.com/xlollx/Trackhop) |
 
 The Google Play, AppGallery and Microsoft Store versions use each service's official API only. The
@@ -93,6 +94,7 @@ Trackhop Desktop (1440 × 810):
 <div class="press-row desk">
   <a href="/store/desktop/1-syncs.jpg"><img src="/store/desktop/1-syncs.jpg" alt="Trackhop Desktop: syncs" loading="lazy"></a>
   <a href="/store/desktop/2-sync-detail.jpg"><img src="/store/desktop/2-sync-detail.jpg" alt="Trackhop Desktop: a sync in detail" loading="lazy"></a>
+  <a href="/store/desktop/3-wrapped.jpg"><img src="/store/desktop/3-wrapped.jpg" alt="Trackhop Desktop: your Wrapped from what you really play" loading="lazy"></a>
 </div>
 
 All screenshots are in the [press kit](/assets/press/Trackhop-press-kit.zip).

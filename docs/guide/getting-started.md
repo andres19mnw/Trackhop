@@ -14,6 +14,7 @@ i18n: start
 | [F-Droid](https://f-droid.org/packages/com.xlollx.songport/) | Built by F-Droid from source, signed with the same key as the GitHub APK (reproducible build), so the two update each other. New versions arrive a few days after GitHub. |
 | [Obtainium](https://github.com/ImranR98/Obtainium) | Add `https://github.com/xlollx/Trackhop`: every GitHub release reaches the phone by itself. |
 | [GitHub Releases](https://github.com/xlollx/Trackhop/releases/latest) | The signed APK of every version. |
+| [Huawei AppGallery](https://appgallery.huawei.com/app/C119677919) | The store version: official APIs only. The free [Trackhop Bridge](https://github.com/xlollx/Trackhop-Bridge/releases/latest) plugin adds the quick routes ([Which Trackhop?](versions)). |
 
 Android 8.0 or newer.
 
@@ -21,7 +22,7 @@ Android 8.0 or newer.
 
 *Accounts → Add connector.* Many services can be reached two ways:
 
-- **Quick route** (Spotify, Apple Music, YouTube Music, Amazon Music): you sign in on the service's own
+- **Quick route** (Spotify, Apple Music, YouTube Music, Amazon Music, Deezer, SoundCloud and more): you sign in on the service's own
   page inside the app, as in a browser. Nothing to create. It is not an official interface, so it can
   stop working when the site changes (the app warns before the first sign-in).
   On YouTube Music, if your playlists live on a brand account (a channel of its own), pick it under
@@ -29,14 +30,24 @@ Android 8.0 or newer.
 - **Official route** (Spotify, YouTube Music, TIDAL, Deezer, Apple Music): you create a free developer
   key in your own name; the app walks you through it in about two minutes, step by step.
 
-Personal servers (Navidrome/Subsonic, Jellyfin, Plex) need only the server address and your login.
+Personal servers (Navidrome/Subsonic, Jellyfin, Emby, Plex) need only the server address and your login.
 On **Jellyfin** you can also sign in with **Quick Connect**: enter the server address, then approve the
 code from a device where you are already signed in (no password, so it works with single sign-on).
 On **Ampache**, connected as a Subsonic server, the password is not your account password: see
 [Troubleshooting](troubleshooting#personal-servers).
 Files need nothing.
 
-After connecting, *⋮ → Test connection* on the account checks sign-in, playlists and search in one go.
+After connecting, *⋮ → Test the connection* on the account checks sign-in, playlists and search in one go.
+
+**Start over**: a web sign-in can remember an earlier account (for example one signed in with Google)
+and take you straight back into it. *⋮ → Start over* on the connector signs out and forgets what
+Trackhop kept of that site, even when the connector shows as not connected; then connect again. Your
+account on the service is not touched.
+
+**Last.fm**: your user name is enough to read your loved tracks. Add your password too and *Loved
+tracks* becomes a target: a sync from your liked songs elsewhere loves the same tracks on Last.fm (the
+password is used once to get a session and is not kept). Where the app has no Last.fm key of its own,
+the sign-in asks for your API key and its shared secret, with a button to make them on Last.fm.
 
 **More than one account of a service**: add the same service again (*Accounts → Add connector*), for
 example two Spotify accounts or two Jellyfin servers, and give each a name. A sync between two
@@ -62,9 +73,19 @@ on chosen days. Options worth knowing:
   Music, Deezer).
 - **Wi-Fi only**, **Enabled**, and the matching rules.
 
-Open the **preview** before the first run: it shows what will be added and removed. Tracks that were
-not found go to the **review**, where you search the target yourself or pick a suggestion; the app
-remembers your choice.
+Saving opens the **preview**: at the top, where the tracks go from and to, and the steps while it works
+them out; then the numbers (to add, to remove, already there, not found) and the lists themselves.
+*Run now* stays at the bottom. Tracks that were not found go to the **review**, where you search the
+target yourself or pick a suggestion; the app remembers your choice.
+
+**Live versions**: a song that names a concert in its subtitle counts as live, even without the word
+"live": iTunes Festival, BBC Session, Live Lounge, MTV, On Tour, and in other languages en vivo, ao
+vivo, dal vivo, en directo, en concert or Konzert. A track from a live album (Live at…, Unplugged,
+iTunes Festival…) in place of the source's studio album counts against it, so the studio take wins.
+Titles such as "Live Forever", collections such as Greatest Hits, and the same album on both sides are
+not affected. With **Studio versions only** a live take is never used. A match made earlier that is
+live where the source is not now shows up in the review: *Change* swaps it, *Looks right* keeps it and
+it is not asked again. Nothing is removed by itself.
 
 ## With one service
 
@@ -96,11 +117,16 @@ rule, not an error; the quick route reads them. See [Troubleshooting](troublesho
 Settings › Appearance has the theme (follow the system, light or dark) and **Dynamic colours**: on Android 12 and
 newer the app can take the colours of your wallpaper (Material You) instead of its own indigo and magenta. It is off
 by default; the title banner keeps the brand colours either way. The app follows the system font size, and above
-130% the bottom bar shows the name of the selected tab only.
+130% the bottom bar shows the name of the selected tab only. **Card style** groups how the sync cards look:
+colours, status, past runs, **Card size** (Large, Medium, Small) and **Minimal view** (small tiles in a grid), which
+fit more syncs on the screen. On a tablet or a phone on its side the tabs move to a rail and the cards sit in columns.
 
 ## Order and colours
 
 Sync all and the widgets follow the order of the list. Hold a card and drag it to its place, or use
-*⋮ → Move to position* and type the number. *⋮ → Colour* gives a card one of nine colours or any colour
-of your own (the last circle). On Desktop and Docker: the arrows on each card, or the position field
-on the sync's page.
+*⋮ → Move to position* and type the number. *⋮ → Style* gives a card one of the ready colours or any colour
+of your own (the last circle), and a name for that colour makes it a label. *⋮ → Add to favourites* stars a
+sync, and the editor's **Tags** group syncs your way. The search above the list is there from the first sync,
+and the filters from five syncs on: they show only the cards you want. More in
+[Favourites, labels and tags](organise-syncs). On Desktop and Docker: the arrows on each card, or the position
+field on the sync's page.

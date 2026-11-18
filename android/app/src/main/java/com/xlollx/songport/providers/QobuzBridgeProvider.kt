@@ -30,7 +30,8 @@ import kotlinx.serialization.json.JsonElement
  * Not an official route: Qobuz's terms do not allow it and it can stop working when the player
  * changes. The sign-in screen shows the notice first.
  */
-class QobuzBridgeProvider(override val slot: String = "") : MusicProvider, WebAccounts.Connector {
+class QobuzBridgeProvider(override val slot: String = "") : MusicProvider, WebAccounts.Connector, StartsOver {
+    override val beta = true
     override val serviceId = SERVICE
     override val displayName = if (BridgePlugin.builtIn) "Qobuz (web)" else "Qobuz (plugin)"
     override val route: MusicProvider.Route? get() = MusicProvider.Route.EASY
@@ -38,7 +39,6 @@ class QobuzBridgeProvider(override val slot: String = "") : MusicProvider, WebAc
     override val familyName: String get() = "Qobuz"
     override val brandColor = BRAND
     override val noteName = "provider_note_qobuz_web"
-    override val alpha = true
     override val supportsLikedSongs = true
     override val supportsLikedTarget = true
     /** Another account: where the WebView keeps profiles apart and the connectors take a slot (see [WebAccounts]). */
@@ -49,6 +49,8 @@ class QobuzBridgeProvider(override val slot: String = "") : MusicProvider, WebAc
     override val authDomain = "qobuz.com"
     override val pluginBased = true
     override val searchParallelism = 2
+    /** The connectors list one Qobuz playlist at a time. */
+    override val readGate: String get() = SERVICE
 
     /** Built in (GitHub, F-Droid), or through a connector plugin that knows it (Google Play). */
     override fun isConfigured(ctx: Env): Boolean =
@@ -61,6 +63,8 @@ class QobuzBridgeProvider(override val slot: String = "") : MusicProvider, WebAc
     override suspend fun completeAuth(ctx: Env, params: Map<String, String>, verifier: String) { /* the sign-in screen keeps the session itself */ }
     override fun disconnect(ctx: Env) { runCatching { call(ctx, "qobuz.disconnect") } }
 
+    // Start over: the Bridge forgets the session and the sites' data; an older one only signs out.
+    override fun startOver(ctx: Env) { runCatching { call(ctx, "qobuz.reset") }.onFailure { disconnect(ctx) } }
     override suspend fun playlists(ctx: Env): List<Playlist> = io(ctx, "qobuz.playlists") { j ->
         j.arr.mapNotNull { p ->
             p["id"].str?.let { Playlist(it, p["name"].str ?: "", p["count"]?.long?.toInt() ?: -1, ownedByMe = p["owned"].bool != false, description = p["description"].str.orEmpty()) }
@@ -72,11 +76,22 @@ class QobuzBridgeProvider(override val slot: String = "") : MusicProvider, WebAc
         val out = ArrayList<Track>()
         var offset: Int? = 0
         while (offset != null) {
-            val b = call(ctx, "qobuz.tracks", id, Bundle().apply { putInt("offset", offset!!) })
+            val b = call(ctx, "qobuz.tracks", id, BridgePlugin.page(offset!!, MusicProvider.readsFresh()))
             out += parseJson(b.getString("json") ?: "[]").arr.mapNotNull { toTrack(it) }
             offset = if (b.containsKey("next")) b.getInt("next") else null
         }
         out
+    }
+
+    /** Through the Bridge's `qobuz.find`, which reads only until the tracks turn up; an older Bridge reads the whole playlist. */
+    override suspend fun findEntries(ctx: Env, playlistId: String, tracks: List<Track>, seen: (List<Track>) -> Unit): List<Track> {
+        if (MusicProvider.isLibrary(playlistId)) return super.findEntries(ctx, playlistId, tracks, seen)
+        return MusicProvider.entriesOrWhole(ctx, id, {
+            withContext(Dispatchers.IO) {
+                val b = call(ctx, "qobuz.find", playlistId, Bundle().apply { putStringArray("ids", tracks.map { it.id }.distinct().toTypedArray()) })
+                parseJson(b.getString("json") ?: "[]").arr.mapNotNull { toTrack(it) }
+            }.also(seen)
+        }) { super.findEntries(ctx, playlistId, tracks, seen) }
     }
 
     override fun webSearchUrl(ctx: Env, query: String): String = "https://play.qobuz.com/search?q=" + Uri.encode(query)
@@ -107,6 +122,9 @@ class QobuzBridgeProvider(override val slot: String = "") : MusicProvider, WebAc
     }
 
     override suspend fun addTracks(ctx: Env, playlistId: String, tracks: List<Track>) = write(ctx, "qobuz.add", playlistId, tracks)
+
+    /** Entries go by a lasting id (or the track's own): one read a few minutes ago names the same entry, or none. */
+    override val keepsEntryIds: Boolean get() = true
 
     /** By entry where the listing gave one (Qobuz removes a playlist's entries, not tracks). */
     override suspend fun removeTracks(ctx: Env, playlistId: String, tracks: List<Track>) = write(ctx, "qobuz.remove", playlistId, tracks)
@@ -151,6 +169,8 @@ class QobuzBridgeProvider(override val slot: String = "") : MusicProvider, WebAc
         } catch (e: Exception) {
             throw ProviderException("$displayName: ${e.message ?: e.javaClass.simpleName}")
         } ?: throw ProviderException("$displayName: no answer")
+        // A session gone for good is told once ("sign in again"); a signed-in listing that answers ends that.
+        com.xlollx.songport.sync.SessionKeepAlive.noticeAnswer(ctx, id, familyName, method, b)
         b.getString("error")?.let { throw ProviderException("$displayName: $it") }
         return b
     }

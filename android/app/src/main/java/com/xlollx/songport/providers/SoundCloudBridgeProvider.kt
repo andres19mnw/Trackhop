@@ -37,7 +37,7 @@ import kotlinx.serialization.json.JsonElement
  * the public-link reader's parser: few ISRCs, so the matching uses title, artist and duration.
  * Not an official interface: it can stop working when SoundCloud changes its web app.
  */
-class SoundCloudBridgeProvider(override val slot: String = "") : MusicProvider {
+class SoundCloudBridgeProvider(override val slot: String = "") : MusicProvider, StartsOver {
     override val serviceId = SoundCloudPublic.SERVICE
     override val displayName = if (BridgePlugin.builtIn) "SoundCloud (web)" else "SoundCloud (plugin)"
     override val route: MusicProvider.Route? get() = MusicProvider.Route.EASY
@@ -55,6 +55,8 @@ class SoundCloudBridgeProvider(override val slot: String = "") : MusicProvider {
     override val installUrl = BridgePlugin.installUrl
     override val notConfiguredName: String? = "bridge_needed_hint"
     override val searchParallelism = 1
+    /** The connectors list one SoundCloud playlist at a time. */
+    override val readGate: String get() = serviceId
     override val canReorder: Boolean get() = true
     override val canSetVisibility: Boolean get() = true
 
@@ -74,6 +76,9 @@ class SoundCloudBridgeProvider(override val slot: String = "") : MusicProvider {
         BridgePlugin.installed(ctx) && runCatching { call(ctx, "soundcloud.status").getBoolean("connected", false) }.getOrDefault(false)
     override fun accountName(ctx: Env): String? = runCatching { call(ctx, "soundcloud.status").getString("account") }.getOrNull()
 
+    /** Signed in, but the session has expired for good: Accounts says to sign in again. */
+    fun sessionExpired(ctx: Env): Boolean = runCatching { call(ctx, "soundcloud.status").getString("expiredAt") != null }.getOrDefault(false)
+
     /** A public page needs no sign-in; the account's sets and likes do. */
     override fun canRead(ctx: Env, playlistId: String): Boolean = when {
         isPage(playlistId) -> readsLinksItself || isConfigured(ctx)
@@ -91,6 +96,8 @@ class SoundCloudBridgeProvider(override val slot: String = "") : MusicProvider {
     override suspend fun completeAuth(ctx: Env, params: Map<String, String>, verifier: String) { /* the connector completes the login itself */ }
     override fun disconnect(ctx: Env) { runCatching { call(ctx, "soundcloud.disconnect") } }
 
+    // Start over: the Bridge forgets the session and the sites' data; an older one only signs out.
+    override fun startOver(ctx: Env) { runCatching { call(ctx, "soundcloud.reset") }.onFailure { disconnect(ctx) } }
     override suspend fun playlists(ctx: Env): List<Playlist> = io(ctx, "soundcloud.playlists") { j -> j.arr.mapNotNull { toPlaylist(it) } }
 
     override suspend fun playlistInfo(ctx: Env, playlistId: String): Playlist =
@@ -107,7 +114,7 @@ class SoundCloudBridgeProvider(override val slot: String = "") : MusicProvider {
             val out = ArrayList<Track>()
             var offset: Int? = 0
             while (offset != null) {
-                val b = call(ctx, "soundcloud.tracks", playlistId, Bundle().apply { putInt("offset", offset!!) })
+                val b = call(ctx, "soundcloud.tracks", playlistId, BridgePlugin.page(offset!!, MusicProvider.readsFresh()))
                 out += parseJson(b.getString("json") ?: "[]").arr.mapNotNull { toTrack(it) }
                 offset = if (b.containsKey("next")) b.getInt("next") else null
             }
@@ -137,6 +144,12 @@ class SoundCloudBridgeProvider(override val slot: String = "") : MusicProvider {
     override suspend fun setPlaylistVisibility(ctx: Env, playlistId: String, public: Boolean) {
         withContext(Dispatchers.IO) { call(ctx, "soundcloud.visibility", playlistId, Bundle().apply { putBoolean("public", public) }) }
     }
+
+    /** A set's artwork, as the web app's "Edit" sends it. An older plugin does not know the method: no cover ([BridgePlugin.setCover]). */
+    override val canSetCover: Boolean get() = BridgePlugin.knows("soundcloud.setCover")
+    override val coverIsV2: Boolean get() = true
+    override suspend fun setPlaylistCover(ctx: Env, playlistId: String, jpeg: ByteArray) =
+        BridgePlugin.setCover("soundcloud.setCover", playlistId, jpeg) { m, id, extras -> call(ctx, m, id, extras) }
 
     override suspend fun deletePlaylist(ctx: Env, playlistId: String) {
         withContext(Dispatchers.IO) { call(ctx, "soundcloud.delete", playlistId) }
@@ -184,6 +197,8 @@ class SoundCloudBridgeProvider(override val slot: String = "") : MusicProvider {
         } catch (e: Exception) {
             throw ProviderException("Connector plugin: ${e.message ?: e.javaClass.simpleName}")
         } ?: throw ProviderException("Connector plugin: no answer")
+        // The session found gone for good (by a sync or any call): one notification per expiry.
+        com.xlollx.songport.sync.SessionKeepAlive.noticeAnswer(ctx, id, familyName, method, b)
         b.getString("error")?.let { throw ProviderException("$displayName: $it") }
         return b
     }
