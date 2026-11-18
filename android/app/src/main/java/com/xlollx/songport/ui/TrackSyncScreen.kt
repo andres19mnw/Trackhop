@@ -3,7 +3,6 @@
 package com.xlollx.songport.ui
 
 import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -158,6 +158,10 @@ fun TrackSyncScreen(onClose: () -> Unit) {
     var lookupLoading by remember { mutableStateOf(0) }
     var lookupFailures by remember { mutableStateOf(0) }
 
+    // The source playlists' own order, read once per sync: the stores keep matches and ignores by
+    // track id, never the place the track holds in the playlist.
+    val sourceOrders = remember { mutableStateMapOf<String, List<String>>() }
+
     val built = remember(data.jobs, data.matchCache, data.ignoredTracks, data.reports, refresh) {
         runCatching { TrackSync.buildRoutes(data.jobs, data.matchCache, data.ignoredTracks, data.reports) }
     }
@@ -227,6 +231,13 @@ fun TrackSyncScreen(onClose: () -> Unit) {
         }
     }
 
+    LaunchedEffect(route?.id, route?.jobs, refresh) {
+        val jobs = route?.jobs.orEmpty().filter { !it.source.playlistId.isNullOrBlank() }
+        jobs.filterNot { sourceOrders.containsKey(it.id) }.forEach { job ->
+            sourceOrders[job.id] = engine.sourceTrackOrder(job)
+        }
+    }
+
     fun sourceOf(entry: TrackSync.Entry): Track? =
         entry.sourceTrack?.takeIf { it.title.isNotBlank() }
             ?: lookups[keyOf(entry.sourceProvider, entry.sourceTrackId)]
@@ -248,6 +259,7 @@ fun TrackSyncScreen(onClose: () -> Unit) {
 
     fun reload() {
         lookups.clear()
+        sourceOrders.clear()
         lookupFailures = 0
         refresh += 1
     }
@@ -313,16 +325,13 @@ fun TrackSyncScreen(onClose: () -> Unit) {
         }
     }
 
-    // What needs a decision comes first: pending, then ignored, then the (often many) matches.
-    val visible = route?.entries.orEmpty()
-        .filter { entry -> filter.accepts(entry.status) && entry.matches(query, sourceOf(entry), matchOf(entry)) }
-        .sortedBy {
-            when (it.status) {
-                TrackSync.Status.PENDING -> 0
-                TrackSync.Status.IGNORED -> 1
-                TrackSync.Status.MATCHED -> 2
-            }
-        }
+    // The source playlist's own order, numbered as it numbers its tracks: a filter narrows the
+    // list but does not renumber it, so a row keeps the place the playlist gives it.
+    val rows = TrackSync.rows(
+        entries = route?.entries.orEmpty()
+            .filter { entry -> filter.accepts(entry.status) && entry.matches(query, sourceOf(entry), matchOf(entry)) },
+        sourceOrders = route?.jobs.orEmpty().map { sourceOrders[it.id].orEmpty() },
+    )
 
     ScreenBackHandler(onClose)
 
@@ -420,7 +429,7 @@ fun TrackSyncScreen(onClose: () -> Unit) {
                             compact = true,
                         )
                     }
-                } else if (visible.isEmpty()) {
+                } else if (rows.isEmpty()) {
                     item {
                         EmptyPanel(
                             title = stringResource(R.string.track_sync_no_results_title),
@@ -429,19 +438,20 @@ fun TrackSyncScreen(onClose: () -> Unit) {
                         )
                     }
                 } else {
-                    items(visible, key = { it.rowKey }) { entry ->
+                    items(rows, key = { it.entry.rowKey }) { row ->
                         EntryCard(
-                            entry = entry,
+                            entry = row.entry,
+                            position = row.position,
                             route = route,
-                            source = sourceOf(entry),
-                            match = matchOf(entry),
-                            sourceLoading = sourceLoading(entry),
-                            matchLoading = matchLoading(entry),
+                            source = sourceOf(row.entry),
+                            match = matchOf(row.entry),
+                            sourceLoading = sourceLoading(row.entry),
+                            matchLoading = matchLoading(row.entry),
                             busy = actionBusy,
-                            onReplace = { editor = MatchEditorState(entry, replacing = true) },
-                            onAssign = { editor = MatchEditorState(entry, replacing = false) },
-                            onRemove = { confirm = ConfirmState(ConfirmKind.REMOVE, entry) },
-                            onRestore = { confirm = ConfirmState(ConfirmKind.RESTORE, entry) },
+                            onReplace = { editor = MatchEditorState(row.entry, replacing = true) },
+                            onAssign = { editor = MatchEditorState(row.entry, replacing = false) },
+                            onRemove = { confirm = ConfirmState(ConfirmKind.REMOVE, row.entry) },
+                            onRestore = { confirm = ConfirmState(ConfirmKind.RESTORE, row.entry) },
                         )
                     }
                 }
@@ -659,6 +669,7 @@ private fun SearchAndFilters(
 @Composable
 private fun EntryCard(
     entry: TrackSync.Entry,
+    position: Int?,
     route: TrackSync.Route,
     source: Track?,
     match: Track?,
@@ -690,6 +701,17 @@ private fun EntryCard(
             Box(Modifier.fillMaxWidth().height(4.dp).background(accent))
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // The place the track holds in the source playlist, as the playlist shows it.
+                    if (position != null) {
+                        Text(
+                            "$position.",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = accent,
+                            modifier = Modifier.widthIn(min = 24.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
                     StatusPill(
                         text = stringResource(statusLabel(entry.status)),
                         tone = statusTone(entry.status),
@@ -975,7 +997,7 @@ private fun MatchEditorDialog(
     val engine = remember { SyncEngine(ctx) }
     val destinationName = serviceName(route.destinationProvider)
     val errorText = ctx.getString(R.string.error_generic)
-    val job = remember(route.id, route.jobs) { jobForRoute(ctx, route) }
+    val job = remember(route.id, route.jobs) { jobForRoute(engine, route) }
 
     var tab by remember { mutableStateOf(0) }
     var link by remember { mutableStateOf("") }
@@ -1453,9 +1475,18 @@ private fun sourcePlaylistNames(route: TrackSync.Route): String =
 private fun targetPlaylistNames(route: TrackSync.Route): String =
     route.jobs.map(::targetPlaylistName).filter { it.isNotBlank() }.distinct().joinToString(", ")
 
-private fun jobForRoute(ctx: Context, route: TrackSync.Route): SyncJob {
-    val sourceId = providerForFamily(route.sourceProvider)?.id ?: route.sourceProvider
-    val destinationId = providerForFamily(route.destinationProvider)?.id ?: route.destinationProvider
+/**
+ * The job an editor action searches with. Providers are not taken from the family's first
+ * connector: that can be the official route (Spotify's API needs its own login and Premium) while
+ * the syncs use the web bridge. [SyncEngine.connectorForReview] picks the session the syncs have.
+ */
+private fun jobForRoute(engine: SyncEngine, route: TrackSync.Route): SyncJob {
+    val sourceId = engine.connectorForReview(route.sourceProvider, route.jobs)?.id
+        ?: providerForFamily(route.sourceProvider)?.id
+        ?: route.sourceProvider
+    val destinationId = engine.connectorForReview(route.destinationProvider, route.jobs, target = true)?.id
+        ?: providerForFamily(route.destinationProvider)?.id
+        ?: route.destinationProvider
     val base = route.jobs.firstOrNull() ?: SyncJob(
         id = "track-sync:" + route.id,
         name = "Track Sync",

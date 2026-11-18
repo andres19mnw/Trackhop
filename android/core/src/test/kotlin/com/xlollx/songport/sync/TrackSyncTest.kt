@@ -143,4 +143,29 @@ class TrackSyncTest {
     @Test fun noJobsAndNoRecordsMakeNoRoutes() {
         assertTrue(TrackSync.buildRoutes(emptyList(), emptyMap(), emptySet(), emptyList()).isEmpty())
     }
+
+    @Test fun rowsFollowTheSourcePlaylistOrderAndNumberItsTracks() {
+        val one = job("j1", "spotify", "youtube")
+        val two = job("j2", "spotify", "youtube")
+        val route = TrackSync.buildRoutes(
+            jobs = listOf(one, two),
+            matches = linkedMapOf(
+                "spotify:a>youtube" to "ta",
+                "spotify:b>youtube" to "tb",
+                // A match remembered from an older run: the playlist no longer lists it.
+                "spotify:old>youtube" to "told",
+            ),
+            ignored = linkedSetOf("spotify:c>youtube"),
+            reports = listOf(report("r1", "j1", 10, track("d")), report("r2", "j2", 20, track("e"))),
+        ).single()
+
+        // The second playlist is read after the first: a track in both keeps its first place.
+        val rows = TrackSync.rows(route.entries, listOf(listOf("c", "a", "d"), listOf("e", "a", "b", "x")))
+
+        assertEquals(listOf("c", "a", "d", "e", "b", "old"), rows.map { it.entry.sourceTrackId })
+        assertEquals(listOf(1, 2, 3, 4, 5, null), rows.map { it.position })
+        // A filter narrows the list but does not renumber it.
+        val filtered = TrackSync.rows(route.entries.filter { it.status == TrackSync.Status.IGNORED }, listOf(listOf("c", "a", "d")))
+        assertEquals(listOf(1), filtered.map { it.position })
+    }
 }

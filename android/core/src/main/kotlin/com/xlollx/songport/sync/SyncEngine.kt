@@ -1852,6 +1852,46 @@ class SyncEngine(
     private fun familyName(service: String): String = providerForFamily(service)?.displayName ?: FileStore.family(service)
 
     /**
+     * The connector a review action searches on for [service]. A route is remembered by service
+     * family, so it does not say which route found the match: a sync's own connector comes first
+     * when it has a live session, then any connected account of the family, then the sync's
+     * connector even without one (its message names the service the user set up). Without this a
+     * route read through the Spotify web bridge searches on the official API, which needs its own
+     * login and answers "not connected".
+     */
+    fun connectorForReview(service: String, jobs: List<SyncJob> = emptyList(), target: Boolean = false): MusicProvider? {
+        val family = FileStore.family(service)
+        val fromJobs = jobs
+            .map { job -> (if (target) job.target else job.source).provider }
+            .filter { FileStore.family(it) == family }
+            .mapNotNull { Providers.byId(it) }
+            .distinct()
+        fun live(p: MusicProvider) = runCatching { p.isConnected(env) }.getOrDefault(false)
+        return fromJobs.firstOrNull(::live)
+            ?: providerForFamily(service)?.takeIf(::live)
+            ?: fromJobs.firstOrNull()
+            ?: providerForFamily(service)
+    }
+
+    /**
+     * The source playlist's track ids in the order it lists them, so Track Sync can show and
+     * number a route the way the playlist does. Empty when it cannot be read (offline, deleted,
+     * a source that lists no tracks): the screen then keeps the order it already has.
+     */
+    suspend fun sourceTrackOrder(job: SyncJob): List<String> {
+        val source = Providers.byId(job.source.provider) ?: return emptyList()
+        val playlistId = job.source.playlistId?.takeIf { it.isNotBlank() } ?: return emptyList()
+        return try {
+            listing(job, source, interactive = true, onWait = {}) { source.tracks(env, playlistId) }.map { it.id }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            env.log("engine", "track sync: source order of ${job.name} not read: ${e.message?.take(120)}")
+            emptyList()
+        }
+    }
+
+    /**
      * Track metadata for a row. A connected service reads it from its catalogue; when its API
      * cannot, the public page of the track is enough for a title and an artist. Null only means
      * "the id is all we have", never that the row is invalid.

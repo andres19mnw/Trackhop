@@ -561,42 +561,52 @@ AuthFlow (PKCE, loopback) · AppleAuthActivity (MusicKit JS) · ServerLoginActiv
 
 ## Project layout
 
+> **This fork builds the Android app only.** `server/`, `docs/`, `packaging/` and the other non-Android trees are kept in Git exactly as upstream ships them but are never built or released from this fork.
+
 ```
 Trackhop/
 ├── README.md, LICENSE, SECURITY.md
-├── docs/
-│   ├── privacy-policy.md          # privacy policy (EN + IT) to publish and link in the Play listing
-│   ├── play-store-listing.md      # store texts, Data safety answers, release checklist
-│   ├── deezer-redirect.html       # https page → songport://callback
-│   ├── google-shared-client.md    # shipping a shared Google client: verification and quota
-│   ├── guide/                     # the guide on the site (getting started, troubleshooting, Docker…)
-│   └── store/                     # 512×512 icon and 1024×500 feature graphic (en/it)
-├── server/                        # Trackhop on a server and on the desktop: JVM build on android/core and android/ytm, web page, Dockerfile, desktop/ (packaging)
-├── packaging/                     # Desktop and Docker for winget, Chocolatey, Scoop, the Microsoft Store (MSIX), Flathub, Docker Hub
+├── docs/                              # Jekyll site (not built here)
+├── server/                            # Trackhop on a server and on the desktop: JVM build on android/core and android/ytm (not built here)
+├── packaging/                         # Desktop and Docker for winget, Chocolatey, Scoop, MSIX, Flathub, Docker Hub (not built here)
+├── fastlane/, play/, fdroid/          # store metadata and recipes (not used here)
 └── android/
     ├── build.gradle, settings.gradle, gradle.properties
-    ├── core/                      # the engine without Android (model, matching, connectors, sync), shared with server/
-    ├── ytm/                       # the YouTube Music web client without Android, shared by bridge/ and server/
-    ├── bridge/                    # the built-in web connectors (GitHub/F-Droid build): WebView sign-ins and players
+    ├── core/                          # the engine without Android (model, matching, connectors, sync, formats, AI, notifications)
+    │   └── src/main/kotlin/com/xlollx/songport/
+    │       ├── model/                 # Track, Playlist, SyncJob, SyncReport, SyncPlan, MatchPolicy...
+    │       ├── data/                  # FileStore, Settings, Tokens, backups, Redact
+    │       ├── net/                   # Http, Json, NetError, Pacer, Relay
+    │       ├── platform/              # Env, AuthMode, BuildDefaults, KeyValues
+    │       ├── providers/             # MusicProvider, OAuthProvider, official connectors
+    │       ├── sync/                  # SyncEngine, Matcher, CsvCodec, PlaylistFiles, PlaylistLinks, TrackSync, tools logic
+    │       ├── shared/                # shared playlists and transports
+    │       ├── ai/                    # AI client and mixes
+    │       └── notify/                # notification channels
+    ├── ytm/                           # the YouTube Music web client without Android, shared by bridge/ and server/
+    ├── bridge/                        # the built-in web connectors (GitHub/F-Droid build): WebView sign-ins and players
+    │   └── src/main/java/com/xlollx/songport/ytmbridge/
     └── app/
-        ├── build.gradle           # build parameters: client IDs, release signing from env/secrets
+        ├── build.gradle               # build parameters: client IDs, release signing from env/secrets
         ├── proguard-rules.pro
         └── src/
             ├── main/AndroidManifest.xml
             ├── main/java/com/xlollx/songport/
             │   ├── MainActivity.kt, SongportApp.kt, Notifications.kt
-            │   ├── ai/AiClient.kt             # Playlist generator: the user's own AI provider (OpenAI-compatible, Anthropic, Gemini)
-            │   ├── auth/                      # Pkce, AuthFlow, AuthCallbackActivity, AppleAuthActivity, LoopbackServer, ServerLoginActivity, LockActivity
-            │   ├── data/                      # Store (JSON, coalesced writes), TokenStore (encrypted), Diagnostics
-            │   ├── model/Models.kt            # Track, Playlist, SyncJob, SyncReport, SyncPlan
-            │   ├── net/                       # Http (OkHttp, 429 retry), JSON helpers
-            │   ├── providers/                 # MusicProvider and its implementations
-            │   ├── sync/                      # Matcher, Duplicates, TitleParser, CsvCodec, PlaylistFiles, PlaylistLinks, SyncEngine, Tools, Scheduler, QuotaMeter
-            │   ├── ui/                        # Compose screens and shared components (Common.kt, Theme.kt)
-            │   └── widget/SyncWidget.kt
+            │   ├── auth/              # Pkce, AuthFlow, AuthCallbackActivity, AppleAuthActivity, LoopbackServer, ServerLoginActivity, LockActivity
+            │   ├── data/              # Store (JSON, coalesced writes), TokenStore (encrypted), Diagnostics, CrashLog
+            │   ├── net/               # Connectivity, HostLog
+            │   ├── platform/          # AndroidEnv, Res
+            │   ├── providers/         # web/plugin connectors and app registry (Connectors.kt)
+            │   ├── sync/              # SyncWorker, Scheduler, backups, tools (Dedupe, Unplayable, etc.)
+            │   ├── ui/                # Compose screens and components
+            │   ├── widget/            # Glance widgets and tile
+            │   ├── automation/, ai/, update/
+            │   └── ...
             ├── main/assets/applemusic/auth.html  # MusicKit JS page for the Apple Music login
-            ├── main/res/values(-it,-fr,-de,-es,-zh,-ja)/strings.xml
-            └── test/…/sync/                   # JUnit tests (matcher, parsers, CSV, links)
+            ├── main/res/values(-it,-fr,-de,-es,-zh,-ja,-ko,-pl,-pt-rBR,-ru,-tr)/strings.xml
+            ├── test/                  # JVM tests (matcher, parsers, CSV, links, backups, automation)
+            └── androidTest/           # instrumented flows (FakeWorld, no network)
 ```
 
 ## Building

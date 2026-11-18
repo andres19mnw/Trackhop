@@ -4,7 +4,9 @@ import com.xlollx.songport.data.Store
 import com.xlollx.songport.model.PlaylistRef
 import com.xlollx.songport.model.ProviderException
 import com.xlollx.songport.model.SyncJob
+import com.xlollx.songport.model.Track
 import com.xlollx.songport.platform.env
+import com.xlollx.songport.providers.Providers
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -135,6 +137,41 @@ class TrackSyncActionsTest {
 
         assertEquals(emptyList<String>(), store.job(job.id)!!.ignoredSourceIds)
         assertFalse(miss in store.data.missCache)
+    }
+
+    /**
+     * A route read through the Spotify web bridge must keep searching on that session: the
+     * official connector comes first in the registry and needs its own Premium login.
+     */
+    @Test fun reviewActionsUseTheSyncsOwnConnectionNotTheFirstOfTheFamily() {
+        val official = FakeProvider("spotify", signedIn = false)
+        val bridge = FakeProvider("spotify_bridge")
+        Providers.testDoubles = listOf(official, bridge)
+        try {
+            val job = job("spotify_bridge", "youtube")
+
+            assertEquals("spotify_bridge", engine.connectorForReview("spotify", listOf(job))?.id)
+            // The destination side of the same route still resolves its own family.
+            assertEquals("spotify_bridge", engine.connectorForReview("spotify", listOf(job), target = true)?.id)
+        } finally {
+            Providers.testDoubles = emptyList()
+        }
+    }
+
+    @Test fun sourceTrackOrderFollowsThePlaylist() = runBlocking {
+        val playlist = FakeProvider("spotify_bridge")
+        playlist.lists["source"] = mutableListOf(
+            Track(id = source("first"), title = "First"),
+            Track(id = source("second"), title = "Second"),
+        )
+        Providers.testDoubles = listOf(playlist)
+        try {
+            val order = engine.sourceTrackOrder(job("spotify_bridge", "youtube"))
+
+            assertEquals(listOf(source("first"), source("second")), order)
+        } finally {
+            Providers.testDoubles = emptyList()
+        }
     }
 
     @Test fun invalidLinksAreRejectedBeforeAnythingIsWritten() = runBlocking {

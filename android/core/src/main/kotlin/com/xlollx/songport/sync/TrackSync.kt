@@ -71,6 +71,13 @@ object TrackSync {
         val pendingCount: Int get() = pending.size
     }
 
+    /**
+     * A row as the screen lists it, with the place its source track holds in the source playlist
+     * (1-based), or null when the playlist no longer lists it (a match remembered from an older
+     * run, an ignore whose track has since left): a figure would claim a place it does not have.
+     */
+    data class Row(val entry: Entry, val position: Int?)
+
     /** What a pasted link resolves to, before the user confirms it. */
     data class ResolvedLink(
         /** The service the link was copied from ("spotify", "youtube"...). */
@@ -207,5 +214,34 @@ object TrackSync {
                 entries = stored + pending,
             )
         }.filterNotNull()
+    }
+
+    /**
+     * The rows of a route in the source playlist's own order, instead of the store's
+     * (match cache then ignores then the latest report), which says nothing about it.
+     *
+     * [sourceOrders] holds one list of source track ids per sync of the route, in the order the
+     * route lists its syncs: a track found in more than one playlist keeps the first place it is
+     * found at, so the figures stay unique. Records the playlists do not list (an old match, a
+     * track that has since left, a record whose sync was deleted) come after them with no figure.
+     */
+    fun rows(entries: List<Entry>, sourceOrders: List<List<String>>): List<Row> {
+        val places = HashMap<String, Int>()
+        sourceOrders.forEach { ids ->
+            ids.forEach { id ->
+                if (id.isNotBlank() && id !in places) places[id] = places.size + 1
+            }
+        }
+        // Without a place (the playlist could not be read, or no longer lists the track) what needs
+        // a decision comes first, as in the rest of the review screens.
+        return entries
+            .map { Row(it, places[it.sourceTrackId]) }
+            .sortedWith(compareBy<Row> { it.position ?: Int.MAX_VALUE }.thenBy { rank(it.entry.status) })
+    }
+
+    private fun rank(status: Status): Int = when (status) {
+        Status.PENDING -> 0
+        Status.IGNORED -> 1
+        Status.MATCHED -> 2
     }
 }
