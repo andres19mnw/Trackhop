@@ -2,6 +2,7 @@ package com.xlollx.songport.data
 
 import com.xlollx.songport.model.SyncJob
 import com.xlollx.songport.model.SyncReport
+import com.xlollx.songport.model.Track
 import com.xlollx.songport.net.json
 import com.xlollx.songport.sync.Matcher
 import com.xlollx.songport.sync.Wrapped
@@ -202,6 +203,8 @@ data class StoreData(
     val serverPairs: Map<String, String> = emptyMap(),
     /** The shared playlists this device takes part in (see shared/SharedGroups); their logs live in files of their own. */
     val groups: List<com.xlollx.songport.shared.SharedGroup> = emptyList(),
+    /** Track metadata cache: "family:trackId" -> Track (title, artist, album, duration). Persisted across restarts. */
+    val trackMetaCache: Map<String, Track> = emptyMap(),
 ) {
     /** The user's syncs: [jobs] without the one-off transfers ([SyncJob.oneOff]), which never show or run as syncs. */
     val syncs: List<SyncJob> get() = jobs.filterNot { it.oneOff }
@@ -460,6 +463,24 @@ open class FileStore(dir: File) {
         update { d -> d.copy(reviewDecisions = com.xlollx.songport.sync.ReviewDecisions.bounded(d.reviewDecisions + entries)) }
     }
 
+    // --- Track metadata cache (persisted) ---
+    /** Key for track metadata: "provider:trackId" (provider is the service family). */
+    private fun trackMetaKey(providerId: String, trackId: String) = "${family(providerId)}:$trackId"
+
+    /** Cached track metadata, or null if not cached. */
+    fun getTrackMeta(providerId: String, trackId: String): Track? = data.trackMetaCache[trackMetaKey(providerId, trackId)]
+
+    /** Persist track metadata. Called after a successful lookup. */
+    fun putTrackMeta(track: Track, providerId: String) {
+        if (track.title.isBlank()) return
+        val key = trackMetaKey(providerId, track.id)
+        update { d ->
+            var cache = d.trackMetaCache + (key to track)
+            if (cache.size > MAX_TRACK_META_CACHE) cache = cache.entries.drop(cache.size - MAX_TRACK_META_CACHE).associate { it.key to it.value }
+            d.copy(trackMetaCache = cache)
+        }
+    }
+
     /** The user settled this match in the review (kept it, or chose another): it is theirs. */
     fun hasDecision(srcProvider: String, srcTrackId: String, dstProvider: String): Boolean =
         data.reviewDecisions.containsKey(cacheKey(srcProvider, srcTrackId, dstProvider))
@@ -571,6 +592,8 @@ open class FileStore(dir: File) {
         private const val MISS_TTL_MS = 7L * 24 * 3_600_000
         /** A removal confirmation not used within this time is dropped: it was meant for the run started then. */
         const val CONFIRMATION_TTL_MS = 12L * 3_600_000
+        /** Maximum track metadata entries to persist (avoids unbounded growth). */
+        private const val MAX_TRACK_META_CACHE = 50_000
 
         fun cacheKey(srcProvider: String, srcTrackId: String, dstProvider: String) = "${family(srcProvider)}:$srcTrackId>${family(dstProvider)}"
 

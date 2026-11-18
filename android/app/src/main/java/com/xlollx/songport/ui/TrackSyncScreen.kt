@@ -107,6 +107,8 @@ import kotlinx.coroutines.launch
 import java.text.Normalizer
 import java.util.Locale
 
+private const val PAGE_SIZE = 100
+
 private val DIACRITICS = Regex("\\p{M}+")
 
 private enum class SyncFilter {
@@ -162,6 +164,9 @@ fun TrackSyncScreen(onClose: () -> Unit) {
     // track id, never the place the track holds in the playlist.
     val sourceOrders = remember { mutableStateMapOf<String, List<String>>() }
 
+    // IDs that failed to resolve in this session (avoid retrying on every recomposition).
+    val failedLookups = remember { mutableSetOf<String>() }
+
     val built = remember(data.jobs, data.matchCache, data.ignoredTracks, data.reports, refresh) {
         runCatching { TrackSync.buildRoutes(data.jobs, data.matchCache, data.ignoredTracks, data.reports) }
     }
@@ -179,58 +184,6 @@ fun TrackSyncScreen(onClose: () -> Unit) {
 
     fun keyOf(provider: String, trackId: String) = "$provider:$trackId"
 
-    val lookupKeys = route?.entries.orEmpty().flatMap { entry ->
-        buildList {
-            if (entry.sourceTrack?.title.isNullOrBlank() && entry.sourceTrackId.isNotBlank()) {
-                add(keyOf(entry.sourceProvider, entry.sourceTrackId))
-            }
-            if (entry.status == TrackSync.Status.MATCHED &&
-                entry.matchedTrack?.title.isNullOrBlank() &&
-                !entry.matchedTrackId.isNullOrBlank()
-            ) {
-                add(keyOf(entry.destinationProvider, entry.matchedTrackId!!))
-            }
-        }
-    }.distinct()
-
-    LaunchedEffect(route?.id, lookupKeys, refresh) {
-        val missing = lookupKeys.filterNot { lookups.containsKey(it) }
-        if (missing.isEmpty()) {
-            lookupLoading = 0
-            return@LaunchedEffect
-        }
-        lookupLoading = missing.size
-        lookupFailures = 0
-        try {
-            // A few at a time: the services' search limits are not made for a burst of lookups.
-            for (chunk in missing.chunked(4)) {
-                val loaded = coroutineScope {
-                    chunk.map { key ->
-                        async {
-                            val provider = key.substringBefore(':')
-                            val id = key.substringAfter(':')
-                            val track = try {
-                                engine.lookupTrack(provider, id)
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                null
-                            }
-                            key to track
-                        }
-                    }.awaitAll()
-                }
-                loaded.forEach { (key, track) ->
-                    lookups[key] = track
-                    if (track == null) lookupFailures += 1
-                }
-                lookupLoading = (lookupLoading - chunk.size).coerceAtLeast(0)
-            }
-        } finally {
-            lookupLoading = 0
-        }
-    }
-
     LaunchedEffect(route?.id, route?.jobs, refresh) {
         val jobs = route?.jobs.orEmpty().filter { !it.source.playlistId.isNullOrBlank() }
         jobs.filterNot { sourceOrders.containsKey(it.id) }.forEach { job ->
@@ -241,21 +194,25 @@ fun TrackSyncScreen(onClose: () -> Unit) {
     fun sourceOf(entry: TrackSync.Entry): Track? =
         entry.sourceTrack?.takeIf { it.title.isNotBlank() }
             ?: lookups[keyOf(entry.sourceProvider, entry.sourceTrackId)]
+            ?: store.getTrackMeta(entry.sourceProvider, entry.sourceTrackId)
 
     fun matchOf(entry: TrackSync.Entry): Track? =
         entry.matchedTrack?.takeIf { it.title.isNotBlank() }
             ?: entry.matchedTrackId?.let { lookups[keyOf(entry.destinationProvider, it)] }
+            ?: entry.matchedTrackId?.let { store.getTrackMeta(entry.destinationProvider, it) }
 
     fun sourceLoading(entry: TrackSync.Entry): Boolean =
         entry.sourceTrack?.title.isNullOrBlank() &&
             entry.sourceTrackId.isNotBlank() &&
-            !lookups.containsKey(keyOf(entry.sourceProvider, entry.sourceTrackId))
+            !lookups.containsKey(keyOf(entry.sourceProvider, entry.sourceTrackId)) &&
+            store.getTrackMeta(entry.sourceProvider, entry.sourceTrackId) == null
 
     fun matchLoading(entry: TrackSync.Entry): Boolean =
         entry.status == TrackSync.Status.MATCHED &&
             entry.matchedTrack?.title.isNullOrBlank() &&
-            !entry.matchedTrackId.isNullOrBlank() &&
-            !lookups.containsKey(keyOf(entry.destinationProvider, entry.matchedTrackId!!))
+            entry.matchedTrackId?.isNotBlank() == true &&
+            entry.matchedTrackId?.let { !lookups.containsKey(keyOf(entry.destinationProvider, it)) } == true &&
+            entry.matchedTrackId?.let { store.getTrackMeta(entry.destinationProvider, it) == null } == true
 
     fun reload() {
         lookups.clear()
@@ -332,6 +289,65 @@ fun TrackSyncScreen(onClose: () -> Unit) {
             .filter { entry -> filter.accepts(entry.status) && entry.matches(query, sourceOf(entry), matchOf(entry)) },
         sourceOrders = route?.jobs.orEmpty().map { sourceOrders[it.id].orEmpty() },
     )
+
+    // Pagination: only resolve metadata for the visible page (first PAGE_SIZE entries).
+    val pageEntries = remember(rows) {
+        rows.take(PAGE_SIZE)
+    }
+
+    // Build lookup keys ONLY from the visible page entries (first 100).
+    val lookupKeys = pageEntries.flatMap { row ->
+        val entry = row.entry
+        buildList {
+            // Check persistent cache first (FileStore.trackMetaCache) before adding to lookupKeys
+            val sourceKey = keyOf(entry.sourceProvider, entry.sourceTrackId)
+            val destKey = keyOf(entry.destinationProvider, entry.matchedTrackId.orEmpty())
+
+            if (entry.sourceTrack?.title.isNullOrBlank() && entry.sourceTrackId.isNotBlank() &&
+                store.getTrackMeta(entry.sourceProvider, entry.sourceTrackId) == null &&
+                sourceKey !in failedLookups
+            ) {
+                add(sourceKey)
+            }
+            if (entry.status == TrackSync.Status.MATCHED &&
+                entry.matchedTrack?.title.isNullOrBlank() &&
+                entry.matchedTrackId?.isNotBlank() == true &&
+                entry.matchedTrackId?.let { store.getTrackMeta(entry.destinationProvider, it) == null } == true &&
+                destKey !in failedLookups
+            ) {
+                add(destKey)
+            }
+        }
+    }.distinct()
+
+    LaunchedEffect(route?.id, lookupKeys, refresh) {
+        val missing = lookupKeys.filterNot { lookups.containsKey(it) }
+        if (missing.isEmpty()) {
+            lookupLoading = 0
+            return@LaunchedEffect
+        }
+        lookupLoading = missing.size
+        lookupFailures = 0
+        try {
+            // Batch by provider, then call engine.lookupTracks (chunks of 50 internally)
+            val byProvider = missing.groupBy { it.substringBefore(':') }
+            byProvider.forEach { (provider, keys) ->
+                val ids = keys.map { it.substringAfter(':') }
+                val loaded = engine.lookupTracks(provider, ids)
+                loaded.forEach { (id, track) ->
+                    val key = keyOf(provider, id)
+                    lookups[key] = track
+                    if (track == null) {
+                        lookupFailures++
+                        failedLookups.add(key)
+                    }
+                }
+                lookupLoading = (lookupLoading - keys.size).coerceAtLeast(0)
+            }
+        } finally {
+            lookupLoading = 0
+        }
+    }
 
     ScreenBackHandler(onClose)
 
