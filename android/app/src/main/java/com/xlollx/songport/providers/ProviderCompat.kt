@@ -52,6 +52,7 @@ fun AppleMusicProvider.developerToken(ctx: Context): String = developerToken(ctx
 
 fun LocalFilesProvider.dir(ctx: Context): File = dir(ctx.env)
 fun LocalFilesProvider.importFile(ctx: Context, fileName: String, text: String): Int = importFile(ctx.env, fileName, text)
+fun LocalFilesProvider.importFileAsPlaylist(ctx: Context, fileName: String, text: String): Playlist = importFileAsPlaylist(ctx.env, fileName, text)
 fun LocalFilesProvider.importTracks(ctx: Context, name: String, tracks: List<Track>): String = importTracks(ctx.env, name, tracks)
 fun LocalFilesProvider.exportText(ctx: Context, playlistId: String, format: LocalFilesProvider.Export): String = exportText(ctx.env, playlistId, format)
 fun LocalFilesProvider.delete(ctx: Context, playlistId: String) = delete(ctx.env, playlistId)
@@ -68,5 +69,6 @@ val MusicProvider.notConfiguredRes: Int? get() = notConfiguredName?.let { Res.id
 val SetupGuide.whyRes: Int get() = Res.id(whyName)
 val SetupGuide.stepsArrayRes: Int get() = Res.id(stepsArrayName, "array")
 val SetupGuide.fieldLabelRes: Int get() = Res.id(fieldLabelName)
+val SetupGuide.secretLabelRes: Int get() = secretLabelName?.let { Res.id(it) } ?: com.xlollx.songport.R.string.setup_field_secret
 val LoginForm.secretLabelRes: Int get() = Res.id(secretLabelName)
 val LoginForm.hintRes: Int get() = Res.id(hintName)

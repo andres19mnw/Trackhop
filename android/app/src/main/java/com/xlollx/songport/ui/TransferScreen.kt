@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -89,18 +88,19 @@ fun TransferScreen(onClose: () -> Unit, onDone: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
 
-    LaunchedEffect(srcId) {
+    var reload by remember { mutableStateOf(0) }
+    LaunchedEffect(srcId, reload) {
         lists = null; error = null; checked = emptySet()
         val p = src ?: return@LaunchedEffect
         try {
             val base = p.playlists(ctx)
             lists = p.libraryEntries(ctx, asTarget = false) + base
-        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message ?: ctx.getString(R.string.error_generic); lists = emptyList() }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.userMessage(ctx); lists = emptyList() }
     }
 
     // Sync gia' esistenti da questa origine verso la destinazione scelta, per playlist.
-    val existing = remember(srcId, dstId, store.data.jobs) {
-        store.data.jobs.filter { it.source.provider == srcId && it.target.provider == dstId && it.source.playlistId != null }
+    val existing = remember(srcId, dstId, store.data.syncs) {
+        store.data.syncs.filter { it.source.provider == srcId && it.target.provider == dstId && it.source.playlistId != null }
             .associateBy { it.source.playlistId!! }
     }
 
@@ -134,6 +134,7 @@ fun TransferScreen(onClose: () -> Unit, onDone: () -> Unit) {
             when {
                 srcId == dstId && srcId.isNotEmpty() -> Text(stringResource(R.string.transfer_same_service), color = MaterialTheme.colorScheme.error)
                 all == null -> Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.width(20.dp).height(20.dp)); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.loading)) }
+                error != null && isNetText(ctx, error) -> NetErrorState(error, onRetry = { reload++ })
                 error != null -> Text(error!!, color = MaterialTheme.colorScheme.error)
                 all.isEmpty() -> Text(stringResource(R.string.transfer_none), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> {
@@ -175,7 +176,7 @@ fun TransferScreen(onClose: () -> Unit, onDone: () -> Unit) {
                         val reused = chosen.count { it.id in existing }
                         val fresh = chosen.size - reused
                         var startNow by remember { mutableStateOf(true) }
-                        AlertDialog(
+                        FitDialog(
                             onDismissRequest = { confirm = false },
                             title = { Text(stringResource(R.string.transfer_confirm_title)) },
                             text = {

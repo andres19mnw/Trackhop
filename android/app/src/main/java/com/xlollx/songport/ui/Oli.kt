@@ -1,5 +1,7 @@
 package com.xlollx.songport.ui
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -76,9 +78,9 @@ internal fun OliDialog(onDismiss: () -> Unit) {
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     var purring by remember { mutableStateOf(false) }
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = rememberStayingDismiss(onDismiss)) {
         Card(shape = RoundedCornerShape(28.dp)) {
-            Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(
                     painterResource(R.drawable.oli), stringResource(R.string.oli_photo),
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable {

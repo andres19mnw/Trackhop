@@ -85,6 +85,9 @@ version running, and the app version whose engine it uses.
 | `SONGPORT_PORT` | `8080` | Port inside the container. |
 | `SONGPORT_DATA` | `/data` | Where everything is kept (the volume). |
 | `SPOTIFY_CLIENT_ID`, `TIDAL_CLIENT_ID`, `DEEZER_APP_ID`, `GOOGLE_CLIENT_ID`, `LASTFM_API_KEY` | none | Your keys, if you'd rather pass them here than type them in the page. |
+| `TICKETMASTER_API_KEY` | none | A Ticketmaster Consumer Key (never its secret) for Tools › Concerts, for everyone on this server; each person can also save their own in Settings. Without one, MusicBrainz's dates only. |
+| `SETLISTFM_API_KEY` | none | A setlist.fm API key for setlist.fm links and Tools › Setlists, for everyone on this server; each person can also save their own in Settings. |
+| `LASTFM_SHARED_SECRET` | none | The "Shared secret" of your Last.fm API key: needed only to love tracks on Last.fm. |
 | `DEEZER_REDIRECT_URL` | `<SONGPORT_URL>/callback` | Deezer's redirect, which must be `https`. |
 
 Everything lives in the `/data` volume: `store.json` (syncs, reports, match cache, settings),
@@ -99,14 +102,17 @@ playlist files. Back that folder up and you have backed up Trackhop.
 | YouTube | yes | Your own Google OAuth client (with its secret) |
 | TIDAL | yes | Your own key from developer.tidal.com |
 | Deezer | yes (beta) | Your own app, and an `https` address |
-| Navidrome / Subsonic, Jellyfin, Plex | yes | The server's address and your login |
-| Last.fm, ListenBrainz | yes, as sources | Your user name |
+| Navidrome / Subsonic, Jellyfin, Emby (beta), Plex | yes | The server's address and your login |
+| Last.fm | yes, as a source; Loved tracks also as a target | Your user name; to love tracks, your password once (only the session Last.fm gives back is kept) and `LASTFM_SHARED_SECRET` |
+| ListenBrainz | yes, as a source | Your user name |
 | SoundCloud | yes, as a source (unofficial) | Nothing: pick it as the source of a new sync and paste a public set or likes link. [More](soundcloud) |
-| NetEase Cloud Music, QQ Music | yes, as sources (unofficial) | Nothing: pick one as the source of a new sync and paste a public playlist link. [More](netease-qq-music) |
+| NetEase Cloud Music, QQ Music, Anghami | yes, as sources (unofficial) | Nothing: pick one as the source of a new sync and paste a public playlist link. [More](netease-qq-music) |
+| JioSaavn | yes, as a source (unofficial) | Nothing: pick it as the source of a new sync and paste a public playlist, album or song link |
 | CSV files | yes | Put them in `csv/` inside the data volume |
 | YouTube Music | yes (unofficial, alpha) | The cookies of a browser where you are signed in: [see below](#youtube-music-unofficial) |
 | Spotify (web) | yes (unofficial, alpha) | The `sp_dc` cookie of a browser where you are signed in: [see below](#spotify-and-deezer-without-a-key-unofficial) |
 | Deezer (web) | yes (unofficial, alpha) | The `arl` cookie of a browser where you are signed in: [see below](#spotify-and-deezer-without-a-key-unofficial) |
+| LiveOne, Anghami, Qobuz (web) | yes (unofficial, beta) | A session copied from a browser where you are signed in: [LiveOne](#liveone-unofficial), [Anghami](#anghami-unofficial), [Qobuz](#qobuz-unofficial) |
 | Amazon Music, Apple Music | no | See below |
 
 **Why not all of them.** The other quick routes (Amazon Music, Apple Music without a key) work by
@@ -333,7 +339,7 @@ Nobody sees the others'. Add `SONGPORT_MULTIUSER`:
 - **What each person may use**, ticked by the admin in **Users** and changed there at any time:
   - *Co-admin*: manages the others as the admin does (not themselves: another admin does that).
   - *Unofficial connectors*: YouTube Music, Spotify and Deezer with browser cookies; NetEase, QQ
-    Music and SoundCloud links. Off, they are not even offered. A service may limit an account that
+    Music, JioSaavn and SoundCloud links. Off, they are not even offered. A service may limit an account that
     uses them, so it is the admin's call.
   - *Radio syncs*: the server listens to a station for hours, with its bandwidth.
   - *Folders on the server*: backups copied to a folder of the server.
@@ -405,15 +411,40 @@ leave the home-screen app and not come back to it.
   *Run now*, *Pause* and *Stop*.
 - A scheduled run whose two sides are unchanged since last time is skipped, as in the app.
 - A scheduled run that finds no network is retried after 15 minutes.
+- **Two-way**: tick it in a new sync's form or on a sync's page, between two existing playlists of
+  yours, and Trackhop also makes the reverse sync (marked ↔), so what you add on either side reaches
+  the other. The ↔ sync follows the first one's timing, colour, label, tags and star. With *removals
+  too*, a track you remove on one side is removed on the other. Untick it and the ↔ sync is deleted;
+  the playlists stay as they are. *Turn off* and *Delete* on either of the two act on both.
+- **Removals held back**: a run that would remove a quarter or more of the destination (or of what
+  a two-way pair had in common) keeps those tracks, because a playlist the service listed only in
+  part looks the same. The sync then says *N removals held back*: open it to see them, tick *Remove
+  these N tracks* and run. The confirmation serves one run started by hand, within 12 hours; a
+  scheduled run never removes them.
+- **Many syncs at once**: when four or more syncs read or write the same service (Spotify, YouTube
+  Music, the unofficial web connectors…) within the same half hour, the service can take it for
+  unusual traffic and turn some away. The home page then shows a card, as the app does: *Got it*
+  hides it until the group changes, *Show them* lists those syncs, *Spread them* shows new times
+  (each sync a little after the one before; days and frequency stay) and saves them only after
+  *Confirm*. The same from the [API](#api) (`/api/v1/syncs/crowded`, `/api/v1/syncs/spread`) and
+  the [command line](cli) (`trackhop crowded`, `trackhop spread`).
 - The log is in the page, in `docker logs trackhop` (or the name you gave the container), and in
   `songport.log`.
+- **Asking for help**: `GET /api/v1/diagnostics` (or `trackhop diagnostics`) gives the same report
+  as the app's Log page: version, system, services, syncs, the last runs and the log since a time
+  (`?since=24h`), without tokens, cookies, e-mail addresses, your servers' addresses or your user
+  name in folder paths; the names of syncs, playlists and tracks only with `?names=true`.
+  `POST /api/v1/report` (or `trackhop report`) makes a GitHub issue ready from it and gives you the
+  link that opens it prefilled: nothing is sent, you read it and send it. If GitHub already has an
+  issue for the same error (a signature hidden in the text, looked up without an account), it tells
+  you to add a comment there, or to update when a newer version fixed it.
 
 ## Tools
 
 The page's **Tools** are the app's: Export a playlist, File playlists (upload any format, download
 CSV, M3U, XSPF, JSPF or text), **Full backup** (by hand, daily or weekly, optionally copied to a
 folder: mount one, for example `-v /mnt/nas/trackhop:/backups`, and enter `/backups`),
-**Duplicates**, **Unplayable tracks**, **AI playlists** and, on Docker only, **[Lyrics](#lyrics)**. Long runs go on in the background: their
+**Duplicates**, **Unplayable tracks**, **MusicBrainz tags** (the songs on your Navidrome, Jellyfin, Emby or Plex server without them), **[Missing on my server](self-hosted-playlist-sync#missing-on-my-server)** (the tracks of your playlists your own server lacks, to tick and download), **AI playlists** and, on Docker only, **[Lyrics](#lyrics)**. Long runs go on in the background: their
 page refreshes until the result, and you can leave it.
 
 ## Lyrics
@@ -456,6 +487,28 @@ length has to match within a few seconds, so a live version does not get the stu
 For each file, its artist, title, album and length are sent to LRCLIB, nothing else. Lyrics are
 protected by copyright: they are for your own listening. On a server shared by several people,
 only the admin sees this tool.
+
+### Synced lyrics from your server
+
+**Tools › Synced lyrics** works on a connected server instead of a
+folder: it lists the songs your Navidrome (or other Subsonic server), Jellyfin, Emby, Plex or Lyrion
+server has no lyrics for, looks them up on LRCLIB (one song a second) and shows what it found
+(synced, plain or none) before anything is written. Then *Add* writes them:
+
+- **Jellyfin** (10.9 or newer) takes them through its API, with an account allowed to manage lyrics
+  (administrators are). This works from the app too.
+- **Navidrome, Emby and Plex** read lyrics from a file next to the music, named like it: synced as
+  `<name>.lrc`, plain as `<name>.txt`. Trackhop writes them there, on Desktop and Docker only, once
+  the admin has set the server's music folder on the tool's page: the path the server reports (for
+  example `/music` in Navidrome's container) and the same folder here. On Docker, mount it
+  read-write, as for Lyrics above (no `:ro`, writable by user 999). Navidrome reports the real path
+  only with `ND_SUBSONIC_DEFAULTREPORTREALPATH=true`; without it no file is found and nothing is
+  written.
+- **Lyrion** has no way for apps to add lyrics: its songs are only listed. **Mopidy** has no lyrics.
+
+Only new files are made: a song with lyrics, or with a `.lrc` or `.txt` next to it, is left as it
+is, and nothing is replaced or deleted. A song that fails is left untouched and the rest go on; the
+log has one line for the run. The server shows the new lyrics after its next library scan.
 
 ## AI playlists
 
@@ -518,7 +571,9 @@ found.
 A short message on your phone or in a chat when a sync ends with something to know: in
 **Settings › Notifications**, add as many channels as you like, each with its own events (a sync
 added or removed tracks, a sync failed or a sign-in expired, tracks to review, removals waiting for
-your confirmation), and try it with **Send test**. The message says the sync's name, `+added
+your confirmation, a weekly [New releases](new-releases) sync found new music of your artists), and
+try it with **Send test**. The Android app has the same channels, in *Settings › Notification
+channels*: there their keys are kept encrypted on the phone and never exported either. The message says the sync's name, `+added
 −removed` and the error's first line: never your tokens or your server's address. Sending happens
 apart from the sync (10 seconds at most per channel); a channel that fails is noted in the log and
 never fails the sync. Tokens are kept in the data folder like the sign-ins, shown masked
@@ -546,50 +601,285 @@ test. For the whole run as JSON (Home Assistant, n8n), use the [webhook](#api) i
 
 ## API
 
-Other tools (Home Assistant, n8n, Node-RED, a script) can list the syncs, start them and read how
-they went. Turn it on in **Tools › API**: make a token (shown once; only its hash is kept) and send
+Other tools (Home Assistant, n8n, Node-RED, a script) can do what the page does: make and change
+syncs, run them and review what they did, read and edit playlists, bring in files, set up
+notifications. Turn it on in **Tools › API**: make a token (shown once; only its hash is kept) and send
 it as `Authorization: Bearer <token>`. It is separate from the page's password; on Trackhop Desktop
 only the computer itself can reach it. From a terminal or a script, the [`trackhop` command](cli)
 does the same with less typing: `docker exec trackhop trackhop run --all`, no token needed inside
 the container. The same token lets an AI assistant use Trackhop at `/mcp` (Model Context Protocol): [how](cli#with-an-ai-assistant-mcp).
 
+Every call is also described in `GET /api/v1/openapi.json` (OpenAPI 3, no token needed: it holds
+nothing of yours), for the tools that read one, such as Postman or a generated client. Ids in paths
+are the ones the lists give: a sync's `id`, a run's `id`, a service's `id` (`spotify`, `ytm`,
+`navidrome_1`…), a playlist's `id`. Refusals answer `{"error": "why"}` with a 4xx code.
+
+**General**
+
 | Call | What it does |
 |---|---|
-| `GET /api/v1/status` | Version, number of syncs, the ones running, the last run's time |
-| `GET /api/v1/syncs` | Every sync: source, target, schedule, `mirrorRemovals`, `followsChanges`, `archive` (keeps every track), running, last result |
-| `GET /api/v1/syncs/<id>` | One sync and its last 20 runs |
-| `POST /api/v1/syncs/<id>/run` | Starts it (202) |
-| `POST /api/v1/syncs/run-all` | Starts every enabled sync |
-| `GET /api/v1/runs/<id>` | A run: added, removed, not found, with the tracks |
-| `GET /api/v1/services` | The services and whether they are connected; each account apart (`id` `jellyfin@2`, with `serviceId` and `slot`) |
-| `GET /api/v1/files`, `GET /api/v1/files/<name>.csv?format=m3u` | The File playlists, in any export format |
-| `POST /api/v1/files/<name>` | Adds a playlist file sent as the body (CSV, M3U, XSPF, JSPF, iTunes XML, JSON or text), ready to sync (201) |
-| `POST /api/v1/syncs/<id>/enable`, `…/disable` | Turns a sync on or off |
-| `GET /api/v1/backup`, `POST /api/v1/backup` | The last full backup and its schedule; starts one (202, with a task id) |
-| `GET /api/v1/tasks/<id>` | A background task (a backup, lyrics): progress, done, error |
-| `GET /api/v1/lyrics`, `POST /api/v1/lyrics` | The music folder and the last lyrics run (files, saved, synced, plain, not found); starts one (202, with a task id): `?folder=Queen/Jazz` for one folder, `&synced=true` for synced lyrics only, `&retry=true` to ask again for the ones not found. [Lyrics](#lyrics) |
-| `GET /api/v1/config` (`?history=true`) | The whole set-up as a `.trackhop` file, as *Tools › Backup & restore* saves it |
-| `GET /api/v1/notifications` | The [notification channels](#notifications), their tokens masked |
-| `POST /api/v1/notifications/<id>/test` | Sends a test message through one (200, or 502 with the service's answer) |
-| `GET /api/v1/metrics` | Prometheus metrics: syncs, running, and per sync the last run's time, result, added, removed and not found |
-| `GET /api/v1/services/<service>/playlists` | A connected service's playlists (and its liked songs, saved albums… where it has them) |
-| `POST /api/v1/services/<service>/playlists` | Creates a playlist: `{"name": "…"}` (201, with its id) |
-| `GET /api/v1/services/<service>/playlists/<id>/tracks` | The playlist's tracks: id, title, artists, album, duration, ISRC |
-| `POST /api/v1/services/<service>/playlists/<id>/tracks` | Adds tracks, searched and matched as a sync does: `{"tracks": [{"title": "…", "artist": "…"}, {"link": "https://open.spotify.com/track/…"}, {"id": "…"}, "Artist - Title"]}`. Tracks already there are skipped (`"allowDuplicates": true` to add them anyway); the answer lists what was added, already there and not found |
-| `DELETE /api/v1/services/<service>/playlists/<id>/tracks` | Removes tracks named by id, or by title and artist matched against the playlist (`POST …/tracks/remove` does the same, for tools that cannot send a body with DELETE) |
-| `PATCH`, `DELETE /api/v1/services/<service>/playlists/<id>` | Renames (`{"name": "…"}`) or deletes a playlist, where the service allows it |
-| `GET /health` | `ok`, with no token: for Docker's health check, Uptime Kuma or a reverse proxy |
+| `GET /api/v1/status` | Version, how many syncs, which are running, the last run. |
+| `GET /api/v1/metrics` | The syncs as Prometheus metrics (text). |
+| `GET /api/v1/stats` | Your numbers: tracks moved, time saved, busiest route, top artists. |
+| `GET /api/v1/tasks` | The background tasks (backups, duplicates, lyrics), running or ended in the last hour. |
+| `GET /api/v1/tasks/{task}` | One background task: its progress, whether it is done, its error. |
+| `GET /api/v1/log` | The server's last log lines (admin only). |
+| `GET /api/v1/diagnostics` | A report for asking for help (admin only): version, system, services, syncs, the last runs and the log since a time (`?since=24h`; `90m`, `7d`, `2w`), without secrets; names of syncs, playlists and tracks only with `?names=true`. With the last error and its signature. |
+| `POST /api/v1/report` | A GitHub issue made ready, never sent (admin only): `title`, `body`, `newIssueUrl` (prefilled). GitHub is searched for the error's signature first: `suggestion` is `new`, `comment` (an open issue has it: `comment` and `commentUrl`), `update` (fixed in a newer version, `latest`) or `comment_closed`. Body: `{"since"?, "names"?, "title"?, "description"?}`. |
+
+**Syncs**
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/syncs` | Every sync with its source, target, timing, label, tags and last result; `?tag=genre:metal`, `?label=` and `?favorite=true` narrow the list. |
+| `POST /api/v1/syncs` | Make a sync; `"twoWay": true` also makes the reverse sync (marked ↔). An `"id"` of your own makes it safe to repeat: a sync with that id already there is answered as it is. |
+| `POST /api/v1/syncs/run-all` | Start every sync that is turned on. |
+| `POST /api/v1/syncs/run` | Start a group of syncs: those with a tag (`?tag=genre:metal`), wearing a label (`?label=`) or starred (`?favorite=true`), turned on. |
+| `GET /api/v1/tags` | The tag keys the syncs use, each with its values. |
+| `GET /api/v1/labels` | The labels: the ready colours and your own, each with its name and how many syncs wear it. |
+| `POST /api/v1/labels` | Name a ready colour, or save a colour of your own as a label. |
+| `PATCH /api/v1/labels/{label}` | Rename a label or give it another colour: its syncs follow. |
+| `DELETE /api/v1/labels/{label}` | Delete a label: its syncs keep their colour, without the name. |
+| `GET /api/v1/syncs/{sync}` | One sync and its last runs. |
+| `PATCH /api/v1/syncs/{sync}` | Change a sync: any of name, enabled, schedule, every, at, days, changes, follows, color, label, tags, favorite, twoWay, twoWayRemovals. |
+| `DELETE /api/v1/syncs/{sync}` | Delete a sync (the playlists stay as they are); the other half of a two-way pair goes with it. |
+| `POST /api/v1/syncs/{sync}/run` | Start a sync now; anyway=true after a run held back by the target's size check; `{"confirmRemovals": true}` lets this run make the removals a run holds back. |
+| `POST /api/v1/syncs/{sync}/stop` | Stop a running sync. |
+| `POST /api/v1/syncs/{sync}/pause` | Pause a running sync. |
+| `POST /api/v1/syncs/{sync}/resume` | Resume a paused sync. |
+| `POST /api/v1/syncs/{sync}/enable` | Turn a sync's schedule on (both halves of a two-way pair). |
+| `POST /api/v1/syncs/{sync}/disable` | Turn a sync's schedule off (both halves of a two-way pair). |
+| `POST /api/v1/syncs/{sync}/move` | Move a sync in the list: a position from 1, or up, down, top, bottom. |
+| `GET /api/v1/syncs/{sync}/preview` | What a run would do now, without changing anything. |
+| `GET /api/v1/syncs/{sync}/decisions` | The review's choices between the sync's two services (ignored, matched by hand, kept), each with when it was made. |
+| `POST /api/v1/syncs/{sync}/decisions` | Bring in review choices made elsewhere: `{"decisions": [{"source": "<id>", "kind": "ignore" \| "match" \| "keep", "track": "<id>", "at": 1731234567890}]}`; the newest choice of each track wins, and the answer lists them all. |
+| `GET /api/v1/syncs/crowded` | Whether many syncs reach one service at about the same time: the service, the time, the syncs, `dismissed` (the page's *Got it*) and `canSpread`. |
+| `POST /api/v1/syncs/spread` | New times for those syncs (`changes`: `from`, `to`): only shown, saved with `?apply=true` (or `{"apply": true}`). |
+
+**Runs**
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/syncs/{sync}/runs` | A sync's runs, newest first. |
+| `GET /api/v1/runs` | Every run, newest first; sync= for one sync's. |
+| `GET /api/v1/runs/{run}` | One run with its tracks (added, removed, not found, to check) and its notes. |
+| `GET /api/v1/runs/{run}/review` | A run's review: not found, to check, removed. |
+| `POST /api/v1/runs/{run}/review` | Review a run: ignore, keep, discard, pick, replace or restore. |
+
+**Services**
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/services` | The services added, and whether each is connected; each account apart (`id` `jellyfin@2`, with `serviceId` and `slot`). |
+| `GET /api/v1/services/{service}` | One service: connected, account, and what it can do. |
+| `GET /api/v1/services/{service}/search` | Look for a track: q is "Artist - Title" or a link. |
+| `GET /api/v1/convert` | A track on another service: track is "Artist - Title" or a link, to the service's id. |
+| `POST /api/v1/convert` | Several tracks on another service. |
+| `GET /api/v1/wanted` | Missing on my server: the tracks your syncs to your own server (Navidrome, Jellyfin, Emby, Plex, Lyrion, Mopidy) could not find, each once, with artist, title, album, length, ISRC, MusicBrainz id (when your syncs' lookups found it), the syncs that miss it and when it was first seen. `?format=json` (default), `csv`, `m3u`, `text` or `lidarr`; `group=album`, `all=true` (with the ticked ones), `sync=`, `service=`, `since=7d` (or `24h`, `2026-11-01`). |
+| `GET /api/v1/releases` | New releases: the albums, EPs and singles the artists of a playlist released lately (Deezer and MusicBrainz, no account). `?service=spotify&playlist=<id>` (or `playlist=spotify:<id>`), `days=30` (1 to 365), `upcoming=true` adds what is announced, `artists=50` (up to 100), `tracks=true` adds the songs. Each artist is cached a day; a first search takes about a second per artist. The answer's `source` is the source of a weekly "New releases" sync: `POST /api/v1/syncs` with it, `"schedule": "weekly"`, `"changes": "archive"`. |
+| `POST /api/v1/wanted/got` | Tick entries as got (`{"ids": ["…"]}`; `"got": false` puts them back). |
+| `GET /api/v1/concerts` | Concerts of a playlist's artists: `?service=spotify&playlist=<id or name>&country=IT`. The upcoming dates (date, time, city, venue, country, link, source) of the artists the playlist holds most, from Ticketmaster (your key in Settings, or `TICKETMASTER_API_KEY`) and MusicBrainz, a date both know once; artists without dates get search links; `notes` (the day's Ticketmaster limit reached, coverage) and `attribution` to show with them. Asked only on this call; answers kept a day per artist and country. |
+| `GET /api/v1/setlists` | Setlists of a playlist's artists: `?service=spotify&playlist=<id or name>`. The latest setlist.fm setlists (up to 5 each) of the artists the playlist holds most: date, venue, city, country, tour, `url` (its setlist.fm page), `songs` (title, `coverOf`, `tape`, `encore`) and `tracks` ("Artist - Title", tapes left out, ready for a playlist). Needs a setlist.fm key (Settings, or `SETLISTFM_API_KEY`); `notes` (the day's limit reached…) and `attribution` to show with them. Asked only on this call; answers kept a week per artist. |
+| `GET /api/v1/records` | Records and merch of a playlist's artists: `?service=spotify&playlist=<id or name>&currency=EUR`. For each artist their CDs, vinyl and cassettes on Discogs (title, year, formats, link; with your Discogs token in Settings, `forSale`, `lowestPrice`, `currency`, `sellUrl`), the records (`shopRecords`, with their `format`) and the other merch (`merch`) on sale in their own shops (Shopify, Bandcamp, WooCommerce, Big Cartel, Squarespace or the shop pages of their own site), their official site, shop, Bandcamp and social pages from MusicBrainz, and shop searches. `&kind=records` leaves the merch out, `&kind=merch` leaves Discogs and the shops' records out. Plain links; `records` is `null` when Discogs was not asked (`slowedDown`); show `attribution` with them. |
+| `GET /api/v1/tools/nolyrics` | Synced lyrics: the songs on a Navidrome (or other Subsonic), Jellyfin, Emby, Plex or Lyrion server without lyrics, with their file's `path` where the server reports it (`?service=subsonic`; not needed when only one is connected). `support` is `api` (Jellyfin), `files` (`.lrc`/`.txt` next to the music) or `report` (Lyrion); `canAdd` says whether lyrics can be added from here. Read only. |
+| `POST /api/v1/tools/nolyrics/lookup` | Looks the songs without lyrics up on LRCLIB, about one a second: `?limit=25&offset=0` (`next` gives the following batch). Each is `synced`, `plain`, `none` or `error`. Writes nothing. |
+| `POST /api/v1/tools/nolyrics/save` | Adds what the last lookup found: through Jellyfin's API, or as new `.lrc`/`.txt` files in the music folder set on the page. Songs with lyrics by now are kept as they are; nothing is replaced or deleted. |
+| `GET /api/v1/tools/mbtags` | The songs on a Navidrome, Jellyfin, Emby or Plex server without MusicBrainz tags (`?service=subsonic`; not needed when only one is connected). Read only; a large library takes a while. |
+
+**Discover**
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/wrapped` | Wrapped from real listening: the listening services connected (`source`, `service`, the `periods` each can tell, `countsPlays`) and every Wrapped made, newest first: top artists and songs (with their plays where the service counts them), musical age, decades, covers, period, `from` and `card`. |
+| `POST /api/v1/wrapped` | Make a Wrapped from what you played on Last.fm, ListenBrainz, your own server's play counts, Spotify (official or web), Deezer, TIDAL or YouTube Music: `{"source": "lastfm", "period": "month"}` (`half_year`, `year`; the nearest one the service can tell). Without `source`, the best service connected. Kept in your history, as in the app; it can take a minute (the songs' years and covers are looked up). |
+| `GET /api/v1/wrapped/{wrapped}` | One Wrapped, by its id or `latest`. |
+| `GET /api/v1/wrapped/{wrapped}/card` | Its card as a PNG image: a plainer card than the app's, with the same figures. |
+| `GET /api/v1/poster` | A playlist poster's contents: `?service=spotify&playlist=<id or name>&layout=classic` (`minimal`, `bold`). The songs it lists, those you play most first (from the playlist's own server, else the first listening service connected; `fromPlays` marks them), the `lineup` of its most present artists, the `palette` from its cover (`ground`, `groundEnd`, `ink`, `accent`), its header, a `note` on where the plays came from and `coverPrompt`, the words for an image AI. The page draws the poster: **Tools › Playlist poster**. |
+| `GET /api/v1/followed` | The artists you follow, what each is checked for (`releases`, `concerts`, `merch`, `records`) and whether `muted`; whether the look runs on a schedule (`enabled`, `every` day or week), the concerts' `country`, how many notification `channels` take the news, and the `latest` news. |
+| `PATCH /api/v1/followed` | Turn the scheduled look on or off, every day or week: `{"enabled": true, "every": "week"}`. |
+| `POST /api/v1/followed` | Follow an artist: `{"name": "Muse", "merch": false}` (your defaults for what is left out). |
+| `PATCH /api/v1/followed/{artist}` | Mute an artist (still followed, nothing said) or turn it on again, or change what it is checked for: `{"muted": true}`, `{"records": false}`. |
+| `DELETE /api/v1/followed/{artist}` | Stop following an artist. |
+| `POST /api/v1/followed/check` | Look every artist followed up now, a background task (`{"task": "…"}`). |
+
+The followed artists are looked up on the schedule, as in the app: their new releases, their concerts in
+the country picked last in Concerts, their new merch and records. The first look only takes note of what
+is there; what is new later goes to your [notification channels](notification-channels) that take the
+**New releases** event. Each person on a shared server has their own list, news and channels. Concerts
+also reads the tour dates on Spotify's artist pages when you have **Spotify (web)** connected
+(unofficial): only when you search, a few concert pages per artist, kept like the other dates.
+
+**Playlists**
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/services/{service}/playlists` | A service's playlists and library entries. |
+| `POST /api/v1/services/{service}/playlists` | Make a playlist. |
+| `PATCH /api/v1/services/{service}/playlists/{playlist}` | Rename a playlist. |
+| `DELETE /api/v1/services/{service}/playlists/{playlist}` | Delete a playlist. |
+| `GET /api/v1/services/{service}/playlists/{playlist}/tracks` | A playlist's tracks. |
+| `POST /api/v1/services/{service}/playlists/{playlist}/tracks` | Adds tracks, searched and matched as a sync does: `{"tracks": [{"title": "…", "artist": "…"}, {"link": "https://open.spotify.com/track/…"}, {"id": "…"}, "Artist - Title"]}`. Tracks already there are skipped (`"allowDuplicates": true` to add them anyway); the answer lists what was added, already there and not found. |
+| `DELETE /api/v1/services/{service}/playlists/{playlist}/tracks` | Remove tracks. |
+| `POST /api/v1/services/{service}/playlists/{playlist}/tracks/remove` | Remove tracks (for tools that cannot send a body with DELETE). |
+| `GET /api/v1/services/{service}/playlists/{playlist}/duplicates` | The tracks a playlist holds more than once. |
+| `POST /api/v1/services/{service}/playlists/{playlist}/duplicates/remove` | Remove the extra copies (a background task). |
+| `GET /api/v1/services/{service}/playlists/{playlist}/export` | A playlist as a file: csv, m3u, xspf, jspf or txt. |
+
+**Files**
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/files` | The File playlists. |
+| `GET /api/v1/files/{file}` | A File playlist, in a format: csv, m3u, xspf, jspf or txt. |
+| `PUT /api/v1/files/{file}` | Bring in a playlist file (CSV, M3U, PLS, XSPF, JSPF, iTunes XML, JSON, text) as the body. |
+| `POST /api/v1/files/{file}` | The same as PUT, for tools that only POST. |
+| `DELETE /api/v1/files/{file}` | Delete a File playlist. |
+| `POST /api/v1/files/zip` | Several File playlists in one .zip, in a format. |
+| `GET /api/v1/files/settings` | How names in imported files are read: the layout and your own patterns. |
+| `PUT /api/v1/files/settings` | Set the layout (AUTO, ARTIST_TITLE, ARTIST_ALBUM_TITLE, CUSTOM) and the patterns. |
+| `POST /api/v1/files/try` | Try patterns on a line from a file, without saving them. |
+
+**Backups**
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/backup` | The full backup: running, last run, schedule. |
+| `POST /api/v1/backup` | Back up every playlist now (a background task). |
+| `GET /api/v1/config` | The whole set-up as a .trackhop file; history=true with the runs. |
+| `POST /api/v1/config` | Bring a .trackhop file back in (the body); dryRun=true only says what it holds. An encrypted file needs its password in the `X-Backup-Password` header (never in the address), or, for a password with characters outside ASCII, the Base64 of its UTF-8 bytes in `X-Backup-Password-Base64`; replacesDevice=true keeps its scheduled syncs on, replaceSignIns=true replaces the sign-ins already here. |
+| `POST /api/v1/config/encrypted` | The whole set-up with its sign-ins (tokens, client secrets, pasted web cookies) as an encrypted .trackhop file, locked with the `password` of the JSON body (at least 10 characters; lost, nobody can open the file). |
+
+**Settings**
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/settings` | The settings the page offers. |
+| `PATCH /api/v1/settings` | Change settings: theme, backupSchedule, backupFolder, updatesCheck. |
+
+**Notifications**
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/webhook` | The webhook: address, whether a secret is set, its events. |
+| `PUT /api/v1/webhook` | Set the webhook. |
+| `DELETE /api/v1/webhook` | Turn the webhook off. |
+| `GET /api/v1/notifications` | The notification channels, their tokens masked. |
+| `GET /api/v1/notifications/kinds` | The kinds of channel, their settings and the events. |
+| `POST /api/v1/notifications` | Add a channel. |
+| `PATCH /api/v1/notifications/{channel}` | Change a channel (a secret left out keeps its value). |
+| `DELETE /api/v1/notifications/{channel}` | Remove a channel. |
+| `POST /api/v1/notifications/{channel}/test` | Send a test message. |
+
+**Locks**
+
+| Call | What it does |
+|---|---|
+| `POST /api/v1/locks` | Reserve a playlist before writing to it: `{"target": "spotify\|37i9dQZF1DX…", "holder": "Pixel 8", "ttl": 600}` (seconds, 30 to 3600). 200 with the reservation's `id` and `until`; 409 with who holds it (`holder`) and `until` when. [Coordinate with my server](#coordinate-with-my-server) |
+| `PUT /api/v1/locks/{lock}` | Renew a reservation for `ttl` seconds from now; 404 once it ended: reserve it again. |
+| `DELETE /api/v1/locks/{lock}` | Give a reservation back. |
+
+**Shared playlists**
+
+A [shared playlist](shared-playlists) can meet on this server: the app makes the group's mailbox
+with your token and puts the group's key (`thg_…`) in the invite. That key opens the two `items`
+calls of its own group and nothing else here. [More](#shared-playlists-on-this-server)
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/groups` | The mailboxes of shared playlists kept here: `id`, `name`, `items`, `bytes`, `cursor`, `created`, `lastWrite`. |
+| `POST /api/v1/groups` | Make a group's mailbox (the app does it): `{"group": "<16 hex>", "creator": "<the creator's public key>", "name"?}`. Answers the group's `key`, shown once; only its hash is kept. |
+| `GET /api/v1/groups/{group}` | One mailbox: its name, items, bytes, cursor, created, last write. |
+| `DELETE /api/v1/groups/{group}` | Delete a mailbox and everything in it: its key stops working. |
+| `POST /api/v1/groups/{group}/key` | A new key for the group (answered once): the old one stops working at once. |
+| `GET /api/v1/groups/{group}/items` | The group's signed items stored after `?since=` (a cursor; 0 for all), oldest first, about 2 MB at most: `{"cursor", "more", "cards", "rosters", "events"}`. Read again from `cursor` while `more` is true. With the group's key or your token. |
+| `POST /api/v1/groups/{group}/items` | Store a member's signed items: `{"cards"?: […], "rosters"?: […], "events"?: […]}`; each is kept once. Answers `added` and `cursor`. With the group's key or your token. |
+
+**Lyrics**
+
+| Call | What it does |
+|---|---|
+| `GET /api/v1/lyrics` | Lyrics for the music folder (Docker, admin): state and last run. |
+| `POST /api/v1/lyrics` | Looks for lyrics now (202, with a task id): `?folder=Queen/Jazz` for one folder, `&synced=true` for synced lyrics only, `&retry=true` to ask again for the ones not found. [Lyrics](#lyrics) |
+`GET /health` answers `ok` with no token: for Docker's health check, Uptime Kuma or a reverse proxy.
 
 ```sh
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/syncs
 curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/syncs/run-all
 ```
 
-**Webhook.** With an address set in Tools › API, every finished run is POSTed there as JSON
-(`"event": "sync.finished"`, the sync, and the run with its added and not-found tracks), and every
-full backup as `"event": "backup.finished"` (services, failures). With a secret, `X-Trackhop-Signature: sha256=<hex>` is the HMAC-SHA256 of the body. In Home Assistant, a
+**Making and changing a sync.** The same checks as the page: the playlists must be ones the
+services list, a playlist cannot sync onto itself. Without `target.playlist`, a new playlist is
+made at the first run. The timing is `schedule` (`manual`, `hourly`, `every_6h`, `daily`,
+`weekly`) or `every` in minutes, with `at` (`"07:30"`) and `days` (1 = Monday … 7 = Sunday);
+`changes` is `add` (only add), `mirror` (also remove what leaves the source) or `archive` (keep
+every track ever seen); `color` a name (`teal`) or `#RRGGBB`. A `PATCH` changes only what it names.
+
+**Two-way.** `"twoWay": true` on `POST /syncs` or on a `PATCH` also makes the reverse sync (marked
+↔, `"twin": true` in the list) between two existing playlists of yours; `"twoWayRemovals": true`
+lets removals travel too. The ↔ sync follows the first one's timing, colour, label, tags and star.
+`"twoWay": false` on the first sync deletes the ↔ one; the playlists stay as they are.
+
+**Removals held back.** A run that would remove a quarter or more of the destination keeps those
+tracks and says how many in its result (`heldRemovals`). `GET /syncs/{sync}/preview` lists them
+(`toRemove`, with `removalsNeedConfirmation`). To let one run make them, start it with
+`{"confirmRemovals": true}` (what the preview shows at that moment), or with the ids you saw,
+`{"confirmRemovals": ["<id>", …]}`, so that nothing else goes. Scheduled runs never make them.
+
+```sh
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"confirmRemovals": true}' http://127.0.0.1:8080/api/v1/syncs/<sync>/run
+```
+
+```sh
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"source": {"service": "spotify", "playlist": "37i9dQZEVXcJZyENOWUFo7"}, "target": {"service": "ytm"},
+       "name": "Discover Weekly", "schedule": "weekly", "days": [1], "at": "08:00", "changes": "archive"}' \
+  http://127.0.0.1:8080/api/v1/syncs
+```
+
+**Favourites, labels and tags.** Three ways to group syncs, the same as on the page and in the
+app. `favorite` (true or false) stars a sync: starred syncs are listed first. A sync wears one
+`label`, which is its card's colour: the eight ready colours are labels already (`"label": "teal"`),
+and `POST /api/v1/labels` with `{"color": "teal", "name": "Gym"}` names one, or saves a colour of
+your own (`"#12A594"`) as a named label; `label` takes a label's id or its name, and the card takes
+its colour. `tags` are pairs of your own, `{"genre": "metal", "mood": "gym", "kids": ""}`: the
+value may be empty; in a `PATCH`, `tags` replaces the sync's tags.
+
+`GET /api/v1/syncs?tag=genre:metal` lists the syncs with that tag (`tag=genre` for the key
+whatever its value; several split by commas, all wanted; case and accents do not matter),
+`?label=Gym` those wearing a label, `?favorite=true` the starred ones. The same three on
+`POST /api/v1/syncs/run` start that group, the syncs turned on only, and answer with the ones
+started:
+
+```sh
+curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"tags": {"genre": "metal", "mood": "gym"}, "favorite": true}' \
+  http://127.0.0.1:8080/api/v1/syncs/$SYNC
+curl -X POST -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8080/api/v1/syncs/run?tag=mood:gym"
+```
+
+**Reviewing a run.** `GET /api/v1/runs/{run}/review` lists what a run could not find, the matches
+to check and what it removed, each with its source id; `POST` the same address does what the
+page's review does: `{"action": "ignore", "tracks": ["<id>"]}` (or `"tracks": "all"`), `keep` and
+`discard` for matches to check, `pick` and `replace` with `"choice": "Artist - Title"` (or a link,
+or the track's id on the destination), and `restore` to put back what the run removed.
+
+**Webhook.** With an address set in Tools › API (or `PUT /api/v1/webhook`), Trackhop POSTs its
+events there as JSON: `sync.finished` (the sync, and the run with its added and not-found tracks)
+and `backup.finished` (services, failures) unless you choose otherwise; `sync.started`,
+`sync.failed` (a failed run sends both `sync.finished` and `sync.failed`) and `wanted.added` (a run
+to your own server found tracks missing there for the first time: `sync`, `count`, `tracks` as
+`GET /api/v1/wanted` gives them) when you tick them. With a
+secret, `X-Trackhop-Signature: sha256=<hex>` is the HMAC-SHA256 of the body. In Home Assistant, a
 *Webhook* trigger with that address starts an automation (a notification when tracks were not
 found, say); a `rest_command` that POSTs to `/api/v1/syncs/run-all` starts every sync from one.
+
+**Lidarr.** `GET /api/v1/wanted?format=lidarr` answers in the shape of Lidarr's *Custom List*
+import list: a JSON array of `{"MusicBrainzId": "<artist MBID>", "ArtistName": "…"}`, one per artist
+of the list whose MusicBrainz id is known (Lidarr reads `MusicBrainzId` only, and adds artists, not
+single tracks). Lidarr cannot send a token, so Tools › Missing on my server shows a list URL with
+its own `key=`: it opens that call and nothing else, and changes when you make a new token. In
+Lidarr: *Settings › Import Lists › + › Custom List*, List URL that address.
 
 **Prometheus and Grafana.** `/api/v1/metrics` speaks Prometheus' text format; a scrape job with the
 token is enough:
@@ -603,9 +893,8 @@ scrape_configs:
       - targets: ["trackhop:8080"]
 ```
 
-**Playlists and tracks.** `<service>` is an id from `GET /api/v1/services` (`spotify`, `ytm`,
-`navidrome_1`…). A Home Assistant button that adds the song playing in the kitchen to a playlist,
-or a script that collects the songs a radio played:
+**Playlists and tracks.** A Home Assistant button that adds the song playing in the kitchen to a
+playlist, or a script that collects the songs a radio played:
 
 ```sh
 curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
@@ -613,17 +902,102 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
   http://127.0.0.1:8080/api/v1/services/ytm/playlists/PLxxxxxxxx/tracks
 ```
 
-**Scripts.** Push a playlist file and sync it, or save the set-up every night:
+`GET /api/v1/convert?track=Daft%20Punk%20-%20Digital%20Love&to=tidal` finds a track on another
+service as a sync would, with how sure the match is.
+
+**Scripts.** Push a playlist file and sync it, save the set-up every night, bring it back elsewhere:
 
 ```sh
 curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary @mix.m3u http://127.0.0.1:8080/api/v1/files/mix.m3u
 curl -H "Authorization: Bearer $TOKEN" -o trackhop-$(date +%F).trackhop http://127.0.0.1:8080/api/v1/config
+curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary @trackhop.trackhop "http://127.0.0.1:8080/api/v1/config?dryRun=true"
 ```
+
+## Coordinate with my server
+
+The same sync on a phone and on this server would add what is missing twice when both run at
+once. In the app, **Settings › Advanced › Coordinate with my server** takes this server's address
+(`http://192.168.1.10:8080`, or the address of your reverse proxy) and an API token made in
+**Tools › API**. Then, before a run writes to a playlist, the phone reserves it here for ten minutes
+and renews the reservation every few minutes while it runs; the reservation is given back at the end,
+and ends by itself if the phone dies on the way.
+
+- The playlist is reserved by the other side (this server is writing there, or the phone is): the run
+  is skipped, with the note "Running on Pixel 8: skipped" (or "Running on Trackhop server: skipped" on
+  the phone). No error and no notification; the next scheduled run tries again.
+- The server cannot be reached, or refuses the token: the phone syncs as without the option and its
+  log says so. Syncs never wait for the server.
+- A two-way pair reserves both playlists. File playlists are each device's own and are not reserved.
+- On a shared server, each person's reservations are their own, like their syncs.
+
+### Hand a sync over to the server
+
+With the address and token set, a sync's menu in the app has **Hand over to the server**. One tap
+makes the same sync here (`POST /api/v1/syncs`), with this server's own accounts: the app first asks
+which services are connected here (`GET /api/v1/services`) and, when one is missing, says which to
+connect on this page. The app never sends its own accounts or tokens, only the two services, the
+playlists' ids, the timing and the changes mode. A sync this server already has (the same two
+playlists) is not made twice. From then on this server runs it on its schedule;
+the phone keeps the card, marked **On server**, and no longer runs it. The card's run button starts
+it here (`POST /api/v1/syncs/{sync}/run`), and the card shows this server's last run, with a button
+to review what it left. **Bring back to this phone** in the same menu deletes the sync here (the
+playlists stay as they are) and turns it on again on the phone.
+
+A two-way pair goes as one request (`POST /api/v1/syncs` with `twoWay`, and `twoWayRemovals` when the
+pair follows removals): the server makes both halves, and both of the phone's cards are marked. Radio
+syncs, Shazam syncs and syncs of File playlists stay on the phone. Deleting a handed-over card on the phone leaves the sync here: delete it on this page.
+
+### Review choices on both sides
+
+For a sync handed over, and for a sync that is the same on both (the same two playlists) once you
+tap **Share review choices** beside it in Tools › My server, the review's choices travel both ways: tracks ignored, a track picked by hand, a match kept. Each side
+keeps when each choice was made, and for each track the newest choice wins on both
+(`POST /api/v1/syncs/{sync}/decisions`). The app exchanges them when it hands a sync over, brings it
+back, or reads this server's syncs (Tools › My server). A clock ahead of the server's counts as the
+server's time.
+
+### The server from the phone
+
+**Tools › My server** in the app lists this server's syncs with how each stands, its last run and
+its timing; a button runs one now, and the review button opens its last run's review: ignore a track not
+found, or keep a match. Picking another track is done on this page. Nothing else on the server is
+changed from the phone.
+
+If the server cannot be reached, the app says so and changes nothing.
+
+Trackhop Desktop answers only the computer it runs on, so a phone can coordinate with a Docker
+server; Desktop's own syncs still respect reservations made through its API by scripts on that
+computer. Any tool can use the same calls ([Locks](#api)): reserve, renew while writing, give back.
+
+### Shared playlists on this server
+
+With the address and token set, the app offers a third way for a [shared playlist](shared-playlists)'s
+members to meet: **My Trackhop server**. Creating the group makes a mailbox for it here
+(`POST /api/v1/groups`) and a key for that group alone, which goes in the invite. Members join with
+the invite only: they need no account here, and the key opens nothing else (no syncs, settings,
+services or other groups). Each member's Trackhop sends its signed changes and reads the others'
+(`/api/v1/groups/{group}/items`).
+
+- This server keeps what the group writes in `<data>/groups/<group>`: track names, artists and
+  ISRCs, each member's name and service, the curators' list, who made each change and when. It does not
+  need to be trusted with who may write: each member checks the signatures and the curators' list,
+  as with a shared folder. It only takes items that are signed by whoever they name, each once.
+- Nothing is removed by age. A mailbox stays under 100,000 items and 16 MB, and all of them
+  together under 256 MB: when one gets there, it keeps what the members would count (each track's
+  latest action per curator, the newest curators' list and member cards) and drops the rest. Calls
+  are limited to 30 writes and 120 reads a minute per group, 4 MB per call, 20,000 new items a
+  minute.
+- **A new key** (`POST /api/v1/groups/{group}/key`) ends the old one at once: members then need a
+  new invite. Deleting the mailbox (`DELETE /api/v1/groups/{group}`) ends the group here. Turning
+  the API off in Tools › API closes the mailboxes too, until a token is made again.
+- Trackhop Desktop answers only its own computer: for a group, use a Docker server the members can
+  reach. On a shared server, a mailbox belongs to the person whose token made it.
 
 ## Not there yet
 
-The connectors that run a service's own web player (Amazon Music, Spotify and Apple Music without a
-key, Deezer web, SoundCloud with an account) need a browser inside Trackhop: they are the next step.
+The connectors that run a service's own web player (Amazon Music, Apple Music, SoundCloud with an
+account) need a browser inside Trackhop, so they stay in the app. Spotify and Deezer without a key
+work here with [pasted cookies](#spotify-and-deezer-without-a-key-unofficial).
 The compatibility card and the playlist poster are not on the page yet either.
 
 [Back to the guide](./)

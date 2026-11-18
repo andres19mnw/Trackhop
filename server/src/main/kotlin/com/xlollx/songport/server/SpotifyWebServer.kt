@@ -8,8 +8,10 @@ import com.xlollx.songport.platform.AuthMode
 import com.xlollx.songport.platform.Env
 import com.xlollx.songport.platform.KeyValues
 import com.xlollx.songport.providers.MusicProvider
+import com.xlollx.songport.sync.Listening
 import com.xlollx.songport.sync.Matcher
 import com.xlollx.songport.sync.Reorder
+import com.xlollx.songport.sync.SpotifyConcerts
 import com.xlollx.songport.ytmbridge.BridgeException
 import com.xlollx.songport.ytmbridge.PlaylistDto
 import com.xlollx.songport.ytmbridge.RemoveItem
@@ -106,9 +108,39 @@ class SpotifyWebServerProvider(override val slot: String = "") : CookieConnector
         }.map { toTrack(it) }
     }
 
+    /** Reads only until the tracks turn up, from the end of the playlist where a sync adds them. */
+    override suspend fun findEntries(ctx: Env, playlistId: String, tracks: List<Track>, seen: (List<Track>) -> Unit): List<Track> {
+        if (MusicProvider.isLibrary(playlistId)) return super.findEntries(ctx, playlistId, tracks, seen)
+        val ids = tracks.mapTo(HashSet()) { it.id }
+        return io(ctx) { c -> c.findEntries(playlistId, ids).map { toTrack(it) } }.also(seen)
+    }
+
     override suspend fun track(ctx: Env, trackId: String): Track? = io(ctx) { c -> c.track(trackId)?.let { toTrack(it) } }
 
     override fun webSearchUrl(ctx: Env, query: String): String = "https://open.spotify.com/search/" + URLEncoder.encode(query, "UTF-8").replace("+", "%20")
+
+    /**
+     * What the user plays most in [period], as the player's profile page ranks it (the app's
+     * `spotify.top`): a ranking, no counts. For the Wrapped and the poster (Features.v2).
+     */
+    suspend fun listening(ctx: Env, period: Listening.Period): Listening.Report {
+        val range = Listening.spotifyWebRange(period) ?: throw ProviderException("$displayName: no top songs for ${period.key}")
+        return io(ctx) { c ->
+            val top = c.top(range)
+            Listening.Report(tracks = top.tracks.map { Listening.Play(toTrack(it)) }, artists = top.artists.filter { it.isNotBlank() }.map { Listening.ArtistPlays(it) })
+        }
+    }
+
+    /** [artist]'s upcoming dates on their Spotify page; empty when the player's search finds no artist of that name. For Concerts (SpotifyConcertsServer). */
+    suspend fun concertDates(ctx: Env, artist: String): List<SpotifyConcerts.Date> = io(ctx) { c ->
+        val uri = c.artistUri(artist) ?: return@io emptyList()
+        c.concerts(uri).map { SpotifyConcerts.Date(it.uri, it.title, it.start, it.city, it.venue, it.country) }
+    }
+
+    /** One concert's own page (venue, city, country); null when it holds no concert. */
+    suspend fun concertDetails(ctx: Env, uri: String): SpotifyConcerts.Date? = io(ctx) { c ->
+        c.concert(uri)?.let { SpotifyConcerts.Date(it.uri, it.title, it.start, it.city, it.venue, it.country) }
+    }
 
     override fun rehydrate(track: Track): Track = track.copy(uri = track.uri ?: uriOf(track))
 
@@ -137,6 +169,10 @@ class SpotifyWebServerProvider(override val slot: String = "") : CookieConnector
 
     override suspend fun setPlaylistVisibility(ctx: Env, playlistId: String, public: Boolean) { io(ctx) { it.setPublic(playlistId, public) } }
 
+    override val canSetCover = true
+    override val coverIsV2 = true
+    override suspend fun setPlaylistCover(ctx: Env, playlistId: String, jpeg: ByteArray) { io(ctx) { it.setCover(playlistId, jpeg) } }
+
     override suspend fun deletePlaylist(ctx: Env, playlistId: String) { io(ctx) { it.deletePlaylist(playlistId) } }
 
     /** The gap between two liked songs: a little over a second, so each gets its own second (#34). */
@@ -160,6 +196,9 @@ class SpotifyWebServerProvider(override val slot: String = "") : CookieConnector
         val uris = tracks.map { uriOf(it) }
         io(ctx) { c -> if (playlistId in LIBRARY) c.addToLibrary(uris) else c.addToPlaylist(playlistId, uris) }
     }
+
+    /** Entries go by a lasting id (or the track's own): one read a few minutes ago names the same entry, or none. */
+    override val keepsEntryIds: Boolean get() = true
 
     override suspend fun removeTracks(ctx: Env, playlistId: String, tracks: List<Track>) {
         if (tracks.isEmpty()) return

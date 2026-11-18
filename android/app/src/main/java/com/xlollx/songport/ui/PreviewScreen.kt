@@ -1,6 +1,35 @@
 package com.xlollx.songport.ui
 
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.ui.text.font.FontWeight
 import com.xlollx.songport.providers.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -52,8 +81,10 @@ import com.xlollx.songport.model.Track
 import com.xlollx.songport.providers.Providers
 import com.xlollx.songport.providers.YouTubeProvider
 import com.xlollx.songport.sync.QuotaMeter
+import com.xlollx.songport.sync.ServiceReads
 import com.xlollx.songport.sync.SyncEngine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.update
 
 /**
  * Cosa farebbe la sync, prima di farla: gia' presenti, da aggiungere, da rimuovere, non trovati,
@@ -74,11 +105,33 @@ fun PreviewScreen(job: SyncJob, onClose: () -> Unit, onRun: (SyncJob) -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var confirmRemovals by remember { mutableStateOf(false) }
     var confirmShrink by remember { mutableStateOf(false) }
+    // Another sync reading the same connector, which lists one playlist at a time: said, not a silent spinner.
+    var waitingFor by remember { mutableStateOf<ServiceReads.Reader?>(null) }
     ScreenBackHandler(onClose)
 
-    LaunchedEffect(job.id) {
-        try { plan = engine.plan(job, { progress = it }, createTarget = false, interactive = true) }
-        catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message ?: ctx.getString(R.string.error_generic) }
+    // Without internet the preview cannot read the playlists: it says so at once (no spinner waiting
+    // out the retries) and reads them as soon as the connection is back, or on Try again.
+    val online = rememberOnline()
+    var attempt by remember { mutableStateOf(0) }
+    // 1.18: the preview goes on when the page is left ([Previews]); the card says how far it is.
+    val background = com.xlollx.songport.Features.v2
+    val runs by Previews.state.collectAsState()
+    // The sync as stored now: a run since the page was opened (card, widget, schedule) is seen here.
+    val current = data.jobs.firstOrNull { it.id == job.id } ?: job
+    val bgRun = Previews.of(runs[job.id], current)?.takeIf { background }
+    LaunchedEffect(bgRun) {
+        bgRun ?: return@LaunchedEffect
+        progress = bgRun.progress; waitingFor = bgRun.waitingFor
+        bgRun.plan?.let { plan = it }
+        if (bgRun.error != null) error = bgRun.error
+    }
+    LaunchedEffect(job.id, attempt, online) {
+        if (plan != null) return@LaunchedEffect
+        if (!online && com.xlollx.songport.sync.OfflineQueue.needsInternet(job)) { error = ctx.getString(R.string.net_offline); return@LaunchedEffect }
+        error = null
+        if (background) { Previews.start(ctx.applicationContext, current, again = attempt > 0); return@LaunchedEffect }
+        try { plan = engine.plan(job, { progress = it }, createTarget = false, interactive = true, onWait = { waitingFor = it }) }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.userMessage(ctx) }
     }
 
     val dst = Providers.byId(job.target.provider)
@@ -92,58 +145,110 @@ fun PreviewScreen(job: SyncJob, onClose: () -> Unit, onRun: (SyncJob) -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.preview_title, job.name)) },
+                title = { Text(stringResource(R.string.preview_title, job.name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.nav_back)) } },
                 actions = { HelpButton(Helps.preview, Helps.previewRun, label = stringResource(R.string.preview)) },
             )
         },
-    ) { padding ->
-        Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            when {
-                error != null -> Text(error!!, color = MaterialTheme.colorScheme.error)
-                p == null -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(20.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text(progress?.let { progressLabel(it) } ?: stringResource(R.string.preview_computing))
+        // Run now stays in reach under a long list; the confirmations it depends on sit above it.
+        bottomBar = {
+            if (p != null && hasWork) Surface(tonalElevation = 3.dp) {
+                Button(
+                    onClick = {
+                        if (p.removalsNeedConfirmation && confirmRemovals) store.confirmRemovals(job.id, p.toRemove.map { it.id })
+                        if (p.targetShrunkFrom > 0 && confirmShrink) store.confirmTargetShrink(job.id)
+                        Previews.clear(job.id)
+                        onRun(job)
+                    },
+                    modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp).heightIn(min = 52.dp),
+                ) {
+                    Icon(Icons.Filled.PlayArrow, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.run_now))
                 }
+            }
+        },
+    ) { padding ->
+        // A readable column, centred in a wide window (a tablet, a phone on its side).
+        Box(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = WindowLayout.READABLE_CONTENT).fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            RouteCard(job, newTarget = job.target.playlistId == null)
+            when {
+                error != null && isNetText(ctx, error) -> Surface(Modifier.fillMaxWidth(), shape = ToolCardShape, color = MaterialTheme.colorScheme.surfaceContainer) {
+                    NetErrorState(error, onRetry = { attempt++ })
+                }
+                error != null -> Surface(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }, shape = ToolCardShape, color = MaterialTheme.colorScheme.errorContainer) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.ErrorOutline, null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                        Spacer(Modifier.width(12.dp))
+                        Text(error!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.weight(1f))
+                    }
+                }
+                p == null -> PlanSteps(progress, waitingFor)
                 else -> {
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            if (job.target.playlistId == null) Text(stringResource(R.string.preview_target_new), style = MaterialTheme.typography.bodyMedium)
-                            Text(stringResource(R.string.preview_present, p.alreadyPresent))
-                            Text(stringResource(R.string.preview_add, p.toAdd.size))
-                            if (job.mirrorRemovals) Text(stringResource(if (unlikes) R.string.preview_unlike else R.string.preview_remove, p.toRemove.size))
-                            // A large share of the target: a normal run holds these back unless the box below is ticked.
-                            if (p.removalsNeedConfirmation) {
-                                Text(
-                                    stringResource(if (unlikes) R.string.preview_unlike_warning else R.string.preview_remove_warning, p.toRemove.size, p.targetCount),
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
-                                )
+                    // The plan in figures, as on the card after a run.
+                    val figures = buildList<@Composable (Modifier) -> Unit> {
+                        add { m -> Stat("+${p.toAdd.size}", stringResource(R.string.preview_tile_add), m, tint = MaterialTheme.colorScheme.primary) }
+                        if (job.mirrorRemovals || job.twoWayRemovals) add { m ->
+                            Stat(
+                                "−${p.toRemove.size}", stringResource(if (unlikes) R.string.preview_tile_unlike else R.string.preview_tile_remove), m,
+                                tint = if (p.removalsNeedConfirmation) MaterialTheme.colorScheme.error else null,
+                            )
+                        }
+                        add { m -> Stat("${p.alreadyPresent}", stringResource(R.string.preview_tile_present), m) }
+                        add { m -> Stat("${p.unmatched.size}", stringResource(R.string.stat_not_found), m, tint = if (p.unmatched.isNotEmpty()) MaterialTheme.colorScheme.tertiary else null) }
+                    }
+                    // With a large font four tiles in a row cut their words short: two rows of two then.
+                    val perRow = if (LocalDensity.current.fontScale > 1.15f) 2 else figures.size
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        figures.chunked(perRow).forEach { row ->
+                            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                row.forEach { it(Modifier.weight(1f)) }
+                                // An odd one out keeps the width of its fellows.
+                                repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
                             }
-                            Text(stringResource(R.string.preview_unmatched, p.unmatched.size))
-                            if (p.uncertain.isNotEmpty()) Text(stringResource(R.string.preview_uncertain, p.uncertain.size), color = MaterialTheme.colorScheme.tertiary)
-                            if (p.ignored > 0) Text(stringResource(R.string.preview_ignored, p.ignored))
-                            p.notes.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary) }
-                            if (!hasWork) { Spacer(Modifier.height(6.dp)); Text(stringResource(R.string.preview_nothing)) }
-                            if (dst?.serviceId == YouTubeProvider.SERVICE) {
+                        }
+                    }
+                    if (!hasWork) PageCard {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            StatusMark(Icons.Filled.Check, Tone.Ok)
+                            Spacer(Modifier.width(12.dp))
+                            Text(stringResource(R.string.preview_nothing), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        }
+                    }
+                    // What else is worth knowing before running: each on its own line, the warnings first.
+                    val infos = buildList {
+                        if (p.removalsNeedConfirmation) add(stringResource(if (unlikes) R.string.preview_unlike_warning else R.string.preview_remove_warning, p.toRemove.size, p.targetCount) to true)
+                        if (p.uncertain.isNotEmpty()) add(stringResource(R.string.preview_uncertain, p.uncertain.size) to false)
+                        if (p.ignored > 0) add(stringResource(R.string.preview_ignored, p.ignored) to false)
+                        p.notes.forEach { add(it to false) }
+                    }
+                    if (infos.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        infos.forEach { (text, warn) -> PageNote(text, tone = if (warn) Tone.Error else Tone.Neutral, icon = if (warn) Icons.Filled.Warning else null) }
+                    }
+                    if (dst?.serviceId == YouTubeProvider.SERVICE) {
+                        PageCard {
+                            Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 12.dp)) {
                                 QuotaCard(
                                     used = QuotaMeter.used(data, YouTubeProvider.SERVICE),
+                                    searches = QuotaMeter.searchesUsed(data, YouTubeProvider.SERVICE),
                                     sharedCredentials = !dst.usesOwnCredentials(ctx),
                                     estimate = QuotaMeter.estimateAdd(p.toAdd.size),
                                 )
                             }
                         }
                     }
-                    if (hasWork) {
+                    if (hasWork && (p.removalsNeedConfirmation || p.targetShrunkFrom > 0)) PageCard(edge = MaterialTheme.colorScheme.error.copy(alpha = 0.5f)) {
+                        Column(Modifier.padding(vertical = 4.dp)) {
                         // The one place large removals are confirmed: a deliberate tick, then Run now.
                         // Unticked, the run adds as usual and holds the removals back again.
                         if (p.removalsNeedConfirmation) {
                             Row(
-                                Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value = confirmRemovals, role = Role.Checkbox, onValueChange = { confirmRemovals = it }),
+                                Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = confirmRemovals, role = Role.Checkbox, onValueChange = { confirmRemovals = it }).padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Checkbox(checked = confirmRemovals, onCheckedChange = null)
-                                Spacer(Modifier.width(8.dp))
+                                Spacer(Modifier.width(12.dp))
                                 Text(stringResource(if (unlikes) R.string.preview_unlike_confirm else R.string.preview_remove_confirm, p.toRemove.size), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                                 HelpButton(Helps.removals)
                             }
@@ -152,25 +257,18 @@ fun PreviewScreen(job: SyncJob, onClose: () -> Unit, onRun: (SyncJob) -> Unit) {
                         // run stops unless this is ticked, as a listing read in part would add everything again.
                         if (p.targetShrunkFrom > 0) {
                             Row(
-                                Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value = confirmShrink, role = Role.Checkbox, onValueChange = { confirmShrink = it }),
+                                Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = confirmShrink, role = Role.Checkbox, onValueChange = { confirmShrink = it }).padding(horizontal = 16.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Checkbox(checked = confirmShrink, onCheckedChange = null)
-                                Spacer(Modifier.width(8.dp))
+                                Spacer(Modifier.width(12.dp))
                                 Text(stringResource(R.string.preview_shrunk_confirm, p.targetCount, p.targetShrunkFrom), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                             }
                         }
-                        Button(onClick = {
-                            if (p.removalsNeedConfirmation && confirmRemovals) store.confirmRemovals(job.id, p.toRemove.map { it.id })
-                            if (p.targetShrunkFrom > 0 && confirmShrink) store.confirmTargetShrink(job.id)
-                            onRun(job)
-                        }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.run_now)) }
+                    }
                     }
                     if (p.uncertain.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.review_section_uncertain, p.uncertain.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                            HelpButton(Helps.uncertain)
-                        }
+                        PageSectionTitle(stringResource(R.string.review_section_uncertain, p.uncertain.size), accent = JobColor.PURPLE) { HelpButton(Helps.uncertain) }
                         var openReview by remember { mutableStateOf<String?>(null) }
                         val webSearch = remember(dst) { dst?.webSearch(ctx) }
                         p.uncertain.forEach { review ->
@@ -181,7 +279,7 @@ fun PreviewScreen(job: SyncJob, onClose: () -> Unit, onRun: (SyncJob) -> Unit) {
                                 onKeep = {
                                     // Settled here: remembered, so the run does not ask again.
                                     engine.rematchInPlan(job, review, review.chosen)
-                                    plan = p.copy(uncertain = p.uncertain - review)
+                                    plan = p.copy(uncertain = p.uncertain - review).also { Previews.settled(job.id, it) }
                                 },
                                 search = { q -> engine.searchOnTarget(job, q, review.source) },
                                 webSearchUrl = webSearch,
@@ -190,18 +288,91 @@ fun PreviewScreen(job: SyncJob, onClose: () -> Unit, onRun: (SyncJob) -> Unit) {
                                     plan = p.copy(
                                         uncertain = p.uncertain - review,
                                         toAdd = p.toAdd.filter { it.id != review.chosen.id } + chosen,
-                                    )
+                                    ).also { Previews.settled(job.id, it) }
                                 },
                                 onError = { m -> scope.launch { snackbar.showSnackbar(m.ifBlank { ctx.getString(R.string.error_generic) }) } },
                             )
                         }
                     }
-                    TrackList(stringResource(R.string.preview_add, p.toAdd.size), p.toAdd)
-                    TrackList(stringResource(R.string.preview_remove, p.toRemove.size), p.toRemove)
-                    TrackList(stringResource(R.string.preview_unmatched, p.unmatched.size), p.unmatched)
+                    TrackList(stringResource(R.string.preview_add, p.toAdd.size), p.toAdd, MaterialTheme.colorScheme.primary)
+                    TrackList(stringResource(if (unlikes) R.string.preview_unlike else R.string.preview_remove, p.toRemove.size), p.toRemove, MaterialTheme.colorScheme.error)
+                    TrackList(stringResource(R.string.preview_unmatched, p.unmatched.size), p.unmatched, MaterialTheme.colorScheme.tertiary)
                 }
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(8.dp))
+        }
+        }
+    }
+}
+
+/** From where to where: each side's service mark and playlist; a target still to make says so. */
+@Composable
+private fun RouteCard(job: SyncJob, newTarget: Boolean) {
+    val ctx = LocalContext.current
+    PageCard(shape = MaterialTheme.shapes.large) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf(job.source, job.target).forEachIndexed { i, ref ->
+                val provider = Providers.byId(ref.provider)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ProviderBadge(provider, 40.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(ref.playlistName.ifBlank { job.name }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(provider?.label(ctx) ?: ref.provider, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                if (i == 0) Icon(Icons.Filled.ArrowDownward, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 10.dp).size(20.dp))
+            }
+            if (newTarget) PageNote(stringResource(R.string.preview_target_new), tone = Tone.Accent)
+        }
+    }
+}
+
+/**
+ * What the preview is doing while it works it out: reading the source, reading the target, matching
+ * the tracks; the step under way turns, the ones done are ticked, matching fills a bar as it goes.
+ */
+@Composable
+private fun PlanSteps(progress: Progress?, waitingFor: ServiceReads.Reader? = null) {
+    val step = when (progress?.step) {
+        null, Progress.Step.FETCH_SOURCE -> 0
+        Progress.Step.CREATE_TARGET, Progress.Step.FETCH_TARGET -> 1
+        Progress.Step.WAITING -> -1
+        else -> 2
+    }
+    // A pause asked by the service keeps the step it came in.
+    var last by remember { mutableStateOf(0) }
+    val current = if (step < 0) last else step.also { last = it }
+    PageCard {
+        Column(Modifier.fillMaxWidth().padding(16.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            listOf(
+                stringResource(R.string.progress_fetch_source),
+                stringResource(R.string.progress_fetch_target),
+                if (current == 2 && progress != null && progress.total > 0) stringResource(R.string.progress_matching, progress.done, progress.total) else stringResource(R.string.preview_step_match),
+            ).forEachIndexed { i, label ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                        when {
+                            i < current -> Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                            i == current -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.5.dp)
+                            else -> Box(Modifier.size(18.dp).border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape))
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        label, style = MaterialTheme.typography.bodyMedium,
+                        color = if (i > current) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                if (i == 2 && current == 2) progress?.percent?.let { pc ->
+                    WorkBar({ pc / 100f }, Modifier.fillMaxWidth().padding(start = 36.dp))
+                }
+            }
+            if (waitingFor != null) PageNote(stringResource(R.string.preview_waiting_read, waitingFor.jobName, waitingFor.service), tone = Tone.Accent)
+            if (progress?.step == Progress.Step.WAITING) Text(
+                stringResource(R.string.progress_waiting, (progress.total - progress.done).coerceAtLeast(0)),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -213,11 +384,82 @@ private fun progressLabel(p: Progress): String = when (p.step) {
     else -> stringResource(R.string.progress_fetch_source)
 }
 
+/** One list of the plan in a card: a coloured mark, title and artist per track; the first few, then all on a tap. */
 @Composable
-private fun TrackList(title: String, tracks: List<Track>, max: Int = 30) {
+private fun TrackList(title: String, tracks: List<Track>, accent: Color, first: Int = 8) {
     if (tracks.isEmpty()) return
-    Spacer(Modifier.height(6.dp))
-    Text(title, style = MaterialTheme.typography.titleMedium)
-    tracks.take(max).forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
-    if (tracks.size > max) Text(stringResource(R.string.preview_more, tracks.size - max), style = MaterialTheme.typography.bodySmall)
+    var all by remember(tracks) { mutableStateOf(false) }
+    PageCard {
+        Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+            Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(width = 4.dp, height = 18.dp).clip(RoundedCornerShape(2.dp)).background(accent))
+                Spacer(Modifier.width(8.dp))
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
+            }
+            Spacer(Modifier.height(6.dp))
+            (if (all) tracks.take(500) else tracks.take(first)).forEach { t ->
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).semantics(mergeDescendants = true) {}) {
+                    Text(t.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val sub = listOf(t.artistLine, t.album).filter { it.isNotBlank() }.joinToString(" · ")
+                    if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (!all && tracks.size > first) TextButton(onClick = { all = true }, modifier = Modifier.padding(start = 4.dp).heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.preview_more, tracks.size - first))
+            }
+        }
+    }
+}
+
+/**
+ * 1.18: previews that go on when their page is left, one per sync: the page shows the latest when it
+ * opens again, the sync's card says how far it is ("Preview 6/83") and, once done, that it is ready.
+ * A finished one is kept for half an hour; a changed sync, Try again or Run now start afresh.
+ */
+object Previews {
+    data class Run(
+        val job: SyncJob, val progress: Progress? = null, val waitingFor: ServiceReads.Reader? = null,
+        val plan: SyncPlan? = null, val error: String? = null, val at: Long = System.currentTimeMillis(),
+    ) {
+        val working: Boolean get() = plan == null && error == null
+    }
+
+    private const val KEEP_MS = 30 * 60_000L
+
+    /** [run] previews [job] as it is now: same lists, same matching and removals (a new colour changes nothing). A plan made before the sync last ran is of no use: that run changed the lists. */
+    fun of(run: Run?, job: SyncJob): Run? = run?.takeIf {
+        val a = it.job
+        !(it.plan != null && job.lastRunEpoch > it.at) &&
+        a.source == job.source && a.target == job.target && a.policy == job.policy && a.mirrorRemovals == job.mirrorRemovals &&
+            a.twoWayRemovals == job.twoWayRemovals && a.ignoredSourceIds == job.ignoredSourceIds && a.keepOrder == job.keepOrder
+    }
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+    private val tasks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+    val state = kotlinx.coroutines.flow.MutableStateFlow<Map<String, Run>>(emptyMap())
+
+    private fun update(id: String, f: (Run) -> Run) = state.update { m -> m[id]?.let { m + (id to f(it)) } ?: m }
+
+    /** A match settled in the page: kept in the plan, so it is not "to review" again when the page reopens. */
+    fun settled(id: String, plan: SyncPlan) = update(id) { if (it.plan != null) it.copy(plan = plan) else it }
+
+    fun clear(id: String) { tasks.remove(id)?.cancel(); state.update { it - id } }
+
+    fun start(app: android.content.Context, job: SyncJob, again: Boolean = false) {
+        val now = state.value[job.id]
+        val fresh = of(now, job) != null && now != null && (now.working || (now.plan != null && System.currentTimeMillis() - now.at < KEEP_MS))
+        if (fresh && !(again && now?.error != null)) return
+        clear(job.id)
+        state.update { it + (job.id to Run(job)) }
+        tasks[job.id] = scope.launch {
+            try {
+                val plan = SyncEngine(app).plan(
+                    job, { p -> update(job.id) { it.copy(progress = p) } }, createTarget = false, interactive = true,
+                    onWait = { w -> update(job.id) { it.copy(waitingFor = w) } },
+                )
+                update(job.id) { it.copy(plan = plan, at = System.currentTimeMillis()) }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+                update(job.id) { it.copy(error = e.userMessage(app), at = System.currentTimeMillis()) }
+            }
+        }
+    }
 }

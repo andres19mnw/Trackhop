@@ -160,7 +160,15 @@ jobs:
         run: |
           v=$(tr -d '[:space:]' < server/VERSION)
           tag="server-v$v"
-          if gh release view "$tag" > /dev/null 2>&1; then echo "$tag is out already."; exit 0; fi
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "$tag is out already."
+            # A Flatpak that failed on the release's run and built on a later one joins the release it is missing from.
+            f="Trackhop-Desktop-v$v-linux.flatpak"
+            if [ -f flatpak/Trackhop.flatpak ] && ! gh release view "$tag" --json assets -q '.assets[].name' | grep -qx "$f"; then
+              mv flatpak/Trackhop.flatpak "$f" && gh release upload "$tag" "$f" && echo "$f added to $tag."
+            fi
+            exit 0
+          fi
           if [ -f flatpak/Trackhop.flatpak ]; then mv flatpak/Trackhop.flatpak "dist/Trackhop-Desktop-v$v-linux.flatpak"; fi
           # This version's section of server/CHANGELOG.md, without its heading.
           awk -v v="$v" '/^## /{p = ($2 == v)} p && !/^## /' server/CHANGELOG.md > notes.md
@@ -189,6 +197,15 @@ jobs:
     uses: ./.github/workflows/stores.yml
     with:
       version: ${{ needs.release.outputs.version }}
+    secrets: inherit
+
+  telegram:
+    # The new release on Trackhop's Telegram channel (telegram.yml). Skipped until TELEGRAM_BOT_TOKEN exists.
+    needs: release
+    if: ${{ needs.release.outputs.version != '' }}
+    uses: ./.github/workflows/telegram.yml
+    with:
+      tag: server-v${{ needs.release.outputs.version }}
     secrets: inherit
 
   msstore:

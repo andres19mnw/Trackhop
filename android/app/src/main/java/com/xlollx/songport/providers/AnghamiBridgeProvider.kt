@@ -28,7 +28,8 @@ import kotlinx.serialization.json.JsonElement
  * Not an official route: Anghami's terms do not allow it and it can stop working when the player
  * changes. The sign-in screen shows the notice first.
  */
-class AnghamiBridgeProvider(override val slot: String = "") : MusicProvider, WebAccounts.Connector {
+class AnghamiBridgeProvider(override val slot: String = "") : MusicProvider, WebAccounts.Connector, StartsOver {
+    override val beta = true
     override val serviceId = SERVICE
     override val displayName = if (BridgePlugin.builtIn) "Anghami (web)" else "Anghami (plugin)"
     override val route: MusicProvider.Route? get() = MusicProvider.Route.EASY
@@ -36,7 +37,6 @@ class AnghamiBridgeProvider(override val slot: String = "") : MusicProvider, Web
     override val familyName: String get() = "Anghami"
     override val brandColor = 0xFF8D35F5
     override val noteName = "provider_note_anghami_web"
-    override val alpha = true
     override val supportsLikedSongs = true
     override val supportsLikedTarget = true
     /** Another account: where the WebView keeps profiles apart and the connectors take a slot (see [WebAccounts]). */
@@ -45,6 +45,8 @@ class AnghamiBridgeProvider(override val slot: String = "") : MusicProvider, Web
     override val authDomain = "anghami.com"
     override val pluginBased = true
     override val searchParallelism = 2
+    /** The connectors list one Anghami playlist at a time. */
+    override val readGate: String get() = SERVICE
 
     /** Built in (GitHub, F-Droid), or through a connector plugin that knows it (Google Play). */
     override fun isConfigured(ctx: Env): Boolean =
@@ -57,6 +59,8 @@ class AnghamiBridgeProvider(override val slot: String = "") : MusicProvider, Web
     override suspend fun completeAuth(ctx: Env, params: Map<String, String>, verifier: String) { /* the sign-in screen keeps the session itself */ }
     override fun disconnect(ctx: Env) { runCatching { call(ctx, "anghami.disconnect") } }
 
+    // Start over: the Bridge forgets the session and the sites' data; an older one only signs out.
+    override fun startOver(ctx: Env) { runCatching { call(ctx, "anghami.reset") }.onFailure { disconnect(ctx) } }
     override suspend fun playlists(ctx: Env): List<Playlist> = io(ctx, "anghami.playlists") { j ->
         j.arr.mapNotNull { p -> p["id"].str?.let { Playlist(it, p["name"].str ?: "", p["count"]?.long?.toInt() ?: -1) } }
     }
@@ -66,7 +70,7 @@ class AnghamiBridgeProvider(override val slot: String = "") : MusicProvider, Web
         val out = ArrayList<Track>()
         var offset: Int? = 0
         while (offset != null) {
-            val b = call(ctx, "anghami.tracks", id, Bundle().apply { putInt("offset", offset!!) })
+            val b = call(ctx, "anghami.tracks", id, BridgePlugin.page(offset!!, MusicProvider.readsFresh()))
             out += parseJson(b.getString("json") ?: "[]").arr.mapNotNull { toTrack(it) }
             offset = if (b.containsKey("next")) b.getInt("next") else null
         }
@@ -133,6 +137,8 @@ class AnghamiBridgeProvider(override val slot: String = "") : MusicProvider, Web
         } catch (e: Exception) {
             throw ProviderException("$displayName: ${e.message ?: e.javaClass.simpleName}")
         } ?: throw ProviderException("$displayName: no answer")
+        // A session gone for good is told once ("sign in again"); a signed-in listing that answers ends that.
+        com.xlollx.songport.sync.SessionKeepAlive.noticeAnswer(ctx, id, familyName, method, b)
         b.getString("error")?.let { throw ProviderException("$displayName: $it") }
         return b
     }

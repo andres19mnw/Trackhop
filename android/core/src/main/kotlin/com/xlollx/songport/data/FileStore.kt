@@ -3,6 +3,7 @@ package com.xlollx.songport.data
 import com.xlollx.songport.model.SyncJob
 import com.xlollx.songport.model.SyncReport
 import com.xlollx.songport.net.json
+import com.xlollx.songport.sync.Matcher
 import com.xlollx.songport.sync.Wrapped
 import com.xlollx.songport.providers.Providers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,9 @@ data class Settings(
     val captureUnlocked: Boolean = false,
     /** Chiedere al catalogo Deezer l'ISRC dei brani che non lo portano (vedi IsrcOracle). */
     val isrcLookup: Boolean = true,
+    /** Pictures in Discover (Ticketmaster's concert images, Discogs' record covers); [discoverImagesWifiOnly]: only off mobile data. */
+    val discoverImages: Boolean = true,
+    val discoverImagesWifiOnly: Boolean = false,
     /** Client ID inseriti dall'utente, per servizio (vuoto = usa quello della build). */
     val clientIds: Map<String, String> = emptyMap(),
     /**
@@ -50,6 +54,10 @@ data class Settings(
     val backupFolder: String = "",
     /** Ogni quanto copiare i backup nella cartella; MANUAL = solo a richiesta. */
     val backupSchedule: com.xlollx.songport.model.Schedule = com.xlollx.songport.model.Schedule.MANUAL,
+    /** How imported M3U, PLS and text files read "A - B - C" names: a PlaylistFiles.NameLayout name (#49). */
+    val fileNameLayout: String = "AUTO",
+    /** The user's patterns for CUSTOM, one per entry, tried in order (sync.NamePatterns). */
+    val fileNamePatterns: List<String> = emptyList(),
     /** Once a week, look through the playlists for tracks the services no longer play, and say so; never change anything. */
     val unplayableCheck: Boolean = false,
     /** Sync che ha fatto scattare la richiesta di contributo, finche' l'utente non risponde. */
@@ -66,8 +74,29 @@ data class Settings(
     val themeMode: String = "SYSTEM",
     /** Material You: the phone's own colours instead of the brand palette (Android 12+). */
     val dynamicColor: Boolean = false,
+    /** How coloured sync cards wear their colour (CardAccent key) unless a sync chooses its own. */
+    val cardAccent: String = "classic",
+    /** How the last runs show under a card's figures (RunHistoryStyle key). */
+    val runHistoryStyle: String = "bars",
+    /** Where a sync card shows its status: "badge" on the services' logos, or "footer" as a pill by the schedule. */
+    val cardStatusPlace: String = "footer",
+    /**
+     * Which cards glow with their two services' brand colours: "plain" (those with no colour of their
+     * own), "all", or "off". A card's own choice (SyncJob.routeGlow) comes first.
+     */
+    val routeGlowMode: String = "plain",
+    /** Syncs whose removals Discover › Vanished songs leaves out: marked there as a playlist that changes by itself. */
+    val vanishedHiddenSyncs: Set<String> = emptySet(),
     /** The refreshed sync cards (big numbers, run history): on unless turned off in Appearance. */
     val newLook: Boolean = true,
+    /** How big the sync cards are (CardSize key: "large", "medium", "small"); a phone on its side caps it. */
+    val cardSize: String = "large",
+    /** Syncs as small tiles in a grid (name, services, status) instead of full cards. */
+    val minimalSyncs: Boolean = false,
+    /** Starred syncs shown first, dragged among themselves only; off: they go anywhere in the order. */
+    val favoritesOnTop: Boolean = true,
+    /** The Discover tab's cards in the user's order, by id (sync/DiscoverOrder); empty = the default order. */
+    val discoverOrder: List<String> = emptyList(),
     /** The guided first sync was finished or skipped: it is no longer offered on the empty Syncs tab. */
     val tourDone: Boolean = false,
     /**
@@ -76,14 +105,40 @@ data class Settings(
      * the welcome, which marks it when it ends). Per device: a configuration file leaves it out.
      */
     val whatsNewSeen: String = "",
+    /**
+     * Settings › Developer options › Preview upcoming features: this device shows the features of Trackhop
+     * 1.18 in a build where they are still hidden ([com.xlollx.songport.Features]). Per device: a
+     * configuration file leaves it out.
+     */
+    val preview2: Boolean = false,
     /** Connectors (provider ids) the user left out of the Wrapped: the chips start from this choice next time. */
     val wrappedSkipped: Set<String> = emptySet(),
+    /** What the Wrapped reads: a listening service's id, "playlists", or "" for the best one connected. */
+    val wrappedSource: String = "",
+    /** The period last chosen for a Wrapped of listening ([com.xlollx.songport.sync.Listening.Period.key]); "" = a month. */
+    val wrappedPeriod: String = "",
     /** The "Did you know?" pill on Syncs (widgets, shortcuts, automation) was closed or opened: not shown again. */
     val tipsPillDismissed: Boolean = false,
+    /**
+     * This installation's own id, made the first time a configuration file is written or read: a
+     * file from another id is another device's. Per device: a configuration file leaves it out of
+     * the settings and names it beside them.
+     */
+    val deviceId: String = "",
     /** The Roast's last level ([com.xlollx.songport.ai.AiRoast.Level] by name); blank = the default. */
     val roastLevel: String = "",
     /** The user confirmed once being 18 or older, for the Roast's explicit language. */
     val roastAdultConfirmed: Boolean = false,
+    /** The named colours the syncs can wear (SyncJob.label); see sync/Labels. */
+    val labels: List<com.xlollx.songport.model.Label> = emptyList(),
+    /** The artists followed in Discover, and what to be told about each (sync/ArtistAlerts). */
+    val followedArtists: List<com.xlollx.songport.sync.ArtistAlerts.Followed> = emptyList(),
+    /** Alerts for the artists followed: the background look on or off, once a week instead of a day, Wi-Fi only. */
+    val artistAlerts: Boolean = true,
+    val artistAlertsWeekly: Boolean = false,
+    val artistAlertsWifiOnly: Boolean = false,
+    /** What an artist followed from now on is checked for. */
+    val artistAlertKinds: com.xlollx.songport.sync.ArtistAlerts.Kinds = com.xlollx.songport.sync.ArtistAlerts.Kinds(),
 )
 
 /** Unita' di quota consumate in un giorno (chiave = data nel fuso del servizio). */
@@ -92,6 +147,7 @@ data class QuotaDay(val day: String, val units: Long)
 
 @Serializable
 data class StoreData(
+    /** Every job, the one-off transfers ([SyncJob.oneOff]) included: what the user calls syncs are [syncs]. */
     val jobs: List<SyncJob> = emptyList(),
     /** Ultimi report, dal piu' recente. */
     val reports: List<SyncReport> = emptyList(),
@@ -99,6 +155,8 @@ data class StoreData(
     val matchCache: Map<String, String> = emptyMap(),
     /** Ricerche senza esito, stessa chiave -> quando (epoch ms): non si ripetono per una settimana. */
     val missCache: Map<String, Long> = emptyMap(),
+    /** The [Matcher.REVISION] the misses were found under: another one searches them again. */
+    val missRevision: Int = 0,
     /**
      * Tracks a service said a playlist holds although its listing leaves them out (Amazon Music
      * answering DUPLICATE_TRACK), key [FileStore.presentKey] -> when (epoch ms): present, not to be
@@ -124,6 +182,55 @@ data class StoreData(
     val shrinkConfirmations: Map<String, Long> = emptyMap(),
     /** The Wrapped made, the newest first (figures only, no tracks): at most [Wrapped.MAX_HISTORY]. */
     val wrapped: List<Wrapped.Saved> = emptyList(),
+    /** What the two sides of a two-way pair with removals both held after its last complete run, by [FileStore.pairKey]. */
+    val pairStates: Map<String, PairState> = emptyMap(),
+    /** The "Missing on my server" list's memory, by entry id (see sync/Wanted): when each was first seen, and the ones ticked. */
+    val wanted: Map<String, WantedMark> = emptyMap(),
+    /** When that list was first worked out (0 = never yet): what it held then is not news for the webhook. */
+    val wantedSince: Long = 0,
+    /**
+     * The review's choices (ignored, matched by hand, kept), with when each was made, by the match
+     * caches' key: what is shared with the user's own server (sync/ReviewDecisions), the newest one winning.
+     */
+    val reviewDecisions: Map<String, com.xlollx.songport.sync.ReviewDecision> = emptyMap(),
+    /** Syncs handed over to the user's own server, by job id (sync/ServerSyncs): this device no longer runs them. */
+    val handedOver: Map<String, com.xlollx.songport.sync.HandedOver> = emptyMap(),
+    /**
+     * Syncs of this device the user paired with the same sync on their server, by job id -> the
+     * server's sync id: their review choices are exchanged too (only those the user chose).
+     */
+    val serverPairs: Map<String, String> = emptyMap(),
+    /** The shared playlists this device takes part in (see shared/SharedGroups); their logs live in files of their own. */
+    val groups: List<com.xlollx.songport.shared.SharedGroup> = emptyList(),
+) {
+    /** The user's syncs: [jobs] without the one-off transfers ([SyncJob.oneOff]), which never show or run as syncs. */
+    val syncs: List<SyncJob> get() = jobs.filterNot { it.oneOff }
+}
+
+/**
+ * One entry of the "Missing on my server" list as this device remembers it: when it first showed up,
+ * and whether the user ticked it (got it: hidden). Like [LastWrites] it stays on the device: a
+ * configuration file leaves it out.
+ */
+@Serializable
+data class WantedMark(val firstSeen: Long, val got: Boolean = false)
+
+/**
+ * The common state of a two-way pair: the tracks both playlists held after the last complete run
+ * of either half. The next run reads a track against it: on one side and not here, it was added
+ * there and is copied; here and gone from one side, it was removed there and leaves the other too.
+ * Like [LastWrites] it belongs to the device that ran the syncs: a configuration file leaves it
+ * out, so a pair imported elsewhere starts by noting the state, and removes nothing on that run.
+ */
+@Serializable
+data class PairState(
+    /** The two playlists ("service|playlist"), [a] on the left of [links] and [b] on the right. */
+    val a: String,
+    val b: String,
+    /** Track id on [a] -> the id of the same track on [b]. */
+    val links: Map<String, String> = emptyMap(),
+    /** When it was written: a track a service says was added after it is new, whatever the links say. */
+    val at: Long = 0,
 )
 
 /**
@@ -155,7 +262,7 @@ open class FileStore(dir: File) {
     val data: StoreData get() = _state.value
 
     private fun load(): StoreData = try {
-        if (file.exists()) json.decodeFromString<StoreData>(file.readText()) else StoreData()
+        if (file.exists()) com.xlollx.songport.sync.Labels.normalized(json.decodeFromString<StoreData>(file.readText())) else StoreData()
     } catch (e: Exception) {
         StoreData()
     }
@@ -163,7 +270,11 @@ open class FileStore(dir: File) {
     fun update(fn: (StoreData) -> StoreData) {
         val next: StoreData
         synchronized(lock) {
-            next = fn(_state.value)
+            val before = _state.value
+            val made = fn(before)
+            // Whatever wrote the syncs or the labels, they are kept as Labels.normalized has them: a
+            // label gives its colour to the card, a ready colour is its own label, tags are tidy.
+            next = if (made.jobs !== before.jobs || made.settings.labels !== before.settings.labels) com.xlollx.songport.sync.Labels.normalized(made) else made
             _state.value = next
         }
         Providers.configure(next.settings.extraAccounts, next.settings.connectorNames, next.settings.connectors)
@@ -200,8 +311,10 @@ open class FileStore(dir: File) {
     fun job(id: String): SyncJob? = data.jobs.firstOrNull { it.id == id }
 
     fun upsertJob(job: SyncJob) = update { d ->
-        if (d.jobs.any { it.id == job.id }) d.copy(jobs = d.jobs.map { if (it.id == job.id) job else it })
-        else d.copy(jobs = d.jobs + job)
+        // Turned on here: from now on this is the device that schedules it.
+        val saved = if (job.enabled && job.scheduledOn != null) job.copy(scheduledOn = null) else job
+        if (d.jobs.any { it.id == saved.id }) d.copy(jobs = d.jobs.map { if (it.id == saved.id) saved else it })
+        else d.copy(jobs = d.jobs + saved)
     }
 
     /**
@@ -215,7 +328,44 @@ open class FileStore(dir: File) {
         d.copy(jobs = rest.take(at) + job + rest.drop(at))
     }
 
-    fun deleteJob(id: String) = update { d -> d.copy(jobs = d.jobs.filter { it.id != id }, removalConfirmations = d.removalConfirmations - id, shrinkConfirmations = d.shrinkConfirmations - id) }
+    fun deleteJob(id: String) = update { d -> withoutJob(d, id) }
+
+    /** Deletes the one-off transfers over ([com.xlollx.songport.sync.OneOffs.over]); their target playlists are not touched. */
+    fun dropOldOneOffs(now: Long = System.currentTimeMillis()) {
+        if (com.xlollx.songport.sync.OneOffs.over(data, now).isEmpty()) return
+        update { d -> com.xlollx.songport.sync.OneOffs.over(d, now).fold(d) { acc, id -> withoutJob(acc, id) } }
+    }
+
+    private fun withoutJob(d: StoreData, id: String) =
+        d.copy(
+            jobs = d.jobs.filter { it.id != id }, removalConfirmations = d.removalConfirmations - id, shrinkConfirmations = d.shrinkConfirmations - id,
+            pairStates = d.pairStates.filterKeys { id !in it.split('|') },
+            // Handed over: the card goes, the sync stays on the server (deleted there on its page).
+            handedOver = d.handedOver - id,
+            serverPairs = d.serverPairs - id,
+        )
+
+    /** The common state of the pair [job] is half of, when it is still about [job]'s two playlists; null otherwise. */
+    fun pairState(job: SyncJob): PairState? {
+        val state = data.pairStates[pairKey(job.id, job.linkedJobId ?: return null)] ?: return null
+        val sides = setOf(sideKey(job.source.provider, job.source.playlistId), sideKey(job.target.provider, job.target.playlistId))
+        return state.takeIf { sides.size == 2 && setOf(it.a, it.b) == sides }
+    }
+
+    /** Writes the pair's common state; states of pairs that no longer exist go. */
+    fun putPairState(job: SyncJob, state: PairState) {
+        val key = pairKey(job.id, job.linkedJobId ?: return)
+        update { d ->
+            val jobs = d.jobs.map { it.id }.toHashSet()
+            d.copy(pairStates = d.pairStates.filterKeys { k -> k.split('|').all { it in jobs } } + (key to state))
+        }
+    }
+
+    /** Forgets the pair's state (the option was turned off): turned on again, it starts from a new one. */
+    fun dropPairState(job: SyncJob) {
+        val key = pairKey(job.id, job.linkedJobId ?: return)
+        if (key in data.pairStates) update { d -> d.copy(pairStates = d.pairStates - key) }
+    }
 
     /** The user saw, in the preview, that the target of [jobId] lists far fewer tracks than before, and runs it anyway. */
     fun confirmTargetShrink(jobId: String) = update { d -> d.copy(shrinkConfirmations = d.shrinkConfirmations + (jobId to System.currentTimeMillis())) }
@@ -253,7 +403,12 @@ open class FileStore(dir: File) {
     fun report(id: String): SyncReport? = data.reports.firstOrNull { it.id == id }
 
     fun updateReport(id: String, fn: (SyncReport) -> SyncReport) = update { d ->
-        d.copy(reports = d.reports.map { if (it.id == id) fn(it) else it })
+        val before = d.reports.firstOrNull { it.id == id }
+        val next = d.copy(reports = d.reports.map { if (it.id == id) fn(it) else it })
+        val after = next.reports.firstOrNull { it.id == id }
+        // A one-off transfer whose review is done (nothing left to review) goes: its report stays in the log.
+        if (before != null && after != null && com.xlollx.songport.sync.OneOffs.reviewed(before, after) && next.jobs.any { it.id == after.jobId && it.oneOff }) withoutJob(next, after.jobId)
+        else next
     }
 
     fun updateSettings(fn: (Settings) -> Settings) = update { d -> d.copy(settings = fn(d.settings)) }
@@ -299,6 +454,16 @@ open class FileStore(dir: File) {
         update { d -> d.copy(matchCache = d.matchCache - removed, missCache = d.missCache - removed) }
     }
 
+    /** Review choices made now, by cache key ([cacheKey]): kept for the server, the oldest dropped past a bound. */
+    fun recordDecisions(entries: Map<String, com.xlollx.songport.sync.ReviewDecision>) {
+        if (entries.isEmpty()) return
+        update { d -> d.copy(reviewDecisions = com.xlollx.songport.sync.ReviewDecisions.bounded(d.reviewDecisions + entries)) }
+    }
+
+    /** The user settled this match in the review (kept it, or chose another): it is theirs. */
+    fun hasDecision(srcProvider: String, srcTrackId: String, dstProvider: String): Boolean =
+        data.reviewDecisions.containsKey(cacheKey(srcProvider, srcTrackId, dstProvider))
+
     /** The source tracks (of [srcProvider]) whose match on [dstProvider] is [dstTrackId]. */
     fun sourcesMatchedTo(srcProvider: String, dstProvider: String, dstTrackId: String): List<String> {
         val prefix = family(srcProvider) + ":"
@@ -320,17 +485,28 @@ open class FileStore(dir: File) {
 
     /** True se questa ricerca e' fallita da poco: inutile ripeterla a ogni esecuzione o ripresa. */
     fun cachedMiss(srcProvider: String, srcTrackId: String, dstProvider: String): Boolean {
+        // Missed by an older matching: the new one may find it (#57, the misses kept the fix from showing).
+        if (data.missRevision != Matcher.REVISION) return false
         val at = data.missCache[cacheKey(srcProvider, srcTrackId, dstProvider)] ?: data.missCache["$srcProvider:$srcTrackId>$dstProvider"] ?: return false
         return System.currentTimeMillis() - at < MISS_TTL_MS
+    }
+
+    /** "Try again" on songs not found: [srcTrackIds] of [job] are searched afresh on its next run. */
+    fun forgetMisses(job: com.xlollx.songport.model.SyncJob, srcTrackIds: Collection<String>) {
+        if (srcTrackIds.isEmpty()) return
+        val dst = matchTarget(job.target.provider, job.target.playlistId)
+        val keys = srcTrackIds.flatMap { listOf(cacheKey(job.source.provider, it, dst), "${job.source.provider}:$it>$dst") }.toSet()
+        update { d -> d.copy(missCache = d.missCache - keys) }
     }
 
     fun putMisses(keys: Collection<String>) {
         if (keys.isEmpty()) return
         val now = System.currentTimeMillis()
         update { d ->
-            var cache = d.missCache.filterValues { now - it < MISS_TTL_MS } + keys.associateWith { now }
+            val kept = if (d.missRevision == Matcher.REVISION) d.missCache.filterValues { now - it < MISS_TTL_MS } else emptyMap()
+            var cache = kept + keys.associateWith { now }
             if (cache.size > MAX_CACHE) cache = cache.entries.drop(cache.size - MAX_CACHE).associate { it.key to it.value }
-            d.copy(missCache = cache)
+            d.copy(missCache = cache, missRevision = Matcher.REVISION)
         }
     }
 
@@ -398,6 +574,23 @@ open class FileStore(dir: File) {
 
         fun cacheKey(srcProvider: String, srcTrackId: String, dstProvider: String) = "${family(srcProvider)}:$srcTrackId>${family(dstProvider)}"
 
+        /**
+         * The target side of a match, the `dstProvider` of [cacheKey]: the service for a playlist or
+         * liked songs (keys as they always were), the service and the kind for a library of albums,
+         * artists or podcasts ("amazon#album"). One source row may match a song in a playlist and an
+         * album in the saved albums (Amazon Music searches an album row as songs for a playlist): the
+         * one is never taken for the other. Entries for a library written before the kind was in the
+         * key are not read for it; the row is searched once more.
+         */
+        fun matchTarget(dstProvider: String, targetPlaylistId: String?): String =
+            com.xlollx.songport.providers.MusicProvider.libraryKind(targetPlaylistId)?.let { "$dstProvider#$it" } ?: dstProvider
+
+        /** Key of [StoreData.pairStates]: the two halves' ids, the same whichever half asks. */
+        fun pairKey(jobId: String, otherId: String) = listOf(jobId, otherId).sorted().joinToString("|")
+
+        /** A side of a pair in [PairState]: the connector and its playlist. */
+        fun sideKey(provider: String, playlistId: String?) = "$provider|${playlistId.orEmpty()}"
+
         /** Key of [StoreData.presentUnlisted]: the service, the playlist and the track there. */
         fun presentKey(dstProvider: String, playlistId: String, trackId: String) = "${family(dstProvider)}:$playlistId>$trackId"
 
@@ -405,12 +598,17 @@ open class FileStore(dir: File) {
          * Track ids are the service's, not the route's or the account's: a match found through the
          * official Spotify route serves the web route and a second account alike. Files keep their id.
          */
-        fun family(providerId: String): String = when (val base = providerId.substringBefore('@')) {
-            "spotify_bridge" -> "spotify"
-            "apple_bridge" -> "apple"
-            "deezer_bridge" -> "deezer"
-            "ytm" -> "youtube"
-            else -> base
+        fun family(providerId: String): String {
+            val kind = providerId.substringAfter('#', "")
+            val service = when (val base = providerId.substringBefore('#').substringBefore('@')) {
+                "spotify_bridge" -> "spotify"
+                "apple_bridge" -> "apple"
+                "deezer_bridge" -> "deezer"
+                "ytm" -> "youtube"
+                else -> base
+            }
+            // The kind of a library target ([matchTarget]) stays with the family.
+            return if (kind.isEmpty()) service else "$service#$kind"
         }
 
         @Volatile private var instance: FileStore? = null

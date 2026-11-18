@@ -46,6 +46,15 @@ class YouTubeBridgeProvider(override val slot: String = "") : MusicProvider, Web
     override val supportsAlbums: Boolean get() = BridgePlugin.full
     override val supportsArtists: Boolean get() = BridgePlugin.full
     override val supportsRecent: Boolean get() = BridgePlugin.full
+    /**
+     * Followed podcasts, read only: the library's podcast tab is documented (ytmusicapi), following a
+     * show is not, so they are a source and never a target.
+     */
+    override val supportsPodcasts: Boolean get() = BridgePlugin.builtIn || BridgePlugin.reportedVersion >= BridgePlugin.YTM_PODCASTS_VERSION
+    override fun supportsLibrary(playlistId: String?, asTarget: Boolean): Boolean =
+        if (playlistId == MusicProvider.PODCASTS_ID && asTarget) false else super.supportsLibrary(playlistId, asTarget)
+    /** The followed podcasts came with Trackhop 1.18: offered then ([com.xlollx.songport.Features]). */
+    override fun libraryIsV2(playlistId: String, asTarget: Boolean): Boolean = playlistId == MusicProvider.PODCASTS_ID
     /** Another account: where the WebView keeps profiles apart and the connectors take a slot (see [WebAccounts]). */
     override val supportsMultipleAccounts: Boolean get() = WebAccounts.allowed(STATUS)
     override val statusMethod: String get() = STATUS
@@ -60,6 +69,8 @@ class YouTubeBridgeProvider(override val slot: String = "") : MusicProvider, Web
     // Due alla volta: Google segna l'indirizzo quando il ritmo non e' quello di una persona, e il
     // Bridge impone comunque una cadenza minima; oltre due non si guadagna nulla e si rischia il blocco.
     override val searchParallelism = 2
+    /** The connectors list one YouTube Music or Spotify playlist at a time (BridgeCore's lock): see [com.xlollx.songport.sync.ServiceReads]. */
+    override val readGate: String get() = BridgePlugin.BRIDGE_GATE
 
     /** "Configured" here means the Bridge app is installed. */
     override fun isConfigured(ctx: Env): Boolean = installed(ctx)
@@ -121,11 +132,22 @@ class YouTubeBridgeProvider(override val slot: String = "") : MusicProvider, Web
         val out = ArrayList<Track>()
         var offset: Int? = 0
         while (offset != null) {
-            val b = call(ctx, "tracks", playlistId, Bundle().apply { putInt("offset", offset!!) })
+            val b = call(ctx, "tracks", playlistId, BridgePlugin.page(offset!!, MusicProvider.readsFresh()))
             out += parseJson(b.getString("json") ?: "[]").arr.mapNotNull { toTrack(it) }
             offset = if (b.containsKey("next")) b.getInt("next") else null
         }
         out
+    }
+
+    /** Through the Bridge's `find`, which reads only until the tracks turn up; an older Bridge reads the whole playlist. */
+    override suspend fun findEntries(ctx: Env, playlistId: String, tracks: List<Track>, seen: (List<Track>) -> Unit): List<Track> {
+        if (MusicProvider.isLibrary(playlistId)) return super.findEntries(ctx, playlistId, tracks, seen)
+        return MusicProvider.entriesOrWhole(ctx, id, {
+            withContext(Dispatchers.IO) {
+                val b = call(ctx, "find", playlistId, Bundle().apply { putStringArray("ids", tracks.map { it.id }.distinct().toTypedArray()) })
+                parseJson(b.getString("json") ?: "[]").arr.mapNotNull { toTrack(it) }
+            }.also(seen)
+        }) { super.findEntries(ctx, playlistId, tracks, seen) }
     }
 
     override fun webSearchUrl(ctx: Env, query: String): String = "https://music.youtube.com/search?q=" + android.net.Uri.encode(query)
@@ -180,6 +202,12 @@ class YouTubeBridgeProvider(override val slot: String = "") : MusicProvider, Web
         withContext(Dispatchers.IO) { call(ctx, "visibility", playlistId, Bundle().apply { putBoolean("public", public) }) }
     }
 
+    /** A playlist's own picture, uploaded and set the way the player's "Edit" does. An older plugin does not know the method: no cover ([BridgePlugin.setCover]). */
+    override val canSetCover: Boolean get() = BridgePlugin.knows("setCover")
+    override val coverIsV2: Boolean get() = true
+    override suspend fun setPlaylistCover(ctx: Env, playlistId: String, jpeg: ByteArray) =
+        BridgePlugin.setCover("setCover", playlistId, jpeg) { m, id, extras -> call(ctx, m, id, extras) }
+
     override suspend fun deletePlaylist(ctx: Env, playlistId: String) {
         withContext(Dispatchers.IO) { call(ctx, "delete", playlistId) }
     }
@@ -205,9 +233,13 @@ class YouTubeBridgeProvider(override val slot: String = "") : MusicProvider, Web
         }
     }
 
+    /** Entries go by a lasting id (or the track's own): one read a few minutes ago names the same entry, or none. */
+    override val keepsEntryIds: Boolean get() = true
+
+    override val removesSingleEntry: Boolean get() = true
     override suspend fun removeTracks(ctx: Env, playlistId: String, tracks: List<Track>) {
         if (tracks.isEmpty()) return
-        if (playlistId == MusicProvider.ALBUMS_ID || playlistId == MusicProvider.ARTISTS_ID) {
+        if (playlistId == MusicProvider.ALBUMS_ID || playlistId == MusicProvider.ARTISTS_ID || playlistId == MusicProvider.PODCASTS_ID) {
             withContext(Dispatchers.IO) {
                 call(ctx, "remove", playlistId, Bundle().apply {
                     putStringArray("ids", tracks.map { it.id }.toTypedArray())
@@ -234,7 +266,7 @@ class YouTubeBridgeProvider(override val slot: String = "") : MusicProvider, Web
             durationMs = j["durationMs"].long ?: 0,
             itemId = j["setVideoId"].str,
             uri = j["uri"].str,
-            kind = when (j["kind"].str) { "album" -> Track.KIND_ALBUM; "artist" -> Track.KIND_ARTIST; else -> "" },
+            kind = when (j["kind"].str) { "album" -> Track.KIND_ALBUM; "artist" -> Track.KIND_ARTIST; "podcast" -> Track.KIND_PODCAST; else -> "" },
             year = j["year"].long?.toInt() ?: 0,
             available = j["available"].bool,
         )
@@ -253,6 +285,8 @@ class YouTubeBridgeProvider(override val slot: String = "") : MusicProvider, Web
         } catch (e: Exception) {
             throw ProviderException("Connector plugin: ${e.message ?: e.javaClass.simpleName}")
         } ?: throw ProviderException("Connector plugin: no answer")
+        // A session gone for good is told once ("sign in again"); a signed-in listing that answers ends that.
+        com.xlollx.songport.sync.SessionKeepAlive.noticeAnswer(ctx, id, familyName, method, b)
         b.getString("error")?.let { throw ProviderException("YouTube Music: $it") }
         return b
     }

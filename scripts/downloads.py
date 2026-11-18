@@ -33,7 +33,8 @@ def github():
         releases = get(f"https://api.github.com/repos/{REPO}/releases?per_page=100&page={page}")
         if not releases:
             return total
-        total += sum(a["download_count"] for r in releases for a in r["assets"])
+        # The community-matches release holds data the app downloads every day, not installs.
+        total += sum(a["download_count"] for r in releases if r["tag_name"] != "community-matches" for a in r["assets"])
         page += 1
 
 

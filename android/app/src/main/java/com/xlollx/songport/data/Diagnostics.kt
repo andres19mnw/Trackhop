@@ -68,7 +68,7 @@ object Diagnostics {
         val dir = File(ctx.cacheDir, "logs").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
         val name = "trackhop-log-" + SimpleDateFormat("yyyyMMdd-HHmm", Locale.ROOT).format(Date()) + ".txt"
-        return File(dir, name).apply { writeText(report(ctx, sinceMs = sinceMs ?: 0L)) }
+        return File(dir, name).apply { writeText(report(ctx, logLines = Int.MAX_VALUE, sinceMs = sinceMs ?: 0L)) }
     }
 
     fun clear(ctx: Context) { runCatching { file(ctx).delete() } }
@@ -129,14 +129,20 @@ object Diagnostics {
         sb.appendLine("Log:")
         val f = file(ctx)
         val all = synchronized(lock) { if (f.exists()) f.readLines().filter { it.isNotBlank() } else emptyList() }
-        val shown = if (sinceMs != null) since(all, sinceMs) else all.takeLast(logLines)
-        if (sinceMs == null && all.size > shown.size) sb.appendLine("  (${all.size - shown.size} older lines: Log › Export log has them all)")
+        // A time span keeps its lines, the newest [logLines] of them at most.
+        val inSpan = if (sinceMs != null) since(all, sinceMs) else all
+        val shown = inSpan.takeLast(logLines)
+        if (inSpan.size > shown.size) sb.appendLine("  (${inSpan.size - shown.size} older lines: Log › Export log has them all)")
         shown.forEach { sb.appendLine("  $it") }
         synchronized(lock) { if (repeats > 0) sb.appendLine("  (the line above came $repeats more times)") }
         // The net under the rule above: whatever a service's answer carried, no token, cookie, password,
         // e-mail or address of the user's own servers leaves the phone in a report.
         val env = com.xlollx.songport.platform.AndroidEnv.of(ctx)
         val servers = Providers.all().mapNotNull { p -> runCatching { env.tokens.get(p.id)?.extra?.get("url") }.getOrNull() }
+            // The notification channels' servers and webhooks (a webhook's address is its key).
+            .plus(runCatching { com.xlollx.songport.notify.Notify.channels(env).flatMap { it.addresses() } }.getOrDefault(emptyList()))
+            // Coordinate with my server: its address, and its API token should an answer ever echo it.
+            .plus(runCatching { com.xlollx.songport.sync.ServerLocks.config(env)?.let { listOf(it.address, it.token) } }.getOrNull().orEmpty())
         return com.xlollx.songport.data.Redact.text(sb.toString(), servers)
     }
 

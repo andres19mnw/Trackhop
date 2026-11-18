@@ -8,10 +8,10 @@ tabs_label: 在哪里安装 Trackhop
 tab_phone: Android
 tab_computer: 桌面版
 tab_server: 自托管
-play_alt: "Google Play：即将上架"
-play_note: '测试中'
-appgallery_alt: "华为应用市场 AppGallery：即将上架"
-appgallery_note: "准备中 · 无需 Google 服务"
+play_alt: "在 Google Play 上获取"
+play_note: '现已上架'
+appgallery_alt: "在华为应用市场探索"
+appgallery_note: "无需 Google 服务"
 store_bridge: '<b>Google Play 或 AppGallery 版？</b>添加 Trackhop Bridge，即可使用 YouTube Music、Amazon Music 等'
 fdroid_alt: 在 F-Droid 上获取
 fdroid_note: 从源码构建 · 新版本会晚几天
@@ -28,7 +28,7 @@ mac_alt: 下载 macOS 版（Apple silicon）
 mac_note: 'Apple silicon · <a href="%DL%/Trackhop-Desktop-v%V%-macos-x64.dmg">Intel 版</a> · <a href="/guide/desktop#package-managers-and-stores">Homebrew</a>'
 linux_alt: 下载 Linux 版
 linux_note: '.deb · 或 <a href="https://snapcraft.io/trackhop">Snap</a> · <a href="%DL%/Trackhop-Desktop-v%V%-linux.flatpak">Flatpak</a>'
-computer_more: '在 Mac 上，首次请右键 › 打开（<a href="/guide/desktop#macos">原因</a>） · <a href="#docker">全部下载</a>'
+computer_more: '在 Mac 上，首次请在 系统设置 › 隐私与安全性 › 仍要打开 中允许（<a href="/guide/desktop#macos">原因</a>） · <a href="#docker">全部下载</a>'
 docker_alt: 在 Docker 上运行
 docker_note: '测试版 · ghcr.io 或 <a href="https://hub.docker.com/r/xlollx/trackhop">Docker Hub</a> · <a href="/guide/playlist-sync-nas">在 NAS 上</a>'
 azure_title: "测试版：运行在你自己的 Azure 订阅中（每月约 5 美元）"
@@ -38,21 +38,23 @@ server_more: '网页界面、定时同步、API · 全家人<a href="/guide/dock
 virustotal: 所有下载均经 VirusTotal 检测
 downloads: "{n} 次下载"
 downloads_title: GitHub 发布版下载量加 Docker Hub 拉取量。F-Droid 和各应用商店不公布数据，实际数字更高。
+playlists_synced: "{n} 个公开歌单正在同步"
+playlists_synced_title: "由 Trackhop 保持同步的 Spotify 和 YouTube 公开歌单（简介中写有“Synced with Trackhop”）。私密歌单和其他服务不计入，所以实际数量更多。"
 demo_alt: "Trackhop 导览：同步列表、新建同步、账号、工具、分享的歌曲、契合度和海报卡片、无法播放的歌曲、设置"
 what_title: 它能做什么
 what_intro: 选好来源和目标，设定同步频率。Trackhop 会在另一端找到每一首歌，先告诉你会有哪些变化，再让两边始终保持一致。
 card1_title: 任意服务互通
-card1: 歌单、喜欢的歌曲、收藏的专辑和关注的艺人。也可以直接粘贴任意公开歌单的链接。
+card1: "歌单、喜欢的歌曲、收藏的专辑和关注的艺人。也可以粘贴任何公开歌单的链接。2.0 新增：和各用各的服务的朋友共享一个歌单。"
 card2_title: 定时同步
-card2: 每小时、每 6 小时、每天或每周。可以只添加，也可以同步删除，并保持来源的歌曲顺序。
+card2: "每小时、每 6 小时、每天或每周。可以只添加，也可以同步删除，并保持来源的歌曲顺序。也能双向同步，删除也一并同步。"
 card3_title: 绝不瞎猜
 card3: "每次同步前都有预览。没找到的歌曲会进入待检查列表：选对一次，Trackhop 就会记住。"
 card4_title: 账号始终属于你
 card4: 在各服务自己的页面上登录。访问令牌在手机上加密保存，绝不离开手机。
 card5_title: 你自己的音乐服务器
-card5: "除了流媒体服务，还支持 Navidrome 等 Subsonic 服务器、Jellyfin 和 Plex。也支持文件：CSV、M3U、XML、JSON。 <a href='https://www.navidrome.org/apps/'>已收录于 Navidrome 应用目录。</a>"
+card5: "除了流媒体服务，还支持 Navidrome 等 Subsonic 服务器、Jellyfin、Emby、Plex、Lyrion 和 Mopidy，并列出你的服务器还缺的歌曲。也支持文件：CSV、M3U、XML、JSON。 <a href='https://www.navidrome.org/apps/'>已收录于 Navidrome 应用目录。</a>"
 card6_title: 歌单工具
-card6: 备份、去重、合并、拆分和排序，以及用你自己的 AI 密钥驱动的歌单生成器。
+card6: "备份、去重、合并、拆分和排序，以及用你自己的 AI 密钥驱动的歌单生成器。2.0 新增：你歌单中艺人的新发行、演唱会、演出曲目和唱片。"
 one_title: "只用一个服务也行"
 one_intro: "不需要第二个服务。即使你只用 Spotify、Apple Music、YouTube Music 或其他任何一个，Trackhop 也能照看你的歌单。"
 one1_title: "保存 Discover Weekly"
@@ -137,3 +139,4 @@ instagram_alt: '在 Instagram 上关注 Trackhop'
 say_title: '大家怎么说'
 say_intro: '介绍 Trackhop 的视频和帖子下的评论，以及支持者的留言。已隐去名字和头像。'
 say_alt: 'Trackhop 用户的评论，以及两位支持者称赞自动同步和安全性的留言，以及 X 上称它为“a game changer for music lovers who use multiple platforms”的帖子'
+gallery_title: "看一看"

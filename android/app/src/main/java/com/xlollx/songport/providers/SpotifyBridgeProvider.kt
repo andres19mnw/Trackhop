@@ -3,6 +3,7 @@ package com.xlollx.songport.providers
 import android.content.Context
 import com.xlollx.songport.platform.Env
 import com.xlollx.songport.platform.android
+import com.xlollx.songport.platform.env
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -36,7 +37,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * changes. The Bridge shows the notice before sign-in. The official path with your own client ID
  * stays available as [SpotifyProvider].
  */
-class SpotifyBridgeProvider(override val slot: String = "") : MusicProvider, WebAccounts.Connector {
+class SpotifyBridgeProvider(override val slot: String = "") : MusicProvider, WebAccounts.Connector, StartsOver {
     override val serviceId = SERVICE
     override val displayName = if (BridgePlugin.builtIn) "Spotify (web)" else "Spotify (plugin)"
     override val route: MusicProvider.Route? get() = MusicProvider.Route.EASY
@@ -59,6 +60,8 @@ class SpotifyBridgeProvider(override val slot: String = "") : MusicProvider, Web
     override val notConfiguredName: String? = "bridge_needed_hint"
     /** The player's gateway is quick to say 429 to bursts: two searches at a time. */
     override val searchParallelism = 2
+    /** The connectors list one Spotify or YouTube Music playlist at a time (BridgeCore's lock): see [com.xlollx.songport.sync.ServiceReads]. */
+    override val readGate: String get() = BridgePlugin.BRIDGE_GATE
 
     override fun isConfigured(ctx: Env): Boolean =
         BridgePlugin.installed(ctx) && runCatching { call(ctx, "spotify.status").containsKey("connected") }.getOrDefault(false)
@@ -78,6 +81,8 @@ class SpotifyBridgeProvider(override val slot: String = "") : MusicProvider, Web
     override suspend fun completeAuth(ctx: Env, params: Map<String, String>, verifier: String) { /* the Bridge completes the login itself */ }
     override fun disconnect(ctx: Env) { runCatching { call(ctx, "spotify.disconnect") } }
 
+    // Start over: the Bridge forgets the session and the sites' data; an older one only signs out.
+    override fun startOver(ctx: Env) { runCatching { call(ctx, "spotify.reset") }.onFailure { disconnect(ctx) } }
     override suspend fun playlists(ctx: Env): List<Playlist> = io(ctx, "spotify.playlists") { j ->
         j.arr.mapNotNull { p -> toPlaylist(p) }
     }
@@ -92,17 +97,44 @@ class SpotifyBridgeProvider(override val slot: String = "") : MusicProvider, Web
         val out = ArrayList<Track>()
         var offset: Int? = 0
         while (offset != null) {
-            val b = call(ctx, "spotify.tracks", playlistId, Bundle().apply { putInt("offset", offset!!) })
+            val b = call(ctx, "spotify.tracks", playlistId, BridgePlugin.page(offset!!, MusicProvider.readsFresh()))
             out += parseJson(b.getString("json") ?: "[]").arr.mapNotNull { toTrack(it) }
             offset = if (b.containsKey("next")) b.getInt("next") else null
         }
         out
     }
 
+    /** Through the Bridge's `spotify.find`, which reads only until the tracks turn up; an older Bridge reads the whole playlist. */
+    override suspend fun findEntries(ctx: Env, playlistId: String, tracks: List<Track>, seen: (List<Track>) -> Unit): List<Track> {
+        if (MusicProvider.isLibrary(playlistId)) return super.findEntries(ctx, playlistId, tracks, seen)
+        return MusicProvider.entriesOrWhole(ctx, id, {
+            withContext(Dispatchers.IO) {
+                val b = call(ctx, "spotify.find", playlistId, Bundle().apply { putStringArray("ids", tracks.map { it.id }.distinct().toTypedArray()) })
+                parseJson(b.getString("json") ?: "[]").arr.mapNotNull { toTrack(it) }
+            }.also(seen)
+        }) { super.findEntries(ctx, playlistId, tracks, seen) }
+    }
+
     override suspend fun track(ctx: Env, trackId: String): Track? =
         io(ctx, "spotify.track", trackId) { j -> toTrack(j) }
 
     override fun webSearchUrl(ctx: Env, query: String): String = "https://open.spotify.com/search/" + Uri.encode(query)
+
+    /**
+     * What the user plays most in [period], as Spotify's own profile page shows it ("Top tracks
+     * this month"): the Bridge's `spotify.top`, read through the player's backend with the web
+     * session. A ranking, no counts. An older Bridge does not know the method: that is an error,
+     * and the poster or the Wrapped goes on without it.
+     */
+    suspend fun listening(ctx: Env, period: com.xlollx.songport.sync.Listening.Period): com.xlollx.songport.sync.Listening.Report {
+        val range = com.xlollx.songport.sync.Listening.spotifyWebRange(period) ?: throw ProviderException("Spotify: no top songs for ${period.key}")
+        return io(ctx, "spotify.top", range) { j ->
+            com.xlollx.songport.sync.Listening.Report(
+                tracks = j["tracks"].arr.mapNotNull { toTrack(it) }.map { com.xlollx.songport.sync.Listening.Play(it) },
+                artists = j["artists"].arr.mapNotNull { it.str?.takeIf { n -> n.isNotBlank() } }.map { com.xlollx.songport.sync.Listening.ArtistPlays(it) },
+            )
+        }
+    }
 
     override fun rehydrate(track: Track): Track = track.copy(uri = track.uri ?: uriOf(track))
 
@@ -144,6 +176,12 @@ class SpotifyBridgeProvider(override val slot: String = "") : MusicProvider, Web
         withContext(Dispatchers.IO) { call(ctx, "spotify.visibility", playlistId, Bundle().apply { putBoolean("public", public) }) }
     }
 
+    /** A playlist's picture, uploaded and set the way the web player's "Edit details" does. An older plugin does not know the method: no cover ([BridgePlugin.setCover]). */
+    override val canSetCover: Boolean get() = BridgePlugin.knows("spotify.setCover")
+    override val coverIsV2: Boolean get() = true
+    override suspend fun setPlaylistCover(ctx: Env, playlistId: String, jpeg: ByteArray) =
+        BridgePlugin.setCover("spotify.setCover", playlistId, jpeg) { m, id, extras -> call(ctx, m, id, extras) }
+
     override suspend fun deletePlaylist(ctx: Env, playlistId: String) {
         withContext(Dispatchers.IO) { call(ctx, "spotify.delete", playlistId) }
     }
@@ -173,6 +211,9 @@ class SpotifyBridgeProvider(override val slot: String = "") : MusicProvider, Web
             }
         }
     }
+
+    /** Entries go by a lasting id (or the track's own): one read a few minutes ago names the same entry, or none. */
+    override val keepsEntryIds: Boolean get() = true
 
     override suspend fun removeTracks(ctx: Env, playlistId: String, tracks: List<Track>) {
         if (tracks.isEmpty()) return
@@ -232,6 +273,8 @@ class SpotifyBridgeProvider(override val slot: String = "") : MusicProvider, Web
         } catch (e: Exception) {
             throw ProviderException("Connector plugin: ${e.message ?: e.javaClass.simpleName}")
         } ?: throw ProviderException("Connector plugin: no answer")
+        // A session gone for good is told once ("sign in again"); a signed-in listing that answers ends that.
+        com.xlollx.songport.sync.SessionKeepAlive.noticeAnswer(ctx, id, familyName, method, b)
         b.getString("error")?.let { throw ProviderException("Spotify (web): $it") }
         return b
     }
@@ -241,5 +284,77 @@ class SpotifyBridgeProvider(override val slot: String = "") : MusicProvider, Web
         const val LOGIN_ACTION = "com.xlollx.songport.ytmbridge.SPOTIFY_LOGIN"
         /** The status call of this service, which says whether the connectors take extra accounts. */
         const val STATUS = "spotify.status"
+
+        /**
+         * Concerts' Spotify source ([com.xlollx.songport.sync.SpotifyConcerts]): the tour dates of the
+         * player's artist pages, read with the session of the first Spotify (web) account connected,
+         * where the connectors are the full ones. No such account, or connectors too old to know the
+         * methods: nothing is asked and nothing is said.
+         */
+        fun concertsReader(app: Context): com.xlollx.songport.sync.SpotifyConcerts.Reader = object : com.xlollx.songport.sync.SpotifyConcerts.Reader {
+            private fun connected(): SpotifyBridgeProvider? {
+                val env = app.env
+                return Providers.connectors().filterIsInstance<SpotifyBridgeProvider>().firstOrNull { it.isConnected(env) }?.takeIf { BridgePlugin.full }
+            }
+
+            /** The connectors' answer; null when they do not know [method]. Their other errors throw. */
+            private fun ask(p: SpotifyBridgeProvider, method: String, arg: String): JsonElement? {
+                val b = BridgePlugin.call(app, method, arg, null, p.slot) ?: return null
+                b.getString("error")?.let { if (it.startsWith("unknown method")) return null; throw ProviderException("Spotify (web): $it") }
+                return parseJson(b.getString("json") ?: return null)
+            }
+
+            override suspend fun dates(artist: String) = withContext(Dispatchers.IO) {
+                val p = connected() ?: return@withContext null
+                ask(p, "spotify.concerts", artist)?.arr?.mapNotNull { concertDate(it) }
+            }
+
+            override suspend fun details(uri: String) = withContext(Dispatchers.IO) {
+                val p = connected() ?: return@withContext null
+                ask(p, "spotify.concert", uri)?.let { concertDate(it) }
+            }
+        }
+
+        /**
+         * Followed artists' alerts' extra source ([com.xlollx.songport.sync.ArtistAlerts.Feed]): the web
+         * player's "What's new", the latest releases of the artists followed on Spotify, read with the
+         * first Spotify (web) account connected, once per look. No such account, or connectors too old
+         * to know it: null, and the alerts ask each artist's own sources only, as before.
+         */
+        fun whatsNewFeed(app: Context): com.xlollx.songport.sync.ArtistAlerts.Feed = com.xlollx.songport.sync.ArtistAlerts.Feed {
+            withContext(Dispatchers.IO) {
+                val p = Providers.connectors().filterIsInstance<SpotifyBridgeProvider>().firstOrNull { it.isConnected(app.env) }?.takeIf { BridgePlugin.full }
+                    ?: return@withContext null
+                val b = BridgePlugin.call(app, "spotify.whatsNew", null, null, p.slot) ?: return@withContext null
+                b.getString("error")?.let { if (it.startsWith("unknown method")) return@withContext null; throw ProviderException("Spotify (web): $it") }
+                parseJson(b.getString("json") ?: return@withContext null).arr.mapNotNull { feedRelease(it) }
+            }
+        }
+
+        /** One release of the connectors' "What's new" answer; null for one without an album, a name or a day. */
+        internal fun feedRelease(j: JsonElement): com.xlollx.songport.sync.ArtistAlerts.FeedRelease? {
+            val uri = j["uri"].str?.takeIf { it.startsWith("spotify:album:") } ?: return null
+            val name = j["name"].str?.takeIf { it.isNotBlank() } ?: return null
+            val date = j["date"].str?.takeIf { it.length >= 7 } ?: return null
+            val type = when (j["type"].str?.uppercase()) {
+                "SINGLE" -> com.xlollx.songport.sync.NewReleases.Type.SINGLE
+                "EP" -> com.xlollx.songport.sync.NewReleases.Type.EP
+                else -> com.xlollx.songport.sync.NewReleases.Type.ALBUM
+            }
+            return com.xlollx.songport.sync.ArtistAlerts.FeedRelease(
+                artists = j["artists"].arr.mapNotNull { it.str }, title = name, type = type, date = date,
+                url = "https://open.spotify.com/album/" + uri.substringAfterLast(':'),
+            )
+        }
+
+        /** The connectors' ConcertDto. */
+        internal fun concertDate(j: JsonElement): com.xlollx.songport.sync.SpotifyConcerts.Date? {
+            val uri = j["uri"].str ?: return null
+            val start = j["start"].str ?: return null
+            return com.xlollx.songport.sync.SpotifyConcerts.Date(
+                uri = uri, title = j["title"].str.orEmpty(), start = start,
+                city = j["city"].str.orEmpty(), venue = j["venue"].str.orEmpty(), country = j["country"].str.orEmpty(),
+            )
+        }
     }
 }

@@ -30,6 +30,13 @@ import java.io.File
  * anywhere are blanked before writing.
  */
 class AmazonCaptureActivity : ComponentActivity() {
+    // "Change the picture" on a site opens the phone's file picker: without it the upload never happens.
+    private var fileCallback: android.webkit.ValueCallback<Array<android.net.Uri>>? = null
+    private val pickFile = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        fileCallback?.onReceiveValue(android.webkit.WebChromeClient.FileChooserParams.parseResult(r.resultCode, r.data))
+        fileCallback = null
+    }
+
     private lateinit var web: WebView
     private lateinit var frame: android.widget.FrameLayout
     private val popups = ArrayList<WebView>()
@@ -55,11 +62,20 @@ class AmazonCaptureActivity : ComponentActivity() {
         count = if (file.exists()) file.readLines().size else 0
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(16, 8, 16, 8) }
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL; setPadding(16, 8, 16, 8) }
         counter = TextView(this).apply { layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f) }
         val share = Button(this).apply { text = getString(R.string.bridge_amazon_capture_share); setOnClickListener { share() } }
         val clear = Button(this).apply { text = getString(R.string.bridge_amazon_capture_clear); setOnClickListener { file.delete(); count = 0; refresh() } }
-        bar.addView(counter); bar.addView(clear); bar.addView(share)
+        // A way out that doesn't depend on Back, which the site may take for itself.
+        val close = android.widget.ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            contentDescription = getString(R.string.bridge_capture_close)
+            background = null
+            val size = (48 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size)
+            setOnClickListener { leave() }
+        }
+        bar.addView(close); bar.addView(counter); bar.addView(clear); bar.addView(share)
         val hint = TextView(this).apply { text = if (site != null) getString(R.string.bridge_capture_site_intro, site) else getString(R.string.bridge_amazon_capture_intro); setPadding(16, 0, 16, 8); textSize = 12f }
         web = WebView(this)
         // The page and, above it, the popups a sign-in opens ("Continue with Google").
@@ -117,6 +133,11 @@ class AmazonCaptureActivity : ComponentActivity() {
         // page that opened it: a real second view, sharing the cookies, keeps that working.
         web.settings.apply { setSupportMultipleWindows(true); javaScriptCanOpenWindowsAutomatically = true }
         web.webChromeClient = object : android.webkit.WebChromeClient() {
+            override fun onShowFileChooser(view: WebView, callback: android.webkit.ValueCallback<Array<android.net.Uri>>, params: FileChooserParams): Boolean {
+                fileCallback?.onReceiveValue(null)
+                fileCallback = callback
+                return runCatching { pickFile.launch(params.createIntent()); true }.getOrElse { fileCallback = null; false }
+            }
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message): Boolean {
                 val popup = WebView(this@AmazonCaptureActivity).apply {
                     settings.apply { javaScriptEnabled = true; domStorageEnabled = true; setSupportMultipleWindows(true); javaScriptCanOpenWindowsAutomatically = true }
@@ -188,7 +209,7 @@ class AmazonCaptureActivity : ComponentActivity() {
         @JavascriptInterface
         fun log(line: String) {
             if (file.exists() && file.length() > MAX_BYTES) return
-            val safe = SECRETS.fold(TOKEN.replace(line, "\"accessToken\":\"[redacted]\"")) { s, r -> r.replace(s, "[redacted]") }
+            val safe = cleanLine(line)
             synchronized(this) { file.appendText(safe.replace('\n', ' ') + "\n") }
             count++
             runOnUiThread { refresh() }
@@ -213,7 +234,7 @@ class AmazonCaptureActivity : ComponentActivity() {
                 val i = kv.indexOf('=')
                 if (i < 0) kv else {
                     val name = runCatching { java.net.URLDecoder.decode(kv.substring(0, i), "UTF-8") }.getOrDefault(kv.substring(0, i))
-                    if (PERSONAL.containsMatchIn(name)) kv.substring(0, i) + "=[redacted]" else kv
+                    if (PERSONAL.containsMatchIn(name) || name.lowercase() in SESSION_NAMES) kv.substring(0, i) + "=[redacted]" else kv
                 }
             }
             return url.substring(0, q + 1) + query
@@ -229,6 +250,26 @@ class AmazonCaptureActivity : ComponentActivity() {
         const val EXTRA_URL = "url"
         private const val MAX_BYTES = 6L * 1024 * 1024
         private val TOKEN = Regex("\"accessToken\"\\s*:\\s*\"[^\"]*\"")
+
+        /**
+         * Session names whose values are the account itself (Anghami's `sid`, the player's
+         * `fingerprint` and device id): blanked in addresses and bodies, the names kept, so a capture
+         * still shows where the session travels (#53) without carrying it.
+         */
+        private val SESSION_NAMES = setOf("sid", "fingerprint", "udid", "deviceid", "sessionid", "session_id")
+        private val SESSION_VALUES = SESSION_NAMES.flatMap { n ->
+            listOf(
+                Regex("""(?i)(?<=(?:[?&;]|\\u0026)$n=)[^&"\s\\]+"""),
+                // JSON, also inside a string (a request body): "sid":"…" or \"sid\":\"…\"
+                Regex("""(?i)(?<="$n\\?"\s?:\s?\\?")[^"\\]+"""),
+            )
+        }
+
+        /** A line of the capture as it is written: tokens, JWTs and session values blanked. */
+        fun cleanLine(line: String): String {
+            val tokens = SECRETS.fold(TOKEN.replace(line, "\"accessToken\":\"[redacted]\"")) { s, r -> r.replace(s, "[redacted]") }
+            return SESSION_VALUES.fold(tokens) { s, r -> r.replace(s, "[redacted]") }
+        }
         /** Bearer tokens, JWTs and Amazon access tokens (Atna|…, Atza|…) wherever they appear. */
         private val SECRETS = listOf(
             Regex("Bearer\\s+[A-Za-z0-9._~+/=|-]+"),

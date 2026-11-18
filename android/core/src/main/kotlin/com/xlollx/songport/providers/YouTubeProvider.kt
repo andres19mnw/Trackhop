@@ -19,13 +19,18 @@ import com.xlollx.songport.net.parseJson
 import com.xlollx.songport.net.str
 import com.xlollx.songport.sync.Durations
 import com.xlollx.songport.sync.QuotaMeter
+import com.xlollx.songport.sync.Reorder
 import com.xlollx.songport.sync.TitleParser
 import kotlinx.serialization.json.JsonElement
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * YouTube Music non ha un'API pubblica: usiamo YouTube Data API v3, le playlist sono le stesse.
- * Quota: 10.000 unita'/giorno per progetto Google. Una ricerca costa 100, un inserimento 50:
- * ~60 brani nuovi al giorno per TUTTI gli utenti dell'app finche' Google non alza la quota.
+ * Quota (dal 1 giugno 2026): 100 ricerche al giorno per progetto Google, in un secchio a parte,
+ * piu' 10.000 unita' al giorno per tutto il resto (un inserimento 50, una lettura 1). Le ricerche
+ * non consumano piu' unita': ~100 brani nuovi al giorno per TUTTI gli utenti dell'app, limitati
+ * dalle ricerche, finche' Google non alza la quota. Vedi [QuotaMeter].
  * La cache degli abbinamenti (Store.matchCache) evita di ripetere le ricerche.
  */
 class YouTubeProvider(override val slot: String = "") : OAuthProvider() {
@@ -62,8 +67,9 @@ class YouTubeProvider(override val slot: String = "") : OAuthProvider() {
     override val authorizeEndpoint = "https://accounts.google.com/o/oauth2/v2/auth"
     override val tokenEndpoint = "https://oauth2.googleapis.com/token"
     override val scopes = "https://www.googleapis.com/auth/youtube"
-    // prompt=consent garantisce il refresh token anche ai riaccessi successivi.
-    override val extraAuthParams = mapOf("access_type" to "offline", "prompt" to "consent")
+    // prompt=consent garantisce il refresh token anche ai riaccessi successivi. select_account: Google's
+    // chooser every time, where a brand account's channel is picked (#41; the API has no channel switch).
+    override val extraAuthParams = mapOf("access_type" to "offline", "prompt" to "consent select_account")
     // Extra accounts: Google shows the account chooser instead of reusing the signed-in one.
     override val switchAccountParams = mapOf("prompt" to "consent select_account")
 
@@ -140,18 +146,7 @@ class YouTubeProvider(override val slot: String = "") : OAuthProvider() {
         val raws = ArrayList<Raw>()
         var page: String? = null
         do {
-            val j = try {
-                counted(ctx, QuotaMeter.COST_LIST) { api(ctx, "GET", "$API/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=$playlistId" +
-                    (page?.let { "&pageToken=$it" } ?: "")) }
-            } catch (e: ProviderException) {
-                // The Data API answers 404 "playlist cannot be found" for a playlist that exists but is
-                // empty (typically one just created). Check the playlist itself before giving up.
-                if (page == null && e.message?.contains("cannot be found") == true && isEmptyPlaylist(ctx, playlistId)) {
-                    ctx.log(id, "playlist $playlistId is empty; YouTube reports it as not found")
-                    return emptyList()
-                }
-                throw e
-            }
+            val j = itemsPage(ctx, playlistId, page) ?: return emptyList()
             for (item in j["items"].arr) {
                 val vid = item["contentDetails"]["videoId"].str ?: continue
                 val title = item["snippet"]["title"].str ?: continue
@@ -175,6 +170,39 @@ class YouTubeProvider(override val slot: String = "") : OAuthProvider() {
             Track(id = r.videoId, title = title, artists = artists, durationMs = durations[r.videoId] ?: 0, itemId = r.itemId)
         }
     }
+
+    /** One page of a playlist's entries (fifty); null for an empty playlist. */
+    private suspend fun itemsPage(ctx: Env, playlistId: String, page: String?): JsonElement? = try {
+        counted(ctx, QuotaMeter.COST_LIST) { api(ctx, "GET", "$API/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=$playlistId" +
+            (page?.let { "&pageToken=$it" } ?: "")) }
+    } catch (e: ProviderException) {
+        // The Data API answers 404 "playlist cannot be found" for a playlist that exists but is
+        // empty (typically one just created). Check the playlist itself before giving up.
+        if (page == null && e.message?.contains("cannot be found") == true && isEmptyPlaylist(ctx, playlistId)) {
+            ctx.log(id, "playlist $playlistId is empty; YouTube reports it as not found")
+            null
+        } else throw e
+    }
+
+    /**
+     * Page after page, stopping at the last wanted track; the entries without the durations
+     * (a removal needs only the entry id), so no quota spent on them.
+     */
+    override suspend fun findEntries(ctx: Env, playlistId: String, tracks: List<Track>, seen: (List<Track>) -> Unit): List<Track> {
+        if (playlistId == MusicProvider.LIKED_ID) return super.findEntries(ctx, playlistId, tracks, seen)
+        return MusicProvider.entriesInPages(tracks, seen) { page ->
+            val j = itemsPage(ctx, playlistId, page) ?: return@entriesInPages emptyList<Track>() to null
+            j["items"].arr.mapNotNull { item ->
+                val vid = item["contentDetails"]["videoId"].str ?: return@mapNotNull null
+                val title = item["snippet"]["title"].str ?: return@mapNotNull null
+                if (title == "Private video" || title == "Deleted video") return@mapNotNull null
+                val (name, artists) = TitleParser.parseYouTube(title, item["snippet"]["videoOwnerChannelTitle"].str)
+                Track(id = vid, title = name, artists = artists, itemId = item["id"].str ?: return@mapNotNull null)
+            } to j["nextPageToken"].str
+        }
+    }
+
+    override val keepsEntryIds: Boolean get() = true
 
     override val detectsUnplayable: Boolean get() = true
 
@@ -226,7 +254,8 @@ class YouTubeProvider(override val slot: String = "") : OAuthProvider() {
 
     override suspend fun search(ctx: Env, track: Track): List<Track> {
         val q = (track.artists.take(2) + track.title).joinToString(" ")
-        val s = counted(ctx, QuotaMeter.COST_SEARCH) { api(ctx, "GET", "$API/search?part=snippet&type=video&videoCategoryId=10&maxResults=5&q=${Http.enc(q)}") }
+        // search.list has its own bucket since 2026-06-01 (100 calls a day): no units, one search.
+        val s = api(ctx, "GET", "$API/search?part=snippet&type=video&videoCategoryId=10&maxResults=5&q=${Http.enc(q)}").also { QuotaMeter.addSearch(ctx, serviceId) }
         val ids = s["items"].arr.mapNotNull { it["id"]["videoId"].str }
         if (ids.isEmpty()) return emptyList()
         val v = counted(ctx, QuotaMeter.COST_LIST) { api(ctx, "GET", "$API/videos?part=snippet,contentDetails&id=${ids.joinToString(",")}") }
@@ -303,6 +332,35 @@ class YouTubeProvider(override val slot: String = "") : OAuthProvider() {
         }
     }
 
+    /**
+     * A playlist's picture: its "hero" image through playlistImages, the image itself in a
+     * multipart upload (the scope the sign-in already has). The playlist's current one is looked
+     * up first (a unit of quota), then replaced or added (fifty units, as any write). A cover is a
+     * nicety: it is not set once the day's estimated quota leaves too little for the tracks.
+     */
+    override val canSetCover: Boolean get() = true
+    override val coverIsV2: Boolean get() = true
+
+    override suspend fun setPlaylistCover(ctx: Env, playlistId: String, jpeg: ByteArray) {
+        val used = QuotaMeter.used(ctx.store.data, serviceId)
+        if (used + QuotaMeter.COST_LIST + QuotaMeter.COST_WRITE > QuotaMeter.YOUTUBE_DAILY * COVER_QUOTA_SHARE / 100) {
+            throw ProviderException("$displayName: cover not set, the day's quota is kept for the tracks")
+        }
+        val listed = authorized(ctx, "GET", "$API/playlistImages?part=id&parent=${Http.enc(playlistId)}", null)
+        QuotaMeter.add(ctx, serviceId, QuotaMeter.COST_LIST)
+        if (!listed.ok) throw ProviderException("$displayName: cover not set (HTTP ${listed.code}: ${errorMessage(listed).take(120)})")
+        val current = parseJson(listed.body)["items"][0]["id"].str
+        val meta = jsonObj(*listOfNotNull(current?.let { "id" to it }).toTypedArray(),
+            "snippet" to mapOf("playlistId" to playlistId, "type" to "hero"))
+        val body = okhttp3.MultipartBody.Builder().setType("multipart/related".toMediaType())
+            .addPart(meta.toString().toRequestBody("application/json; charset=UTF-8".toMediaType()))
+            .addPart(jpeg.toRequestBody("image/jpeg".toMediaType()))
+            .build()
+        val resp = authorized(ctx, if (current != null) "PUT" else "POST", "$UPLOAD/playlistImages?part=snippet&uploadType=multipart", body)
+        QuotaMeter.add(ctx, serviceId, QuotaMeter.COST_WRITE)
+        if (!resp.ok) throw ProviderException("$displayName: cover not set (HTTP ${resp.code}: ${errorMessage(resp).take(120)})")
+    }
+
     override suspend fun deletePlaylist(ctx: Env, playlistId: String) {
         counted(ctx, QuotaMeter.COST_WRITE) { api(ctx, "DELETE", "$API/playlists?id=$playlistId") }
     }
@@ -327,6 +385,7 @@ class YouTubeProvider(override val slot: String = "") : OAuthProvider() {
         for (t in tracks) counted(ctx, QuotaMeter.COST_WRITE) { api(ctx, "POST", "$API/videos/rate?id=${Http.enc(t.id)}&rating=$rating") }
     }
 
+    override val removesSingleEntry: Boolean get() = true
     override suspend fun removeTracks(ctx: Env, playlistId: String, tracks: List<Track>) {
         if (playlistId == MusicProvider.LIKED_ID) return rate(ctx, tracks, "none")
         for (t in tracks) {
@@ -335,9 +394,69 @@ class YouTubeProvider(override val slot: String = "") : OAuthProvider() {
         }
     }
 
+    /**
+     * Puts the entries in [ordered]'s order with playlistItems.update (`snippet.position`), the
+     * fewest moves ([Reorder.moves]); only where a sync keeps the source's order. Each move costs a
+     * write (50 units), so the moves are counted first: when the day's quota as [QuotaMeter] counts
+     * it would not cover them all, none is made and the order stays as it is ([Reorder.Skipped],
+     * logged). Positions count every entry, the private and deleted videos [tracks] leaves out
+     * included, so the whole playlist is read for them (one unit a page).
+     */
+    override val canReorder: Boolean get() = true
+    override val reorderIsV2: Boolean get() = true
+    override suspend fun reorderTracks(ctx: Env, playlistId: String, current: List<Track>, ordered: List<Track>) {
+        if (MusicProvider.isLibrary(playlistId)) return
+        if (!MusicProvider.addsInOrder()) throw Reorder.Skipped("YouTube: moves cost quota, made only for a sync that keeps the order")
+        if (current.any { it.itemId.isNullOrEmpty() } || ordered.any { it.itemId.isNullOrEmpty() }) throw Reorder.Skipped("YouTube: an entry without its item id")
+        val listed = current.map { it.itemId!! }
+        val wanted = ordered.map { it.itemId!! }
+        if (wanted.toSet() != listed.toSet() || wanted.size != listed.size) throw Reorder.Skipped("YouTube: the order asked for is not the playlist's entries")
+        if (Reorder.moves(listed, wanted).isEmpty()) return
+        val all = ArrayList<Pair<String, String>>() // entry id to video id, every entry in playlist order
+        var page: String? = null
+        do {
+            val j = itemsPage(ctx, playlistId, page) ?: break
+            for (item in j["items"].arr) {
+                val itemId = item["id"].str ?: continue
+                all += itemId to (item["contentDetails"]["videoId"].str ?: item["snippet"]["resourceId"]["videoId"].str ?: "")
+            }
+            page = j["nextPageToken"].str
+        } while (page != null)
+        val ids = all.map { it.first }
+        val shown = listed.toHashSet()
+        if (ids.filter { it in shown } != listed) throw Reorder.Skipped("YouTube: the playlist changed while it was being reordered")
+        // The wanted order in the places of the entries listed; the others stay where they are.
+        val queue = ArrayDeque(wanted)
+        val desired = ids.map { if (it in shown) queue.removeFirst() else it }
+        val moves = Reorder.moves(ids, desired)
+        if (moves.isEmpty()) return
+        val cost = moves.size * QuotaMeter.COST_WRITE
+        val used = QuotaMeter.used(ctx.store.data, serviceId)
+        if (used + cost > QuotaMeter.YOUTUBE_DAILY) throw Reorder.Skipped("YouTube: ${moves.size} moves need $cost quota units, $used of ${QuotaMeter.YOUTUBE_DAILY} counted today")
+        val video = all.toMap()
+        val cur = ids.toMutableList()
+        for ((from, to) in moves) {
+            val item = cur.removeAt(from)
+            cur.add(to, item)
+            val videoId = video[item].orEmpty().ifEmpty { throw Reorder.Skipped("YouTube: entry $item has no video id") }
+            try {
+                counted(ctx, QuotaMeter.COST_WRITE) {
+                    api(ctx, "PUT", "$API/playlistItems?part=snippet", jsonObj("id" to item, "snippet" to mapOf(
+                        "playlistId" to playlistId, "resourceId" to mapOf("kind" to "youtube#video", "videoId" to videoId), "position" to to,
+                    )))
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+                throw Reorder.Skipped("YouTube: ${e.message?.take(160) ?: e.javaClass.simpleName}")
+            }
+        }
+    }
+
     companion object {
         const val SERVICE = "youtube"
         private const val API = "https://www.googleapis.com/youtube/v3"
+        private const val UPLOAD = "https://www.googleapis.com/upload/youtube/v3"
+        /** A cover is set only while the day's estimated quota stays under this share (percent) of the limit. */
+        private const val COVER_QUOTA_SHARE = 80
 
         /** The music videos of a page of videos.list (category 10, "Music"), as tracks. */
         internal fun likedFrom(page: JsonElement): List<Track> = page["items"].arr.mapNotNull { v ->

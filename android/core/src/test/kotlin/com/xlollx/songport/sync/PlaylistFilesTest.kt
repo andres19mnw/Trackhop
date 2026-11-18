@@ -178,13 +178,14 @@ class PlaylistFilesTest {
         val html = """<html><head><meta property="og:title" content="Daft Punk Setlist at Bercy, Paris, France"></head>
             <body><a class="songLabel" href="#">One More Time</a><a class="songLabel" href="#">Get Lucky</a>
             <a class="songLabel">Rock &amp; Roll (Led Zeppelin cover)</a></body></html>"""
-        val s = SetlistImport.parse(html)
+        val s = SetlistImport.fromPage(html, "https://www.setlist.fm/setlist/daft-punk/2007/bercy-paris-france-1bd6c5a8.html")
         assertEquals("Daft Punk", s.artist)
-        assertEquals(3, s.tracks.size)
-        assertEquals(listOf("Daft Punk"), s.tracks[0].artists)
-        assertEquals("Rock & Roll", s.tracks[2].title)
-        assertEquals(listOf("Led Zeppelin"), s.tracks[2].artists)
-        assertTrue(s.name.startsWith("Daft Punk"))
+        val tracks = Setlists.tracks(s)
+        assertEquals(3, tracks.size)
+        assertEquals(listOf("Daft Punk"), tracks[0].artists)
+        assertEquals("Rock & Roll", tracks[2].title)
+        assertEquals(listOf("Led Zeppelin"), tracks[2].artists)
+        assertTrue(Setlists.playlistName(s).startsWith("Daft Punk"))
     }
 
     @Test fun readsOpmlSubscriptions() {
@@ -261,5 +262,83 @@ class PlaylistFilesTest {
         val back = PlaylistFiles.parse("x.m3u8", PlaylistFiles.decode(PlaylistFiles.toM3u(tracks).toByteArray()))
         assertEquals(named(tracks), named(back))
         assertEquals(listOf(8_000L, 8_000L), back.map { it.durationMs })
+    }
+
+    // #49: names laid out "Artist - Album - Track".
+    @Test fun threePartNamesReadAsArtistAlbumTitleWhenMostLinesHaveThem() {
+        val m3u = """
+            #EXTM3U
+            #EXTINF:200,Radiohead - OK Computer - Karma Police
+            a.mp3
+            #EXTINF:210,Daft Punk - Discovery - 01 - One More Time
+            b.mp3
+            #EXTINF:180,Muse - Absolution - Hysteria
+            c.mp3
+        """.trimIndent()
+        val t = PlaylistFiles.parse("mix.m3u", m3u)
+        assertEquals(listOf("Karma Police", "One More Time", "Hysteria"), t.map { it.title })
+        assertEquals(listOf("OK Computer", "Discovery", "Absolution"), t.map { it.album })
+        assertEquals(listOf("Radiohead"), t[0].artists)
+        assertEquals(200_000L, t[0].durationMs)
+        assertEquals(PlaylistFiles.parse("x.txt", "Radiohead - Karma Police")[0].id.length, t[0].id.length)
+    }
+
+    @Test fun aFewThreePartNamesStayTitlesInAutomatic() {
+        val text = "Daft Punk - One More Time - Radio Edit\nNirvana - Smells Like Teen Spirit\nMuse - Hysteria\nAdele - Hello\n"
+        val t = PlaylistFiles.parse("list.txt", text)
+        assertEquals("One More Time - Radio Edit", t[0].title)
+        assertEquals("", t[0].album)
+    }
+
+    @Test fun theLayoutCanBeChosen() {
+        val text = "Daft Punk - One More Time - Radio Edit\nNirvana - Smells Like Teen Spirit\n"
+        val three = PlaylistFiles.parse("list.txt", text, PlaylistFiles.NameLayout.ARTIST_ALBUM_TITLE)
+        assertEquals("Radio Edit", three[0].title)
+        assertEquals("One More Time", three[0].album)
+        assertEquals("Smells Like Teen Spirit", three[1].title)
+        val two = PlaylistFiles.parse("list.txt", "A - B - C\nD - E - F\n", PlaylistFiles.NameLayout.ARTIST_TITLE)
+        assertEquals(listOf("B - C", "E - F"), two.map { it.title })
+        assertEquals(PlaylistFiles.NameLayout.AUTO, PlaylistFiles.NameLayout.of("nonsense"))
+    }
+
+    @Test fun columnsAreNeverSplit() {
+        val csv = "title,artist\nOne More Time - Radio Edit,Daft Punk\nSong - Live,Band\n"
+        val t = PlaylistFiles.parse("x.csv", csv, PlaylistFiles.NameLayout.ARTIST_ALBUM_TITLE)
+        assertEquals(listOf("One More Time - Radio Edit", "Song - Live"), t.map { it.title })
+    }
+
+    @Test fun libraryPathsKeepTheirFolders() {
+        val m3u = "Radiohead/OK Computer/06 Karma Police.mp3\nMuse/Absolution/Hysteria.mp3\n"
+        val t = PlaylistFiles.parse("lib.m3u", m3u)
+        assertEquals(listOf("Karma Police", "Hysteria"), t.map { it.title })
+        assertEquals(listOf("OK Computer", "Absolution"), t.map { it.album })
+    }
+
+    // #49, the reporter's own lines: library paths with discographies, disc folders, years and
+    // "Artist - Album - 02 Title" file names.
+    @Test fun libraryPathsAsTheyComeFromAPhone() {
+        val m3u = listOf(
+            "F9FF-3A77/Music/Childish Gambino/2016.12 - Awaken, My Love!/06 Redbone.m4a",
+            "#EXT-X-RATING:0",
+            "F9FF-3A77/Music/Diamond Jack Soundtrack/Connor Spiotto - The Villain I Appear to Be.mp3",
+            "#EXT-X-RATING:0",
+            "F9FF-3A77/Music/Sault/SAULT - 'NINE'/SAULT - 'NINE' - 02 London Gangs.mp3",
+            "#EXT-X-RATING:0",
+            "F9FF-3A77/Music/Sex Pistols/1977 - Never Mind The Bollocks and Spunk (Released 1996)/(Disc 1) Never Mind The Bollocks (Original)/10. Pretty Vacant.mp3",
+            "#EXT-X-RATING:0",
+            "F9FF-3A77/Music/Deftones/Deftones - Discography/Demo albums/1993 - (Like) Linus/01 - Like (Linus) -A.mp3",
+        ).joinToString("\n")
+        val t = PlaylistFiles.parse("mine.m3u", m3u)
+        assertEquals(listOf("Redbone", "The Villain I Appear to Be", "London Gangs", "Pretty Vacant", "Like (Linus) -A"), t.map { it.title })
+        assertEquals(listOf("Childish Gambino", "Connor Spiotto", "SAULT", "Sex Pistols", "Deftones"), t.map { it.artistLine })
+        assertEquals(listOf("Awaken, My Love!", "", "'NINE'", "Never Mind The Bollocks and Spunk (Released 1996)", "(Like) Linus"), t.map { it.album })
+    }
+
+    @Test fun pathsOutsideAMusicFolderKeepTheOldReading() {
+        assertEquals("Artist", PlaylistFiles.fromPath("Artist/Album/01 Title.mp3").artistLine)
+        assertEquals("Album", PlaylistFiles.fromPath("Artist/Album/01 Title.mp3").album)
+        assertEquals(emptyList<String>(), PlaylistFiles.fromPath("/storage/emulated/0/Download/Title.mp3").artists)
+        assertEquals(emptyList<String>(), PlaylistFiles.fromPath("Music/Some Album/Title.mp3").artists)
+        assertEquals("1989", PlaylistFiles.fromPath("Music/Taylor Swift/1989/Style.mp3").album)
     }
 }

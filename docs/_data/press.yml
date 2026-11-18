@@ -1,5 +1,11 @@
 # "They talk about Trackhop": videos and articles that mention it, newest first. Checked weekly.
 # kind: video or article; lang: the language it is in.
+- title: "Trackhop：一个可以让不同音乐平台的歌单永久保持同步的开源项目"
+  source: Melooo (@BlackMelooo) on X
+  url: https://x.com/BlackMelooo/status/2121775365316358279
+  kind: article
+  lang: zh
+  date: 2026-11-15
 - title: "نظرة على تطبيق Trackhop | مزامنة قوائم التشغيل بين خدمات الموسيقى على أندرويد"
   source: Saudi Android (سعودي اندرويد)
   url: https://www.saudiandroid.net/2026/11/trackhop-playlist-sync-app.html

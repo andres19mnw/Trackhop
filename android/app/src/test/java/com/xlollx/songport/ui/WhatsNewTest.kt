@@ -38,6 +38,9 @@ class WhatsNewTest {
 
     @Test fun versionsCompareAsNumbers() {
         assertTrue(WhatsNew.compareVersions("1.10", "1.9") > 0)
+        assertTrue(WhatsNew.compareVersions("2.0", "1.17") > 0)
+        assertTrue(WhatsNew.compareVersions("2.0", "1.16.3") > 0)
+        assertEquals(0, WhatsNew.compareVersions("2.0", "2.0.0"))
         assertTrue(WhatsNew.compareVersions("1.4", "1.3.10") > 0)
         assertEquals(0, WhatsNew.compareVersions("1.4", "1.4.0"))
         assertTrue(WhatsNew.compareVersions("1.4", "1.4.1") < 0)
@@ -49,10 +52,23 @@ class WhatsNewTest {
     @Test fun theAppsOwnListIsNewestFirstAndDueOnlyAfterAnUpdate() {
         val versions = WhatsNew.releases.map { it.version }
         assertEquals(versions, versions.sortedWith { a, b -> WhatsNew.compareVersions(b, a) })
-        assertEquals("1.15", WhatsNew.newestVersion)
+        assertEquals("2.0", WhatsNew.newestVersion)
         assertTrue(WhatsNew.releases.all { it.items.isNotEmpty() })
         assertEquals(listOf(WhatsNew.newestVersion), WhatsNew.due(Settings(onboardingDone = true)).map { it.version }.take(1))
         assertTrue(WhatsNew.due(Settings(onboardingDone = false)).isEmpty())
         assertTrue(WhatsNew.due(Settings(onboardingDone = true, whatsNewSeen = WhatsNew.newestVersion)).isEmpty())
+    }
+
+    @Test fun twoPointZeroOpensWithGooglePlayAndHoldsTheUnreleasedOneSeventeen() {
+        val versions = WhatsNew.releases.map { it.version }
+        // 1.17 was never released on its own: its highlights are in 2.0.
+        assertTrue("1.17" !in versions)
+        val two = WhatsNew.releases.first()
+        assertEquals(com.xlollx.songport.R.string.whats_new_20_celebrate_title, two.items.first().title)
+        assertTrue(two.items.any { it.title == com.xlollx.songport.R.string.whats_new_117_look_title })
+        assertTrue(two.items.any { it.title == com.xlollx.songport.R.string.whats_new_119_shared_title })
+        // Someone coming from 1.16.3 sees 2.0 first, then the releases before it.
+        assertEquals(listOf("2.0"), WhatsNew.versionsToShow(versions, seen = "1.16.3", onboardingDone = true))
+        assertEquals(listOf("2.0", "1.16", "1.15"), WhatsNew.versionsToShow(versions, seen = "", onboardingDone = true))
     }
 }

@@ -15,6 +15,13 @@ data class LoginForm(
     val hintName: String,
     /** The secret field is shown but may stay empty (a token that only some features need). */
     val secretOptional: Boolean = false,
+    /** The user field is shown but may stay empty (a server that asks for a sign-in only when protected). */
+    val userOptional: Boolean = false,
+    /**
+     * A second way in, chosen on the form: an API key in place of the user and password
+     * ([CredentialsProvider.loginWithApiKey]). The form then shows the address and the key only.
+     */
+    val offersApiKey: Boolean = false,
 )
 
 /**
@@ -27,6 +34,10 @@ abstract class CredentialsProvider : MusicProvider {
 
     /** Verifica le credenziali contro il servizio e, se valide, le salva. Lancia se non valide. */
     abstract suspend fun login(ctx: Env, url: String, user: String, secret: String)
+
+    /** Signs in with an API key instead of a password, where [LoginForm.offersApiKey] says the service has one. */
+    open suspend fun loginWithApiKey(ctx: Env, url: String, apiKey: String): Unit =
+        throw ProviderException(ctx.text("error_read_only", displayName))
 
     override fun isConfigured(ctx: Env) = true
     override fun isConnected(ctx: Env) = ctx.tokens.get(id) != null

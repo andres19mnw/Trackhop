@@ -1,0 +1,472 @@
+package com.xlollx.songport.sync
+
+import com.xlollx.songport.model.PlaylistRef
+import com.xlollx.songport.model.SyncJob
+import com.xlollx.songport.model.SyncReport
+import com.xlollx.songport.model.Track
+import com.xlollx.songport.providers.LocalFilesProvider
+import com.xlollx.songport.net.Http
+import com.xlollx.songport.net.Pacer
+import com.xlollx.songport.net.arr
+import com.xlollx.songport.net.bool
+import com.xlollx.songport.net.get
+import com.xlollx.songport.net.int
+import com.xlollx.songport.net.json
+import com.xlollx.songport.net.parseJson
+import com.xlollx.songport.net.str
+import com.xlollx.songport.platform.BuildDefaults
+import com.xlollx.songport.platform.Env
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonElement
+import java.net.URLEncoder
+import java.time.Instant
+import java.time.temporal.ChronoUnit
+
+/**
+ * "Setlists of the artists of this playlist" (Discover), and setlist.fm links shared or pasted
+ * ([SetlistImport]): the official setlist.fm API (https://api.setlist.fm/docs/1.0/).
+ *
+ * The API needs a key (header x-api-key): the user's own, in the token vault ([KEY_ID],
+ * [ServiceKeys]), or on Docker and Desktop the one the server was given ([BUILD_KEY], the
+ * environment's SETLISTFM_API_KEY). The app's builds carry none: setlist.fm's API terms forbid
+ * sharing a key. A key has 2 calls a second and 1440 a day: so calls are spaced ([pace]), counted
+ * per day on this device ([DAILY]), sent only when the user asks (never in the background), at most
+ * [LookupCaps.SETLISTS] artists of a whole playlist are looked up, each artist's answer is kept a week
+ * ([TTL_MS]), and when the day's calls are gone it stops and says so ([Result.quotaHit]) until the
+ * next day (UTC).
+ *
+ * setlist.fm's API terms: non-commercial use only, and the data shown with attribution, the link
+ * each answer carries ([Setlist.url]) plus "Setlists from setlist.fm" ([ATTRIBUTION], [HOME]).
+ *
+ * Without a key, when the caller allows it (`keyless`, the app), the setlists MusicBrainz's events
+ * carry: free and keyless (one request a second, [MusicBrainz.pace]), far fewer than setlist.fm's
+ * (a few concerts per artist, mostly big tours and festivals), so the key stays the way to all of
+ * them. setlist.fm's own pages are never read for this: its terms forbid "any computer program,
+ * bot, robot, spider, offline reader, site search/retrieval application" on the site.
+ */
+object Setlists {
+    /** The user's own key, in the token vault ([ServiceKeys]). */
+    const val KEY_ID = "setlistfm"
+    /** The server's key, through BuildDefaults (the environment on a server; the app's builds have none). */
+    const val BUILD_KEY = "SETLISTFM_API_KEY"
+    /** How many artists one search looks up: fewer on the shared key, to spare everyone's daily calls. */
+    /** The latest setlists kept per artist (with songs: the announced, empty ones are left out). */
+    const val PER_ARTIST = 5
+    const val TTL_MS = 7L * 24 * 3_600_000
+    /** setlist.fm's daily calls per key. */
+    const val DAILY = 1440
+    /** Where a free setlist.fm account is made (signing in with Google or Facebook still asks to register). */
+    const val SIGNUP_URL = "https://www.setlist.fm/signup"
+    /** Where to ask for a key, signed in: a new "application", then its key is shown. */
+    const val KEY_URL = "https://www.setlist.fm/settings/api"
+    /** A ready description for that application: setlist.fm asks for at least 30 characters. */
+    const val KEY_DESCRIPTION = "Personal use: setlists to playlists in Trackhop"
+    const val HOME = "https://www.setlist.fm/"
+    const val ATTRIBUTION = "Setlists from setlist.fm"
+    const val MB_HOME = "https://musicbrainz.org/"
+    const val MB_ATTRIBUTION = "Setlists from MusicBrainz"
+    /** Without a key, the pages of an artist's MusicBrainz events read (100 each): the setlists are among them, in no order. */
+    const val MB_PAGES = 2
+
+    enum class Source { SETLISTFM, MUSICBRAINZ }
+
+    /** One song as played: [by] the original artist of a cover; [tape] played from a tape (an intro); [encore] 0 = the main set. */
+    @Serializable
+    data class Song(val title: String, val by: String? = null, val tape: Boolean = false, val encore: Int = 0)
+
+    /** One concert's setlist: [date] is yyyy-MM-dd, [country] ISO 3166 (two letters), [url] its setlist.fm page. */
+    @Serializable
+    data class Setlist(
+        val id: String,
+        val artist: String,
+        val date: String,
+        val venue: String = "",
+        val city: String = "",
+        val country: String = "",
+        val tour: String = "",
+        val url: String = "",
+        val songs: List<Song> = emptyList(),
+    )
+
+    data class ArtistSetlists(val artist: String, val setlists: List<Setlist>)
+
+    data class Result(
+        /** Artists with setlists first (the latest concert first), then those without. */
+        val artists: List<ArtistSetlists>,
+        /** The artists asked for, before [LookupCaps.SETLISTS]. */
+        val total: Int,
+        /** A key is there: without one nothing is asked. */
+        val hasKey: Boolean,
+        val ownKey: Boolean,
+        /** The day's calls ran out: some artists were not looked up. */
+        val quotaHit: Boolean,
+        /** setlist.fm refused the key (401/403). */
+        val keyRefused: Boolean,
+        /** Artists setlist.fm did not answer for (an error, not "no setlists"). */
+        val unanswered: Int = 0,
+        /** Where the setlists come from: MusicBrainz without a key. */
+        val source: Source = Source.SETLISTFM,
+    )
+
+    // Tests point these at a local server and a fixed clock.
+    @Volatile internal var base = "https://api.setlist.fm/rest/1.0"
+    @Volatile internal var now: () -> Long = { System.currentTimeMillis() }
+    /** Under setlist.fm's 2 a second, for the whole process. */
+    @Volatile var pace = Pacer(550)
+        internal set
+
+    private const val CACHE = "setlists"
+    private const val STATE = "setlists_state"
+    private val LINK_ID = Regex("""-([0-9a-f]{5,12})\.html""", RegexOption.IGNORE_CASE)
+
+    fun ownKey(env: Env): String? = ServiceKeys.get(env, KEY_ID)
+
+    /** The key used: the user's, else the server's; null when there is none. */
+    fun key(env: Env): String? = ownKey(env) ?: BuildDefaults[BUILD_KEY].trim().takeIf { it.isNotEmpty() }
+
+    /** Saves the user's own key (blank removes it). */
+    fun saveKey(env: Env, key: String) = ServiceKeys.save(env, KEY_ID, key)
+
+    /** The artists to look up, the ones the playlist holds most first (the same pick as Concerts). */
+    fun artistsOf(tracks: List<Track>): List<String> = Concerts.artistsOf(tracks)
+
+    /** The setlist id at the end of a setlist.fm link (".../venue-city-63de4613.html"). */
+    fun idFromLink(url: String): String? = LINK_ID.findAll(url.substringBefore('?')).lastOrNull()?.groupValues?.get(1)?.lowercase()
+
+    /** The songs of a setlist as tracks, in the order played (encores last): the tapes left out, a cover under its original artist. */
+    fun tracks(s: Setlist): List<Track> = s.songs.filter { !it.tape && it.title.isNotBlank() }.map { song ->
+        CsvCodec.withStableId(Track(id = "", title = song.title, artists = listOfNotNull((song.by ?: s.artist).takeIf { it.isNotBlank() })))
+    }
+
+    /** The playlist's name: "Artist · Venue, City · 2026-11-08". */
+    fun playlistName(s: Setlist): String =
+        listOf(s.artist, listOf(s.venue, s.city).filter { it.isNotBlank() }.joinToString(", "), s.date).filter { it.isNotBlank() }.joinToString(" · ")
+
+    /** The day's calls ran out: the next call is not worth sending. */
+    class QuotaGone : Exception("setlist.fm: today's limit reached. Try again tomorrow.")
+    class KeyRefused : Exception("setlist.fm refused the key: check it in Settings.")
+
+    /**
+     * The latest setlists of [artists] ([PER_ARTIST] each). [progress] gets (done, total). Never
+     * throws for one artist's failure: that artist just has none. Without a key nothing is asked.
+     */
+    suspend fun find(env: Env, artists: List<String>, whole: Boolean = true, keyless: Boolean = false, partial: (Result) -> Unit = {}, progress: (Int, Int) -> Unit = { _, _ -> }): Result {
+        val key = key(env)
+        val own = ownKey(env) != null
+        val asked = artists.map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { norm(it) }
+        if (key == null && keyless) return findOnMusicBrainz(env, asked, whole, progress)
+        if (key == null) return Result(emptyList(), asked.size, hasKey = false, ownKey = false, quotaHit = false, keyRefused = false)
+        val list = LookupCaps.cut(asked, LookupCaps.SETLISTS, whole)
+        var quotaHit = false
+        var refused = false
+        var unanswered = 0
+        val out = ArrayList<ArtistSetlists>()
+        list.forEachIndexed { i, artist ->
+            progress(i, list.size)
+            val found = cachedArtist(env, artist) ?: if (quotaHit || refused) null else try {
+                searchArtist(env, key, artist)
+            } catch (e: QuotaGone) {
+                quotaHit = true; null
+            } catch (e: KeyRefused) {
+                refused = true; null
+            }
+            if (found == null && !quotaHit && !refused) unanswered++
+            out += ArtistSetlists(artist, found.orEmpty())
+            // What is found so far: kept when the user stops the search.
+            partial(result(out, asked.size, own, quotaHit, refused, unanswered))
+        }
+        progress(list.size, list.size)
+        if (quotaHit) env.log("setlists", "setlist.fm: today's limit reached")
+        return result(out, asked.size, own, quotaHit, refused, unanswered)
+    }
+
+    private fun result(out: List<ArtistSetlists>, total: Int, own: Boolean, quotaHit: Boolean, refused: Boolean, unanswered: Int): Result {
+        val (with, without) = out.partition { it.setlists.isNotEmpty() }
+        return Result(with.sortedByDescending { it.setlists.first().date } + ArtistPick.byName(without) { it.artist }, total, true, own, quotaHit, refused, unanswered)
+    }
+
+    /** One setlist by its id (a shared link), from the cache or the API; null when there is no key. */
+    suspend fun byId(env: Env, id: String): Setlist? {
+        val key = key(env) ?: return null
+        val kv = env.keyValues(CACHE)
+        kv["s|$id"]?.let { saved ->
+            val at = saved.substringBefore('|').toLongOrNull() ?: 0
+            if (now() - at < TTL_MS) runCatching { json.decodeFromString(Setlist.serializer(), saved.substringAfter('|')) }.getOrNull()?.let { return it }
+        }
+        val body = try { get(env, key, "setlist/${enc(id)}") } catch (e: NotFound) { null }
+            ?: throw IllegalStateException("setlist.fm has no setlist $id")
+        val s = parseSetlist(parseJson(body)) ?: throw IllegalStateException("setlist.fm: no songs in this setlist")
+        if (kv.size >= 2_000) kv.clear()
+        kv["s|$id"] = "${now()}|" + json.encodeToString(Setlist.serializer(), s)
+        return s
+    }
+
+    // ---------------------------------------------------------------- reading the answers
+
+    /**
+     * The setlists of a search answer that are [artist]'s (the name search also finds others with
+     * a similar name), with songs (an announced concert has none yet), the latest [PER_ARTIST].
+     */
+    fun parseSearch(body: String, artist: String, byId: Boolean = false): List<Setlist> {
+        val want = norm(artist)
+        // Asked by the artist's MusicBrainz id: every setlist is theirs, whatever name setlist.fm writes.
+        return parseJson(body)["setlist"].arr.mapNotNull { parseSetlist(it) }
+            .filter { (byId || norm(it.artist) == want) && it.songs.any { s -> !s.tape } }
+            .sortedByDescending { it.date }
+            .take(PER_ARTIST)
+    }
+
+    /** One setlist object of the API; null without an id or a date. */
+    fun parseSetlist(e: JsonElement?): Setlist? {
+        val id = e["id"].str ?: return null
+        val date = isoDate(e["eventDate"].str) ?: return null
+        val artist = e["artist"]["name"].str.orEmpty()
+        // The answers have "sets": {"set": [...]}; the documentation's example a bare "set": [...].
+        val sets = e["sets"]["set"].arr.ifEmpty { e["set"].arr }
+        val songs = sets.flatMap { set ->
+            val encore = set["encore"].int ?: 0
+            set["song"].arr.mapNotNull { s ->
+                val title = s["name"].str?.trim().orEmpty()
+                if (title.isEmpty()) return@mapNotNull null
+                Song(title, s["cover"]["name"].str?.trim()?.takeIf { it.isNotEmpty() }, s["tape"].bool == true, encore)
+            }
+        }
+        val venue = e["venue"]
+        return Setlist(
+            id = id, artist = artist, date = date, venue = venue["name"].str.orEmpty(),
+            city = venue["city"]["name"].str.orEmpty(), country = venue["city"]["country"]["code"].str.orEmpty().uppercase(),
+            tour = e["tour"]["name"].str.orEmpty(), url = webUrl(e["url"].str), songs = songs,
+        )
+    }
+
+    /** "23-08-1964" (setlist.fm's) as "1964-08-23". */
+    private fun isoDate(d: String?): String? {
+        val p = d?.split('-')?.takeIf { it.size == 3 && it[2].length == 4 } ?: return null
+        return "${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}"
+    }
+
+    // ---------------------------------------------------------------- cache
+
+    private val listSerializer = ListSerializer(Setlist.serializer())
+
+    private fun cachedArtist(env: Env, artist: String): List<Setlist>? = cached(env, "a|${norm(artist)}")
+
+    private fun cached(env: Env, k: String): List<Setlist>? {
+        val saved = env.keyValues(CACHE)[k] ?: return null
+        val at = saved.substringBefore('|').toLongOrNull() ?: return null
+        if (now() - at >= TTL_MS) return null
+        return runCatching { json.decodeFromString(listSerializer, saved.substringAfter('|')) }.getOrNull()
+    }
+
+    private fun rememberArtist(env: Env, artist: String, setlists: List<Setlist>) = remember(env, "a|${norm(artist)}", setlists)
+
+    private fun remember(env: Env, k: String, setlists: List<Setlist>) {
+        val kv = env.keyValues(CACHE)
+        if (kv.size >= 2_000) kv.clear()
+        kv[k] = "${now()}|" + json.encodeToString(listSerializer, setlists)
+        // Each one by its id too: a setlist picked from the list (on the server's page) is not asked again.
+        setlists.forEach { kv["s|${it.id}"] = "${now()}|" + json.encodeToString(Setlist.serializer(), it) }
+    }
+
+    // ---------------------------------------------------------------- the API
+
+    /**
+     * The artist's latest setlists: by the artist's MusicBrainz id when the app knows it
+     * (GET /artist/{mbid}/setlists, no namesakes, [ArtistIds]), else, or when setlist.fm does not
+     * know that id, by name as before.
+     */
+    private suspend fun searchArtist(env: Env, key: String, artist: String): List<Setlist>? {
+        ArtistIds.mbid(env, artist)?.let { mbid ->
+            val byId = try {
+                get(env, key, "artist/$mbid/setlists?p=1")?.let { parseSearch(it, artist, byId = true) }
+            } catch (e: NotFound) { null }
+            if (byId != null) {
+                rememberArtist(env, artist, byId)
+                return byId
+            }
+            env.log("setlists", "setlist.fm has nothing for the id $mbid: searching the name")
+        }
+        val found = try {
+            parseSearch(get(env, key, "search/setlists?artistName=${enc(artist)}&p=1") ?: return null, artist)
+        } catch (e: NotFound) { emptyList() }
+        rememberArtist(env, artist, found)
+        return found
+    }
+
+    private class NotFound : Exception()
+
+    /** Today (UTC) as a day number. */
+    private fun today() = Instant.ofEpochMilli(now()).truncatedTo(ChronoUnit.DAYS).toEpochMilli() / 86_400_000
+
+    /** The calls this device sent with [key] today. */
+    fun usedToday(env: Env, key: String): Int {
+        val s = env.keyValues(STATE)["used"]?.split('|') ?: return 0
+        return if (s.size == 3 && s[0] == today().toString() && s[1] == key.hashCode().toString()) s[2].toIntOrNull() ?: 0 else 0
+    }
+
+    private fun count(env: Env, key: String) {
+        env.keyValues(STATE)["used"] = "${today()}|${key.hashCode()}|${usedToday(env, key) + 1}"
+    }
+
+    private fun exhaustedToday(env: Env, key: String): Boolean =
+        env.keyValues(STATE)["exhausted"] == "${today()}|${key.hashCode()}"
+
+    private fun markExhausted(env: Env, key: String) {
+        env.keyValues(STATE)["exhausted"] = "${today()}|${key.hashCode()}"
+    }
+
+    /**
+     * One GET to the API: the body, or throws [QuotaGone], [KeyRefused] or [NotFound] (404: "nothing
+     * found" for a search). Null when it did not answer.
+     */
+    private suspend fun get(env: Env, key: String, path: String): String? {
+        if (exhaustedToday(env, key) || usedToday(env, key) >= DAILY) throw QuotaGone()
+        for (attempt in 0..1) {
+            count(env, key)
+            val r = try {
+                pace.paced {
+                    Http.send("GET", "$base/$path", mapOf("x-api-key" to key, "Accept" to "application/json", "Accept-Language" to "en"), maxRateLimitRetries = 0)
+                }
+            } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                env.log("setlists", "setlist.fm: ${e.message ?: e.javaClass.simpleName}"); return null
+            }
+            when {
+                r.code == 404 -> throw NotFound()
+                r.code == 401 || r.code == 403 -> throw KeyRefused()
+                r.code == 429 -> {
+                    // Over 2 a second passes after a moment; a second refusal is the day's limit.
+                    if (attempt == 0) { delay(1_100); continue }
+                    markExhausted(env, key)
+                    throw QuotaGone()
+                }
+                !r.ok -> { env.log("setlists", "setlist.fm answered ${r.code}"); return null }
+                else -> return r.body
+            }
+        }
+        return null
+    }
+
+
+    // ---------------------------------------------------------------- MusicBrainz, without a key
+
+    private suspend fun findOnMusicBrainz(env: Env, asked: List<String>, whole: Boolean, progress: (Int, Int) -> Unit): Result {
+        val list = LookupCaps.cut(asked, LookupCaps.SETLISTS, whole)
+        var unanswered = 0
+        val out = list.mapIndexed { i, artist ->
+            progress(i, list.size)
+            val found = cached(env, "m|" + norm(artist)) ?: musicBrainzArtist(env, artist)
+            if (found == null) unanswered++
+            ArtistSetlists(artist, found.orEmpty())
+        }
+        progress(list.size, list.size)
+        val (with, without) = out.partition { it.setlists.isNotEmpty() }
+        return Result(
+            with.sortedByDescending { it.setlists.first().date } + ArtistPick.byName(without) { it.artist }, asked.size,
+            hasKey = false, ownKey = false, quotaHit = false, keyRefused = false, unanswered = unanswered, source = Source.MUSICBRAINZ,
+        )
+    }
+
+    /** The artist on MusicBrainz (the same name), then the setlists of their events; null when MusicBrainz did not answer. */
+    private suspend fun musicBrainzArtist(env: Env, artist: String): List<Setlist>? {
+        val q = "artist:\"" + artist.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        // The id when the app knows it (no search, no namesake); else the search by name, as before.
+        val id = ArtistIds.mbid(env, artist) ?: run {
+            val body = MusicBrainz.get("artist?query=${enc(q)}&fmt=json&limit=5") ?: return null
+            ArtistIds.rememberMbid(env, artist, ArtistIds.singleMbArtist(body, artist))
+            parseMbArtist(body, artist)
+        }
+        val found = ArrayList<Setlist>()
+        if (id != null) for (page in 0 until MB_PAGES) {
+            val body = MusicBrainz.get("event?artist=$id&inc=place-rels+area-rels&fmt=json&limit=100&offset=${page * 100}") ?: return null
+            found += parseMbEvents(body, artist, id)
+            if ((parseJson(body)["event-count"].int ?: 0) <= (page + 1) * 100) break
+        }
+        val today = Instant.ofEpochMilli(now()).toString().take(10)
+        val latest = found.filter { it.date <= today }.sortedByDescending { it.date }.take(PER_ARTIST)
+        remember(env, "m|" + norm(artist), latest)
+        return latest
+    }
+
+    /** The id of the artist of an artist search named [artist] (the best scored); null when none is. */
+    fun parseMbArtist(body: String, artist: String): String? {
+        val want = norm(artist)
+        return parseJson(body)["artists"].arr.firstOrNull { a -> a["name"].str?.let { norm(it) } == want }?.get("id").str
+    }
+
+    /** The setlists of an artist's events (a browse by artist): those with songs of [artist], not cancelled. */
+    fun parseMbEvents(body: String, artist: String, artistId: String): List<Setlist> = parseJson(body)["events"].arr.mapNotNull { e ->
+        if (e["cancelled"].bool == true) return@mapNotNull null
+        val id = e["id"].str ?: return@mapNotNull null
+        val date = e["life-span"]["begin"].str?.takeIf { it.length == 10 } ?: return@mapNotNull null
+        val songs = parseMbSetlist(e["setlist"].str.orEmpty(), artist, artistId)
+        if (songs.none { !it.tape }) return@mapNotNull null
+        val rels = e["relations"].arr
+        Setlist(
+            id = "mb-$id", artist = artist, date = date,
+            venue = rels.firstNotNullOfOrNull { it["place"]["name"].str }.orEmpty(),
+            city = rels.firstNotNullOfOrNull { it["area"]["name"].str }.orEmpty(),
+            tour = e["name"].str.orEmpty(), url = "https://musicbrainz.org/event/$id", songs = songs,
+        )
+    }
+
+    private val MB_LINK = Regex("""\[(?:[^|\]]*\|)?([^\]]*)]""")
+
+    /**
+     * MusicBrainz's setlist text (https://musicbrainz.org/doc/Event/Setlist): "@ performer" starts a
+     * performer's part, "* song" is a song, "# comment" a note (an "Encore" heading, "from tape" after
+     * a song); links are "[id|name]". Only [artist]'s part is kept: the whole text when it names no performer.
+     */
+    fun parseMbSetlist(text: String, artist: String, artistId: String): List<Song> {
+        val want = norm(artist)
+        val lines = text.lines().map { it.trim() }
+        val named = lines.any { it.startsWith("@") }
+        var ours = !named
+        var encore = 0
+        val songs = ArrayList<Song>()
+        for (line in lines) {
+            when {
+                line.startsWith("@") -> {
+                    val who = line.drop(1).trim()
+                    ours = artistId in who || norm(MB_LINK.replace(who) { it.groupValues[1] }) == want
+                }
+                !ours -> {}
+                line.startsWith("*") -> {
+                    val title = MB_LINK.replace(line.drop(1).substringBefore(" # ").substringBefore("\t#")) { it.groupValues[1] }.trim()
+                    if (title.isNotEmpty()) songs += Song(title, encore = encore)
+                }
+                line.startsWith("#") -> {
+                    val note = line.drop(1).trim().lowercase()
+                    if ("encore" in note) encore++
+                    else if (note.startsWith("from tape") || note == "tape" || note.startsWith("(tape")) songs.lastOrNull()?.let { songs[songs.size - 1] = it.copy(tape = true) }
+                }
+            }
+        }
+        return songs
+    }
+
+    // ---------------------------------------------------------------- to a service
+
+    /**
+     * The sync that takes a setlist (a File playlist, [fileId]) to [target]: a new playlist there
+     * (no playlist id) or one of the user's, where only the songs not already in it are added
+     * (nothing is ever removed). A one-off transfer ([OneOffs]), run once: not a sync, its songs not
+     * found are reviewed from the page, its notification or Tools › Recent transfers.
+     */
+    fun job(id: String, name: String, fileId: String, target: PlaylistRef, now: Long = System.currentTimeMillis()): SyncJob =
+        SyncJob(
+            id = id, name = target.playlistName.ifBlank { name }, source = PlaylistRef(LocalFilesProvider.id, fileId, fileId),
+            target = target.copy(playlistName = target.playlistName.ifBlank { name }), oneOff = true, createdEpoch = now,
+        )
+
+    /** After the run: songs added, already in the playlist, not found. */
+    data class Summary(val added: Int, val alreadyThere: Int, val notFound: Int)
+
+    fun summary(r: SyncReport) = Summary(r.added, (r.sourceCount - r.added - r.unmatched.size - r.ignored).coerceAtLeast(0), r.unmatched.size)
+
+    private fun norm(s: String) = Matcher.normalizeArtist(s).ifEmpty { s.trim().lowercase() }
+
+    private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+}

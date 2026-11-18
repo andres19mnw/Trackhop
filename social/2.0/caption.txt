@@ -1,0 +1,28 @@
+Trackhop is on Google Play — and 2.0 is here.
+
+The headline: Discover from your music. Your Wrapped from what you really play, and the concerts, new releases, records and merch of your artists. Tap the bell next to an artist and hear about them once a day.
+
+Android app
+• Shared playlists: one playlist for a group, each on their own service
+• Hand a sync to your Trackhop server, and bring it back
+• A fresh look, made for tablets too
+• Podcasts, exported as OPML for any podcast app
+• Playlist covers copied to more services
+• Encrypted full backup: sign-ins and schedules, locked with your password
+• Favourites, labels and tags, two-way syncs that follow removals, and studio takes instead of live ones
+
+Desktop (Windows, macOS, Linux) and Docker
+• Discover on your computer: Wrapped, a poster of the songs you play most, releases, concerts, records and merch
+• Your server as the meeting place for a shared playlist
+• Syncs handed over from the phone, and back
+• Missing on my server, ready for Lidarr
+• Lyrion and Mopidy (beta), and synced lyrics for your own server
+• One encrypted backup file for the app, Desktop and Docker
+
+Coming soon, not in 2.0 yet: your saved matches in one place to fix once, a clean-up for duplicate playlists, matching across alphabets, one playlist kept the same on several services, a concert diary with heard-live playlists, your record collection and wantlist, and alerts for venues, tickets and dates.
+
+Free, no subscription. On Google Play, F-Droid and GitHub, and every download is at trackhop.org
+
+Thank you to every user who sent an idea or a report: much of 2.0 started there. Keep them coming.
+
+#trackhop #googleplay #playlists #playlisttransfer #musicsync #musicapp #android #androidapp #opensource #selfhosted #docker #homelab #windows #macos #linux #concerts #newmusic #musiclovers #newrelease

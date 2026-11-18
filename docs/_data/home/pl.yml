@@ -8,10 +8,10 @@ tabs_label: Gdzie zainstalować Trackhop
 tab_phone: Android
 tab_computer: Komputer
 tab_server: Własny serwer
-play_alt: "Google Play: już wkrótce"
-play_note: 'W fazie testów'
-appgallery_alt: "Huawei AppGallery: już wkrótce"
-appgallery_note: "W przygotowaniu · bez usług Google"
+play_alt: "Pobierz z Google Play"
+play_note: 'Już dostępna'
+appgallery_alt: "Odkryj w Huawei AppGallery"
+appgallery_note: "Bez usług Google"
 store_bridge: '<b>Google Play lub AppGallery?</b> Dodaj Trackhop Bridge, by mieć YouTube Music, Amazon Music i więcej'
 fdroid_alt: Pobierz z F-Droid
 fdroid_note: Budowany z kodu źródłowego · nowe wersje kilka dni później
@@ -28,7 +28,7 @@ mac_alt: Pobierz dla macOS (Apple silicon)
 mac_note: 'Apple silicon · <a href="%DL%/Trackhop-Desktop-v%V%-macos-x64.dmg">dla Intel</a> · <a href="/guide/desktop#package-managers-and-stores">Homebrew</a>'
 linux_alt: Pobierz dla Linuksa
 linux_note: '.deb · lub <a href="https://snapcraft.io/trackhop">Snap</a> · <a href="%DL%/Trackhop-Desktop-v%V%-linux.flatpak">Flatpak</a>'
-computer_more: 'Na Macu za pierwszym razem otwórz przez prawy przycisk › Otwórz (<a href="/guide/desktop#macos">dlaczego</a>) · <a href="#docker">Wszystkie pliki do pobrania</a>'
+computer_more: 'Na Macu za pierwszym razem zezwól w Ustawienia systemowe › Prywatność i ochrona › Otwórz mimo to (<a href="/guide/desktop#macos">dlaczego</a>) · <a href="#docker">Wszystkie pliki do pobrania</a>'
 docker_alt: Uruchom w Dockerze
 docker_note: 'Beta · ghcr.io lub <a href="https://hub.docker.com/r/xlollx/trackhop">Docker Hub</a> · <a href="/guide/playlist-sync-nas">na NAS-ie</a>'
 azure_title: "Beta: działa w Twojej własnej subskrypcji Azure (około 5 $ miesięcznie)"
@@ -38,21 +38,23 @@ server_more: 'Strona WWW, synchronizacje według harmonogramu, API · <a href="/
 virustotal: Każdy plik sprawdzony w VirusTotal
 downloads: "{n} pobrań"
 downloads_title: Pobrania wydań z GitHub i pobrania obrazu z Docker Hub. F-Droid i sklepy nie publikują liczb, więc faktyczna liczba jest wyższa.
+playlists_synced: "{n} publicznych playlist synchronizowanych"
+playlists_synced_title: "Publiczne playlisty na Spotify i YouTube synchronizowane przez Trackhop (w opisie jest „Synced with Trackhop”). Prywatne playlisty i inne serwisy nie są liczone, więc prawdziwa liczba jest wyższa."
 demo_alt: "Prezentacja Trackhop: synchronizacje, nowa synchronizacja, konta, narzędzia, udostępniony utwór, karty zgodności i plakatu, nieodtwarzalne utwory, ustawienia"
 what_title: Co robi
 what_intro: Wybierz źródło i cel oraz częstotliwość. Trackhop znajdzie każdy utwór po drugiej stronie, pokaże, co się zmieni, i utrzyma obie playlisty w zgodzie.
 card1_title: Z dowolnego serwisu do dowolnego
-card1: Playlisty, polubione utwory, zapisane albumy i obserwowani wykonawcy. Albo wklej link do dowolnej publicznej playlisty.
+card1: "Playlisty, polubione utwory, zapisane albumy i obserwowani wykonawcy. Albo wklej link do dowolnej publicznej playlisty. Nowe w 2.0: jedna playlista dzielona ze znajomymi, z których każdy ma swój serwis."
 card2_title: Według harmonogramu
-card2: Co godzinę, co 6 godzin, codziennie lub co tydzień. Tylko dodawanie albo także odzwierciedlanie usunięć, z zachowaniem kolejności ze źródła.
+card2: "Co godzinę, co 6 godzin, codziennie lub co tydzień. Tylko dodawanie albo także odzwierciedlanie usunięć, z zachowaniem kolejności ze źródła. Także dwukierunkowo, razem z usunięciami."
 card3_title: Nic na ślepo
 card3: "Podgląd przed każdą synchronizacją. Nieznalezione utwory trafiają do sprawdzenia: wybierz właściwy raz, a Trackhop to zapamięta."
 card4_title: Twoje konta pozostają Twoje
 card4: Logujesz się na stronie każdego serwisu. Tokeny dostępu są szyfrowane na telefonie i nigdy go nie opuszczają.
 card5_title: Twój własny serwer muzyczny
-card5: "Navidrome i inne serwery Subsonic, Jellyfin i Plex, obok serwisów streamingowych. Także pliki: CSV, M3U, XML, JSON. <a href='https://www.navidrome.org/apps/'>Na liście aplikacji Navidrome.</a>"
+card5: "Navidrome i inne serwery Subsonic, Jellyfin, Emby, Plex, Lyrion i Mopidy, obok serwisów streamingowych, z listą utworów, których Twojemu serwerowi jeszcze brakuje. Także pliki: CSV, M3U, XML, JSON. <a href='https://www.navidrome.org/apps/'>Na liście aplikacji Navidrome.</a>"
 card6_title: Narzędzia do playlist
-card6: Kopie zapasowe, usuwanie duplikatów, łączenie, dzielenie i sortowanie oraz generator playlist działający na Twoim własnym kluczu AI.
+card6: "Kopie zapasowe, usuwanie duplikatów, łączenie, dzielenie i sortowanie oraz generator playlist działający na Twoim własnym kluczu AI. Nowe w 2.0: nowości, koncerty, setlisty i płyty wykonawców z Twoich playlist."
 one_title: "Nawet z jednym serwisem"
 one_intro: "Drugi serwis nie jest potrzebny. Jeśli korzystasz tylko ze Spotify, Apple Music, YouTube Music albo innego, Trackhop i tak zadba o Twoje playlisty."
 one1_title: "Zachowaj Discover Weekly"
@@ -137,3 +139,4 @@ instagram_alt: 'Obserwuj Trackhop na Instagramie'
 say_title: 'Co mówią inni'
 say_intro: 'Komentarze pod filmami i postami o Trackhop oraz wiadomości od wspierających. Nazwy i zdjęcia ukryte.'
 say_alt: 'Komentarze osób korzystających z Trackhop i dwie wiadomości od wspierających, chwalące automatyczną synchronizację i bezpieczeństwo, oraz posty na X, które nazywają go "a game changer for music lovers who use multiple platforms"'
+gallery_title: "Zobacz"

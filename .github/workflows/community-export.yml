@@ -1,0 +1,70 @@
+# Community matches: once a day, the confirmed pairs in the Supabase database (community/supabase.sql)
+# are exported as one gzipped CSV per pair of services to the GitHub release "community-matches".
+# The app and anyone else download them from there; nobody reads the database itself, so Supabase's
+# free egress is not used and nobody's listening is sent anywhere. The daily read also keeps the
+# free project from being paused for inactivity. Design: community/README.md.
+# Needs the secrets SUPABASE_URL and SUPABASE_SERVICE_KEY; without them it does nothing.
+name: Community matches export
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Read the confirmed pairs
+        run: |
+          [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_KEY" ] || { echo "::notice::No SUPABASE_URL or SUPABASE_SERVICE_KEY: skipped."; exit 0; }
+          mkdir -p out
+          python3 - <<'PY'
+          import csv, gzip, json, os, urllib.request, datetime, collections
+          base = os.environ["SUPABASE_URL"].rstrip("/") + "/rest/v1/matches_export"
+          key = os.environ["SUPABASE_SERVICE_KEY"]
+          cols = "a_service,a_id,b_service,b_id,isrc,duration_ms,confirmations"
+          pairs = collections.defaultdict(list)
+          offset, page = 0, 10000
+          while True:
+              req = urllib.request.Request(f"{base}?select={cols}&order=a_service,b_service,a_id,b_id&limit={page}&offset={offset}",
+                                           headers={"apikey": key, "Authorization": f"Bearer {key}"})
+              rows = json.load(urllib.request.urlopen(req, timeout=60))
+              for r in rows:
+                  pairs[(r["a_service"], r["b_service"])].append(r)
+              if len(rows) < page:
+                  break
+              offset += page
+          manifest = {"exported": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "files": {}}
+          for (a, b), rows in sorted(pairs.items()):
+              name = f"{a}__{b}.csv.gz"
+              with gzip.open(f"out/{name}", "wt", newline="", encoding="utf-8") as f:
+                  w = csv.writer(f)
+                  w.writerow(["a_id", "b_id", "isrc", "duration_ms", "confirmations"])
+                  for r in rows:
+                      w.writerow([r["a_id"], r["b_id"], r["isrc"] or "", r["duration_ms"] or "", r["confirmations"]])
+              manifest["files"][name] = {"a": a, "b": b, "rows": len(rows)}
+          json.dump(manifest, open("out/manifest.json", "w"), indent=1)
+          print(json.dumps({k: v["rows"] for k, v in manifest["files"].items()}))
+          PY
+      - name: Publish to the community-matches release
+        run: |
+          [ -f out/manifest.json ] || exit 0
+          tag=community-matches
+          gh release view "$tag" -R "${{ github.repository }}" >/dev/null 2>&1 || \
+            gh release create "$tag" -R "${{ github.repository }}" --prerelease --title "Community matches" \
+              --notes "Track pairs between services confirmed by Trackhop users who chose to share them. Updated every day. See community/README.md."
+          gh release upload "$tag" out/* -R "${{ github.repository }}" --clobber
+          # Files of pairs no longer exported go away, so the release mirrors the export.
+          keep=$(cd out && ls)
+          for a in $(gh release view "$tag" -R "${{ github.repository }}" --json assets -q '.assets[].name'); do
+            echo "$keep" | grep -qx "$a" || gh release delete-asset "$tag" "$a" -R "${{ github.repository }}" -y
+          done

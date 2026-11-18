@@ -31,7 +31,7 @@ import java.io.PrintStream
  * - `POST /mcp` on the server (Docker, Desktop): the Streamable HTTP transport, with the API's token
  *   (Tools › API) as `Authorization: Bearer …`, answered in plain JSON.
  *
- * Every tool is a command of the command line ([Cli.Commands]) run with JSON output: the same names
+ * Every tool is a command of the command line ([CliCommands]) run with JSON output: the same names
  * accepted, the same checks, the same errors. Nothing here reaches a service the API does not.
  */
 object Mcp {
@@ -41,7 +41,7 @@ object Mcp {
     /** Tool output beyond this is cut, with a note: an assistant's context is not a file. */
     private const val MAX_TEXT = 200_000
 
-    private class Tool(
+    internal class Tool(
         val name: String,
         val title: String,
         val description: String,
@@ -52,15 +52,27 @@ object Mcp {
         val command: (JsonObject) -> Call,
     )
 
-    private class Param(val name: String, val type: String, val description: String, val required: Boolean = true)
+    internal data class Param(val name: String, val type: String, val description: String, val required: Boolean = true)
 
-    /** A command of the command line: its name, its words, and the --wait / --all switches. */
-    class Call(val command: String, val params: List<String> = emptyList(), val wait: Boolean = false, val all: Boolean = false)
+    /** A command of the command line: its name, its words, its switches (--wait, --all…) and its options (--name…). */
+    class Call(
+        val command: String,
+        val params: List<String> = emptyList(),
+        val wait: Boolean = false,
+        val all: Boolean = false,
+        val flags: Set<String> = emptySet(),
+        val values: Map<String, String> = emptyMap(),
+        /** Options given more than once (--pattern P --pattern Q). */
+        val multi: Map<String, List<String>> = emptyMap(),
+    ) {
+        val opts: Cli.Opts get() = Cli.Opts(flags + setOfNotNull("wait".takeIf { wait }, "all".takeIf { all }), values.mapValues { listOf(it.value) } + multi)
+    }
 
     private val SYNC = Param("sync", "string", "The sync's name (or the start of it) or its id, as list_syncs shows them.")
     private val SERVICE = Param("service", "string", "The service's name or id, as list_services shows them (for example \"Spotify\" or \"spotify\").")
     private val PLAYLIST = Param("playlist", "string", "The playlist's name or id, as list_playlists shows them.")
     private val TRACKS = Param("tracks", "array", "Each track as \"Artist - Title\", a link to it on any service, or its id on this service.")
+    private val RUN = Param("run", "string", "A run's id (list_runs); left out, the newest run with something to review.", required = false)
     private val WAIT = Param("wait", "boolean", "Wait until it ends and answer with the result (it can take minutes). Default false: answer at once.", required = false)
 
     private fun JsonObject.text(key: String): String =
@@ -68,19 +80,74 @@ object Mcp {
 
     private fun JsonObject.flag(key: String): Boolean = (this[key] as? JsonPrimitive)?.booleanOrNull == true
 
+    /** An optional argument as text (a number or a flag given as JSON too), or null. */
+    private fun JsonObject.opt(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+
+    /** The options of a call that the command line takes as --name value, from the same-named arguments. */
+    private fun JsonObject.values(vararg keys: String): Map<String, String> = keys.mapNotNull { k -> opt(k)?.let { k to it } }.toMap()
+
+    private fun JsonObject.strings(key: String): List<String> =
+        (this[key] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { s -> s.isNotEmpty() } }.orEmpty()
+
     private fun JsonObject.list(key: String): List<String> =
         (this[key] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { s -> s.isNotEmpty() } }
             ?.takeIf { it.isNotEmpty() } ?: throw Cli.Failure(2, "\"$key\" needs at least one track")
 
-    private val TOOLS = listOf(
+    private val SYNC_OPTIONS = listOf(
+        Param("name", "string", "The sync's name.", required = false),
+        Param("schedule", "string", "manual, hourly, every_6h, daily or weekly.", required = false),
+        Param("every", "integer", "Instead of schedule: minutes between runs (60 to 10080).", required = false),
+        Param("at", "string", "For daily and weekly: the time, HH:MM.", required = false),
+        Param("days", "string", "Days of the week, e.g. \"mon,fri\".", required = false),
+        Param("changes", "string", "add (only add), mirror (also remove what leaves the source) or archive (keep every track ever seen).", required = false),
+        Param("follows", "boolean", "With mirror: the source changes by itself (a daylist), its big removals need no confirmation.", required = false),
+        Param("color", "string", "A colour: red, orange, yellow, green, teal, blue, purple, pink, #RRGGBB, or none.", required = false),
+        Param("label", "string", "The sync's label: a label's name or id (the card takes its colour), or none.", required = false),
+        Param("tags", "string", "Tags to add or change, as \"genre=metal, mood=gym\"; a key alone (\"kids\") is a tag too.", required = false),
+        Param("untag", "string", "Tag keys to take off, e.g. \"genre, mood\" (edit_sync).", required = false),
+        Param("favorite", "boolean", "true to star the sync (shown first), false to take the star off.", required = false),
+        Param("two_way", "boolean", "true: also make the reverse sync (marked ↔) between two existing playlists of the user's, so what is added on either side reaches the other; false (edit_sync): delete the reverse sync.", required = false),
+        Param("two_way_removals", "boolean", "With two_way: a track removed on one side is removed on the other too (false: a pair only adds).", required = false),
+    )
+
+    private val GROUP = listOf(
+        Param("tag", "string", "Only the syncs with these tags: \"genre=metal\", a key alone (\"gym\"), or several split by commas (all wanted).", required = false),
+        Param("label", "string", "Only the syncs wearing this label: its name, its id or a colour.", required = false),
+        Param("favorite", "boolean", "true: only the starred syncs.", required = false),
+    )
+
+    private val DIAG = listOf(
+        Param("since", "string", "How far back: 90m, 24h (default), 7d, 2w.", required = false),
+        Param("names", "boolean", "true: keep the names of syncs, playlists and tracks (only if the user agrees).", required = false),
+    )
+
+    private fun String.parts(): List<String> = split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
+    /** The group a call names (tag, label, favorite), as the command line's options. */
+    private fun JsonObject.group(wait: Boolean = false, command: String): Call {
+        val tags = opt("tag")?.parts().orEmpty()
+        return Call(command, wait = wait, flags = setOfNotNull("favorite".takeIf { flag("favorite") }), values = values("label"), multi = if (tags.isEmpty()) emptyMap() else mapOf("tag" to tags))
+    }
+
+    /** Every tool: these, and the next release's (Features.v2, McpV2.kt). */
+    private val TOOLS: List<Tool> get() = BASE_TOOLS.filter { Features.v2 || it.name !in Features.V2_MCP_TOOLS } + McpV2.tools
+
+    private val BASE_TOOLS = listOf(
         Tool("status", "Trackhop status", "Trackhop's version, how many syncs it has, which are running now and when the last one ran.",
             emptyList(), readOnly = true) { Call("status") },
-        Tool("list_syncs", "List syncs", "Every sync with its source and target playlists, its schedule, whether it is on, and its last result (added, removed, not found, to check).",
-            emptyList(), readOnly = true) { Call("syncs") },
+        Tool("list_syncs", "List syncs", "Every sync with its source and target playlists, its schedule, whether it is on, its label, tags and star, and its last result (added, removed, not found, to check). With tag, label or favorite: only those syncs.",
+            GROUP, readOnly = true) { a -> a.group(command = "syncs") },
         Tool("get_sync", "Show a sync", "One sync's details and its last runs.",
             listOf(SYNC), readOnly = true) { a -> Call("show", listOf(a.text("sync"))) },
-        Tool("run_sync", "Run a sync", "Starts a sync now. With wait, answers when it ends, with what it added, removed and could not find.",
-            listOf(SYNC, WAIT), readOnly = false) { a -> Call("run", listOf(a.text("sync")), wait = a.flag("wait")) },
+        Tool("run_sync", "Run a sync", "Starts a sync now. With wait, answers when it ends, with what it added, removed and could not find. A result with heldRemovals kept that many removals back: show them to the user with preview_sync, and only if they say so run again with confirm_removals.",
+            listOf(SYNC, WAIT, Param("confirm_removals", "boolean", "true: this run makes the removals a run holds back (a quarter or more of the destination). Ask the user first, after preview_sync.", required = false)), readOnly = false) { a ->
+            Call("run", listOf(a.text("sync")), wait = a.flag("wait"), flags = setOfNotNull("confirm-removals".takeIf { a.flag("confirm_removals") }))
+        },
+        Tool("run_syncs_by_tag", "Run a group of syncs", "Starts the syncs with a tag (\"the playlists tagged gym\"), wearing a label, or starred; only those turned on. Give at least one of tag, label, favorite.",
+            GROUP + WAIT, readOnly = false) { a ->
+            if (a.opt("tag") == null && a.opt("label") == null && !a.flag("favorite")) throw Cli.Failure(2, "say which syncs: \"tag\", \"label\" or \"favorite\"")
+            a.group(wait = a.flag("wait"), command = "run")
+        },
         Tool("run_all_syncs", "Run all syncs", "Starts every sync that is turned on.",
             listOf(WAIT), readOnly = false) { a -> Call("run", wait = a.flag("wait"), all = true) },
         Tool("set_sync_enabled", "Turn a sync on or off", "Turns a sync's schedule on or off (the sync itself is kept).",
@@ -108,7 +175,147 @@ object Mcp {
         },
         Tool("backup_playlists", "Back up playlists", "Backs up every playlist of every connected service now, as files in Trackhop.",
             listOf(WAIT), readOnly = false) { a -> Call("backup", wait = a.flag("wait")) },
+        Tool("create_sync", "Make a sync", "Makes a sync from a playlist (or a link to a public one) to a playlist; without target_playlist, a new playlist is made at the first run.",
+            listOf(
+                Param("source_service", "string", "The source's service, as list_services shows it."),
+                Param("source_playlist", "string", "The source playlist's name or id (list_playlists), or a link to it."),
+                Param("target_service", "string", "The destination's service."),
+                Param("target_playlist", "string", "The destination playlist's name or id; leave out for a new playlist.", required = false),
+            ) + SYNC_OPTIONS, readOnly = false) { a ->
+            Call("new", listOfNotNull(a.text("source_service"), a.text("source_playlist"), a.text("target_service"), a.opt("target_playlist")), values = a.syncValues(), flags = a.syncFlags(), multi = a.syncMulti())
+        },
+        Tool("edit_sync", "Change a sync", "Changes a sync's name, timing, what it does with removals, colour, label, tags or star, and whether it is two-way. Only what is given changes.",
+            listOf(SYNC) + SYNC_OPTIONS, readOnly = false) { a -> Call("edit", listOf(a.text("sync")), values = a.syncValues(), flags = a.syncFlags(), multi = a.syncMulti()) },
+        Tool("delete_sync", "Delete a sync", "Deletes a sync (its playlists stay as they are). Ask the user first.",
+            listOf(SYNC), readOnly = false, destructive = true) { a -> Call("delete", listOf(a.text("sync"))) },
+        Tool("move_sync", "Move a sync in the list", "Moves a sync in the list (the order of Run all and of the widgets).",
+            listOf(SYNC, Param("to", "string", "A position from 1, or up, down, top, bottom.")), readOnly = false) { a -> Call("move", listOf(a.text("sync"), a.text("to"))) },
+        Tool("stop_sync", "Stop a running sync", "Stops a sync that is running now.", listOf(SYNC), readOnly = false) { a -> Call("stop", listOf(a.text("sync"))) },
+        Tool("pause_sync", "Pause a running sync", "Pauses a sync that is running now.", listOf(SYNC), readOnly = false) { a -> Call("pause", listOf(a.text("sync"))) },
+        Tool("resume_sync", "Resume a paused sync", "Resumes a paused sync.", listOf(SYNC), readOnly = false) { a -> Call("resume", listOf(a.text("sync"))) },
+        Tool("preview_sync", "Preview a sync", "What a run of the sync would add, remove, not find and want checked now, without changing anything.",
+            listOf(SYNC), readOnly = true) { a -> Call("preview", listOf(a.text("sync"))) },
+        Tool("list_runs", "List runs", "The runs, newest first: every sync's, or one's.",
+            listOf(SYNC.copy(required = false), Param("limit", "integer", "How many (default 50).", required = false), Param("offset", "integer", "From which (default 0).", required = false)), readOnly = true) { a ->
+            Call("runs", listOfNotNull(a.opt("sync")), values = a.values("limit", "offset"))
+        },
+        Tool("get_run", "Read a run", "One run: the tracks it added, removed, could not find, wants checked, and its notes.",
+            listOf(Param("run", "string", "The run's id, as list_runs shows it.")), readOnly = true) { a -> Call("report", listOf(a.text("run"))) },
+        Tool("get_review", "Read a run's review", "The tracks a sync's run could not find, the matches to check and the tracks it removed, with their ids.",
+            listOf(SYNC, RUN), readOnly = true) { a -> Call("review", listOf(a.text("sync")), values = a.values("run")) },
+        Tool("review_tracks", "Review tracks", "Acts on a run's review: ignore tracks not found, keep or discard matches to check, pick the track for one not found, replace a match, or restore what the run removed. Ask the user first.",
+            listOf(
+                SYNC,
+                Param("action", "string", "ignore, keep, discard, pick, replace or restore."),
+                Param("tracks", "array", "The rows: their ids from get_review, or [\"all\"]. One for pick and replace; none for restore.", required = false),
+                Param("choice", "string", "For pick and replace: the right track, as \"Artist - Title\", a link, or its id on the destination.", required = false),
+                RUN,
+            ), readOnly = false, destructive = true) { a ->
+            val action = a.text("action")
+            val rows = a.strings("tracks")
+            val words = when (action) {
+                "pick", "replace" -> rows.take(1) + listOfNotNull(a.opt("choice") ?: throw Cli.Failure(2, "missing \"choice\""))
+                else -> rows
+            }
+            Call("review", listOf(a.text("sync"), action) + words, values = a.values("run"))
+        },
+        Tool("search_tracks", "Search a service", "Looks for a track on a service: the candidates with their ids and how well each matches.",
+            listOf(SERVICE, Param("query", "string", "\"Artist - Title\", or a link from any service."), Param("limit", "integer", "How many (default 20).", required = false)), readOnly = true) { a ->
+            Call("search", listOf(a.text("service"), a.text("query")), values = a.values("limit"))
+        },
+        Tool("convert_tracks", "Find tracks on another service", "The same tracks on another service, as a sync would match them: their ids there and how sure each match is.",
+            listOf(SERVICE, TRACKS), readOnly = true) { a -> Call("convert", listOf(a.text("service")) + a.list("tracks")) },
+        Tool("find_duplicates", "Find duplicates", "The tracks a playlist holds more than once.",
+            listOf(SERVICE, PLAYLIST), readOnly = true) { a -> Call("duplicates", listOf(a.text("service"), a.text("playlist"))) },
+        Tool("find_untagged_songs", "Songs without MusicBrainz tags", "The songs on the user's Navidrome, Jellyfin, Emby or Plex server whose files carry no MusicBrainz tags (a sync finds those by title only). Reads the whole library: it can take a while. Nothing is changed.",
+            listOf(SERVICE.copy(required = false, description = "The server's name or id (list_services); left out when only one such server is connected.")), readOnly = true) { a -> Call("mbtags", listOfNotNull(a.opt("service"))) },
+        Tool("find_new_releases", "New releases from a playlist's artists", "The albums, EPs and singles the artists of a playlist released lately (Deezer and MusicBrainz, cached a day per artist): artist, title, type, date and a link. A first search takes about a second per artist. Nothing is changed.",
+            listOf(
+                SERVICE, PLAYLIST,
+                Param("days", "integer", "Released in the last 7, 30 (default) or 90 days.", required = false),
+                Param("upcoming", "boolean", "Also what is announced for later.", required = false),
+            ), readOnly = true) { a ->
+            Call("releases", listOf(a.text("service"), a.text("playlist")), values = a.values("days"), flags = setOfNotNull("upcoming".takeIf { a.flag("upcoming") }))
+        },
+        Tool("list_missing_on_server", "Tracks missing on my server", "The tracks of the user's streaming playlists that their own server (Navidrome, Jellyfin, Emby, Plex, Lyrion, Mopidy) does not have, each once: artist, title, album, length, ISRC, MusicBrainz id where known, the syncs that miss each and when it was first seen. Made from the syncs' last runs: nothing is searched, downloaded or bought.",
+            listOf(
+                SYNC.copy(required = false, description = "Only what this sync misses (its name or id)."),
+                SERVICE.copy(required = false, description = "Only tracks of syncs from or to this service (its id, e.g. spotify or jellyfin)."),
+                Param("since", "string", "Only entries first seen since: 24h, 7d, 2w or a date like 2026-11-01.", required = false),
+                Param("format", "string", "json (default), csv, m3u, text or lidarr (Lidarr's Custom List: artists with a MusicBrainz id).", required = false),
+                Param("albums", "boolean", "Grouped by album.", required = false),
+            ), readOnly = true) { a -> Call("wanted", values = a.values("sync", "service", "since", "format"), flags = setOfNotNull("albums".takeIf { a.flag("albums") })) },
+        Tool("find_concerts", "Concerts of a playlist's artists", "The upcoming concerts of the artists of a playlist in one country: date, city, venue and a link, from Ticketmaster and MusicBrainz, plus search links for the artists with no date found. Looked up only now (cached a day); can take a minute. Show the attribution line with the dates.",
+            listOf(SERVICE, PLAYLIST, Param("country", "string", "Two-letter country code, e.g. IT or US (default: the server's).", required = false)), readOnly = true) { a ->
+            Call("concerts", listOf(a.text("service"), a.text("playlist")), values = a.values("country"))
+        },
+        Tool("find_setlists", "Setlists of a playlist's artists", "The latest setlist.fm setlists of the artists of a playlist (up to 5 each): date, venue, city, the songs in order with encores, tapes and covers marked, and tracks ready for create_playlist/add_tracks to make one a playlist on any service. Looked up only now (cached a week); needs a setlist.fm key on the server. Show the attribution line (setlist.fm, with its link) with the setlists.",
+            listOf(SERVICE, PLAYLIST), readOnly = true) { a ->
+            Call("setlists", listOf(a.text("service"), a.text("playlist")))
+        },
+        Tool("find_records", "Records and merch of a playlist's artists", "For each artist of a playlist: their CDs, vinyl and cassettes on Discogs (with the server's Discogs token, copies for sale and the lowest price), the records (shopRecords, with their format) and the other merch on sale in their own shops (official Shopify shop, Bandcamp: title, type, price, picture, link), their official site, shop, Bandcamp and social pages from MusicBrainz, and search links on shops. Plain links only. Looked up only now (cached); can take a few minutes. Show the attribution line with the records.",
+            listOf(SERVICE, PLAYLIST, Param("currency", "string", "Currency for prices: USD, EUR, GBP, JPY... (default: the server's).", required = false),
+                Param("kind", "string", "What to look up: all (default), records (Discogs and the records in their shops) or merch (the shops' other goods only, no Discogs).", required = false)), readOnly = true) { a ->
+            Call("records", listOf(a.text("service"), a.text("playlist")), values = a.values("currency", "kind"))
+        },
+        Tool("remove_duplicates", "Remove duplicates", "Removes a playlist's extra copies (the first of each stays). Ask the user first.",
+            listOf(SERVICE, PLAYLIST, WAIT), readOnly = false, destructive = true) { a ->
+            Call("duplicates", listOf(a.text("service"), a.text("playlist")), wait = a.flag("wait"), flags = setOf("remove"))
+        },
+        Tool("export_playlist", "Export a playlist", "A playlist as a file's text: csv, m3u, xspf, jspf or txt (opml for followed podcasts).",
+            listOf(SERVICE, PLAYLIST, Param("format", "string", "csv (default), m3u, xspf, jspf, txt, or opml for followed podcasts.", required = false)), readOnly = true) { a ->
+            Call("export", listOf(a.text("service"), a.text("playlist")), values = a.values("format"))
+        },
+        Tool("list_files", "List playlist files", "The File playlists kept in Trackhop (imported files and backups).", emptyList(), readOnly = true) { Call("files") },
+        Tool("delete_files", "Delete playlist files", "Deletes File playlists. Ask the user first.",
+            listOf(Param("files", "array", "The files' names, as list_files shows them.")), readOnly = false, destructive = true) { a ->
+            Call("files", listOf("rm") + a.list("files"))
+        },
+        Tool("get_file_patterns", "Read the name patterns", "How track names in imported files are read: the layout and the user's own patterns.", emptyList(), readOnly = true) { Call("patterns") },
+        Tool("set_file_patterns", "Set the name patterns", "Sets the user's own patterns for names in imported files, e.g. {artist}/{album}/{track} {title}; they are tried in order.",
+            listOf(Param("patterns", "array", "The patterns, one per entry.")), readOnly = false) { a -> Call("patterns", listOf("set") + a.list("patterns")) },
+        Tool("try_file_patterns", "Try name patterns", "Reads a line or a path from a playlist file with the saved patterns, or with the ones given; saves nothing.",
+            listOf(Param("sample", "string", "A line or a path from a playlist file."), Param("patterns", "array", "Patterns to try instead of the saved ones.", required = false)), readOnly = true) { a ->
+            Call("patterns", listOf("try", a.text("sample")), multi = mapOf("pattern" to a.strings("patterns")).filterValues { it.isNotEmpty() })
+        },
+        Tool("get_stats", "Read the numbers", "What the syncs did: tracks moved, time saved, busiest route, biggest playlist, top artists.", emptyList(), readOnly = true) { Call("stats") },
+        Tool("get_settings", "Read the settings", "The settings Trackhop's page offers.", emptyList(), readOnly = true) { Call("settings") },
+        Tool("change_setting", "Change a setting", "Changes one setting: theme (system, light, dark), backupSchedule (manual, daily, weekly), backupFolder, updatesCheck (true, false).",
+            listOf(Param("key", "string", "The setting's name."), Param("value", "string", "Its new value.")), readOnly = false) { a ->
+            Call("settings", listOf("set", a.text("key"), a.text("value")))
+        },
+        Tool("list_notification_channels", "List notification channels", "The channels Trackhop tells about syncs (their tokens masked).", emptyList(), readOnly = true) { Call("notify") },
+        Tool("test_notification", "Send a test notification", "Sends a test message through a channel.",
+            listOf(Param("channel", "string", "The channel's name or id.")), readOnly = false) { a -> Call("notify", listOf("test", a.text("channel"))) },
+        Tool("get_crowded_syncs", "Find crowded schedules", "Whether many syncs reach one service at about the same time (the service can take it for unusual traffic and turn some away): the service, the time and the syncs.",
+            emptyList(), readOnly = true) { Call("crowded") },
+        Tool("spread_syncs", "Spread crowded syncs", "New times for the crowded syncs: the first keeps its time, each next one starts a little later; days and frequency stay. Without apply only shows them: show the user, and only if they agree call again with apply.",
+            listOf(Param("apply", "boolean", "true: save the new times. Default false: only show them.", required = false)), readOnly = false) { a ->
+            Call("spread", flags = setOfNotNull("apply".takeIf { a.flag("apply") }))
+        },
+        Tool("get_diagnostics", "Read the diagnostics", "Trackhop's technical report: version, system, services, syncs, the last runs and the log since a time, without secrets. Read it to explain an error to the user. Names of syncs, playlists and tracks are left out unless names is true.",
+            DIAG, readOnly = true) { a -> Call("diagnostics", values = a.values("since"), flags = setOfNotNull("names".takeIf { a.flag("names") })) },
+        Tool("prepare_issue", "Prepare a GitHub issue", "A GitHub issue made ready for the user, never sent: its title, its text with the diagnostics, and a link that opens it prefilled. When the same error is already reported, suggestion says what to do instead: comment (open issue), update (fixed in a newer version) or comment_closed. Show the user the text and the link; they send it. With a GitHub tool of the user's own, create it only after they confirm.",
+            DIAG + listOf(
+                Param("title", "string", "The issue's title; left out, one from the version and the error.", required = false),
+                Param("description", "string", "What happened and what the user expected, in their words.", required = false),
+            ), readOnly = true) { a -> Call("report", values = a.values("since", "title", "description"), flags = setOfNotNull("names".takeIf { a.flag("names") })) },
+        Tool("list_tasks", "List background tasks", "Backups and other long tasks, running or ended in the last hour.", emptyList(), readOnly = true) { Call("tasks") },
+        Tool("get_task", "Read a background task", "One background task: its progress, whether it is done, its error.",
+            listOf(Param("task", "string", "The task's id.")), readOnly = true) { a -> Call("task", listOf(a.text("task"))) },
     )
+
+    private fun JsonObject.syncValues() = values("name", "schedule", "every", "at", "days", "changes", "color", "label")
+    private fun JsonObject.syncFlags() = setOfNotNull(
+        "follows".takeIf { flag("follows") },
+        (this["favorite"] as? JsonPrimitive)?.booleanOrNull?.let { if (it) "favorite" else "unfavorite" },
+        (this["two_way"] as? JsonPrimitive)?.booleanOrNull?.let { if (it) "two-way" else "one-way" },
+        (this["two_way_removals"] as? JsonPrimitive)?.booleanOrNull?.let { if (it) "two-way-removals" else "no-two-way-removals" },
+    )
+    private fun JsonObject.syncMulti() = listOfNotNull(
+        opt("tags")?.parts()?.takeIf { it.isNotEmpty() }?.let { "tag" to it },
+        opt("untag")?.parts()?.takeIf { it.isNotEmpty() }?.let { "untag" to it },
+    ).toMap()
 
     private fun schema(t: Tool) = buildJsonObject {
         put("type", "object")
@@ -149,7 +356,7 @@ object Mcp {
         val buffer = ByteArrayOutputStream()
         val out = PrintStream(buffer, true, Charsets.UTF_8)
         return try {
-            val code = Cli.Commands(api, out, asJson = true).run(call.command, call.params, call.wait, call.all)
+            val code = CliCommands(api, out, asJson = true).run(call.command, call.params, call.opts)
             val text = buffer.toString(Charsets.UTF_8).trim().ifEmpty { "{}" }
             (code == 0) to text
         } catch (f: Cli.Failure) {

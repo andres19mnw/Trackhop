@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import com.xlollx.songport.BuildConfig
 import com.xlollx.songport.auth.AppleAuthActivity
 import com.xlollx.songport.auth.AuthFlow
@@ -41,6 +42,11 @@ class AndroidEnv private constructor(val context: Context) : Env {
 
     override fun log(tag: String, message: String) = Diagnostics.log(context, tag, message)
 
+    /** Settings › Advanced › Coordinate with my server: this phone takes turns with the user's Trackhop server, as its model's name. */
+    override val targetCoordinator: com.xlollx.songport.sync.TargetCoordinator?
+        // A token store that cannot be read is no reason to stop a sync: it runs as without the option.
+        get() = runCatching { com.xlollx.songport.sync.ServerLocks.of(this, Build.MODEL.orEmpty()) }.getOrNull()
+
     override fun startAuth(provider: MusicProvider, mode: AuthMode) {
         when (mode) {
             AuthMode.BROWSER -> AuthFlow.startBrowserFlow(context, provider)
@@ -68,10 +74,11 @@ class AndroidEnv private constructor(val context: Context) : Env {
         }
     }
 
-    override fun shrinkJpeg(raw: ByteArray, maxSide: Int, maxBytes: Int): ByteArray? {
+    override fun squareJpeg(raw: ByteArray, minSide: Int, maxSide: Int, maxBytes: Int): ByteArray? {
         val src = BitmapFactory.decodeByteArray(raw, 0, raw.size) ?: return null
-        val scale = minOf(1f, maxSide.toFloat() / maxOf(src.width, src.height))
-        val bmp = if (scale < 1f) Bitmap.createScaledBitmap(src, (src.width * scale).toInt(), (src.height * scale).toInt(), true) else src
+        val sq = com.xlollx.songport.sync.Covers.square(src.width, src.height, minSide, maxSide)
+        val cut = if (sq.size != src.width || sq.size != src.height) Bitmap.createBitmap(src, sq.x, sq.y, sq.size, sq.size) else src
+        val bmp = if (sq.side != sq.size) Bitmap.createScaledBitmap(cut, sq.side, sq.side, true) else cut
         // Quality steps down until the bytes fit; a cover that never fits is not sent.
         for (q in intArrayOf(85, 70, 55, 40)) {
             val out = ByteArrayOutputStream()
@@ -98,6 +105,7 @@ class AndroidEnv private constructor(val context: Context) : Env {
             "GOOGLE_REDIRECT_SCHEME" to BuildConfig.GOOGLE_REDIRECT_SCHEME,
             "APPLE_DEVELOPER_TOKEN" to BuildConfig.APPLE_DEVELOPER_TOKEN,
             "LASTFM_API_KEY" to BuildConfig.LASTFM_API_KEY,
+            "LASTFM_SHARED_SECRET" to BuildConfig.LASTFM_SHARED_SECRET,
         )
     }
 }

@@ -32,6 +32,11 @@ class ServerEnv(
     /** True when this person may use [permission] ([Permissions]). */
     fun may(permission: String) = permissions == null || permission in permissions
 
+    /** Who this is among the people of a shared server: each has their own data folder. */
+    val owner: String get() = dataDir.absolutePath
+    /** Whose background runs ([Tasks]) this person sees: their own, or everyone's (null) for an admin. */
+    val sees: String? get() = if (may(Permissions.ADMIN)) null else owner
+
     override val store: FileStore = FileStore(dataDir).also { FileStore.install(it) }
     override val tokens: TokenVault = JsonTokenVault(File(dataDir, "tokens.json"))
     override val redirectUri: String get() = "$baseUrl/callback"
@@ -41,6 +46,9 @@ class ServerEnv(
     fun hasText(name: String) = strings.has(name)
 
     override fun log(tag: String, message: String) = Log.add(tag, message)
+
+    /** "No internet" here is the server's own connection: the reports say so. */
+    override val onServer: Boolean get() = true
 
     /**
      * A connector asks to sign in. Nothing can be opened from here: the request is noted for the web
@@ -63,15 +71,13 @@ class ServerEnv(
     override fun keyValues(name: String): KeyValues =
         kv.getOrPut(name) { JsonKeyValues(File(File(dataDir, "kv"), "${name.replace(Regex("[^A-Za-z0-9_.-]"), "_")}.json")) }
 
-    override fun shrinkJpeg(raw: ByteArray, maxSide: Int, maxBytes: Int): ByteArray? {
+    override fun squareJpeg(raw: ByteArray, minSide: Int, maxSide: Int, maxBytes: Int): ByteArray? {
         val src = runCatching { ImageIO.read(ByteArrayInputStream(raw)) }.getOrNull() ?: return null
-        val scale = minOf(1.0, maxSide.toDouble() / maxOf(src.width, src.height))
-        val w = maxOf(1, (src.width * scale).toInt())
-        val h = maxOf(1, (src.height * scale).toInt())
-        val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
+        val sq = com.xlollx.songport.sync.Covers.square(src.width, src.height, minSide, maxSide)
+        val img = BufferedImage(sq.side, sq.side, BufferedImage.TYPE_INT_RGB)
         img.createGraphics().apply {
             setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-            drawImage(src, 0, 0, w, h, null)
+            drawImage(src, 0, 0, sq.side, sq.side, sq.x, sq.y, sq.x + sq.size, sq.y + sq.size, null)
             dispose()
         }
         val writer = ImageIO.getImageWritersByFormatName("jpeg").asSequence().firstOrNull() ?: return null
@@ -98,9 +104,9 @@ class ServerEnv(
  * In English, like the rest of the page.
  */
 private val SERVER_TEXTS = mapOf(
-    "provider_note_liveone" to "LiveOne through its web player, signed in with the token of a browser session. Unofficial, alpha: a free account syncs its presets (add only).",
-    "provider_note_anghami_web" to "Anghami through its web player, signed in with the session of a browser. Unofficial, alpha: playlists of your own and liked songs, read and written.",
-    "provider_note_qobuz_web" to "Qobuz through its web player, signed in with the session of a browser. Unofficial, alpha: playlists of your own and favourite tracks, read and written; search by ISRC.",
+    "provider_note_liveone" to "LiveOne through its web player, signed in with the token of a browser session. Unofficial, beta: a free account syncs its presets (add only).",
+    "provider_note_anghami_web" to "Anghami through its web player, signed in with the session of a browser. Unofficial, beta: playlists of your own and liked songs, read and written.",
+    "provider_note_qobuz_web" to "Qobuz through its web player, signed in with the session of a browser. Unofficial, beta: playlists of your own and favourite tracks, read and written; search by ISRC.",
     "note_file_target" to "Saved inside Trackhop as a CSV file: download it from Services › File.",
     // The app says "from the preview"; here the sync's card has the button.
     "error_target_shrunk" to "%1\$s lists only %2\$d tracks, but the last run left %3\$d there: probably an incomplete answer. Nothing was changed. " +

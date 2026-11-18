@@ -27,6 +27,9 @@ object Automation {
     /** Runs one sync: extra [EXTRA_SYNC] with its name (any case) or its id. */
     const val ACTION_RUN = "com.xlollx.songport.action.RUN"
     const val EXTRA_SYNC = "sync"
+    /** With [ACTION_RUN] instead of [EXTRA_SYNC]: a group, the syncs with a tag ("genre=metal", or a key alone) or wearing a label (its name). */
+    const val EXTRA_TAG = "tag"
+    const val EXTRA_LABEL = "label"
 
     /** Sent when a sync ends, for automation apps listening to it (Tasker's "Intent Received"). */
     const val EVENT_FINISHED = "com.xlollx.songport.event.SYNC_FINISHED"
@@ -45,6 +48,11 @@ object Automation {
         val k = key.trim()
         return jobs.firstOrNull { it.id == k } ?: jobs.firstOrNull { it.name.trim().equals(k, ignoreCase = true) }
     }
+
+    /** The syncs turned on with the tag [tag] ("key=value", "key:value" or a key) and the label [label] (name, id or colour); none for a tag without a key. */
+    fun group(data: com.xlollx.songport.data.StoreData, tag: String?, label: String?): List<SyncJob> = runCatching {
+        com.xlollx.songport.sync.Labels.select(data.syncs, data.settings.labels, listOfNotNull(tag), label).filter { it.enabled }
+    }.getOrDefault(emptyList())
 
     /** The end of a sync, told to automation apps: counts and outcome, never a track or an account. */
     fun announce(ctx: Context, report: SyncReport) {
@@ -68,7 +76,7 @@ object Automation {
     fun updateShortcuts(ctx: Context) = runCatching {
         val data = Store.get(ctx).data
         val lastRun = data.reports.groupBy { it.jobId }.mapValues { (_, rs) -> rs.maxOf { it.startedEpoch } }
-        val jobs = data.jobs.filter { it.enabled }.sortedByDescending { lastRun[it.id] ?: 0L }.take(MAX_SHORTCUTS)
+        val jobs = data.syncs.filter { it.enabled }.sortedByDescending { lastRun[it.id] ?: 0L }.take(MAX_SHORTCUTS)
         val shortcuts = jobs.map { j ->
             ShortcutInfoCompat.Builder(ctx, "run-${j.id}")
                 .setShortLabel(j.name.take(24).ifBlank { ctx.getString(R.string.app_name) })
@@ -96,8 +104,16 @@ class AutomationReceiver : BroadcastReceiver() {
                 Scheduler.runNow(ctx, SyncWorker.ALL)
             }
             Automation.ACTION_RUN -> {
+                val tag = intent.getStringExtra(Automation.EXTRA_TAG)?.takeIf { it.isNotBlank() }
+                val label = intent.getStringExtra(Automation.EXTRA_LABEL)?.takeIf { it.isNotBlank() }
+                if (tag != null || label != null) {
+                    val group = Automation.group(Store.get(ctx).data, tag, label)
+                    Diagnostics.log(ctx, "automation", "run group ${listOfNotNull(tag, label).joinToString(" ").take(60)}: ${group.size}")
+                    Scheduler.runTogether(ctx, group.map { it.id })
+                    return
+                }
                 val key = intent.getStringExtra(Automation.EXTRA_SYNC).orEmpty()
-                val job = Automation.find(Store.get(ctx).data.jobs, key)
+                val job = Automation.find(Store.get(ctx).data.syncs, key)
                 if (job == null) Diagnostics.log(ctx, "automation", "run: no sync called \"${key.take(60)}\"")
                 else { Diagnostics.log(ctx, "automation", "run ${job.name}"); Scheduler.runNow(ctx, job.id) }
             }

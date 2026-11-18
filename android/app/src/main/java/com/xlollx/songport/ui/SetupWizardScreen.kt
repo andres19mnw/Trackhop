@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,27 +68,38 @@ fun SetupWizardScreen(provider: MusicProvider, onClose: () -> Unit) {
     val ctx = LocalContext.current
     val store = remember { Store.get(ctx) }
     val clipboard = LocalClipboardManager.current
-    ScreenBackHandler(onClose)
 
     val settings = store.data.settings
-    var clientId by remember { mutableStateOf(settings.clientIds[provider.serviceId].orEmpty()) }
-    var secret by remember { mutableStateOf(settings.clientSecrets[provider.serviceId].orEmpty()) }
-    var redirectUrl by remember { mutableStateOf(settings.deezerRedirectUrl.ifBlank { BuildConfig.DEEZER_REDIRECT_URL }) }
+    // Keys pasted and not saved yet survive a rotation; the secret in memory only, never in the saved state.
+    var clientId by rememberSaveable { mutableStateOf(settings.clientIds[provider.serviceId].orEmpty()) }
+    var secret by rememberUnsavedSecret("wizard:" + provider.serviceId) { settings.clientSecrets[provider.serviceId].orEmpty() }
+    var redirectUrl by rememberSaveable { mutableStateOf(settings.deezerRedirectUrl.ifBlank { BuildConfig.DEEZER_REDIRECT_URL }) }
     var error by remember { mutableStateOf<String?>(null) }
     var copied by remember { mutableStateOf(false) }
+    // Back or the arrow with a key pasted and not saved: asked first.
+    val leave = rememberDiscardGuard(
+        clientId != settings.clientIds[provider.serviceId].orEmpty() || secret != settings.clientSecrets[provider.serviceId].orEmpty() ||
+            (guide.needsRedirectUrl && redirectUrl != settings.deezerRedirectUrl.ifBlank { BuildConfig.DEEZER_REDIRECT_URL }),
+        onClose = onClose,
+    )
+    ScreenBackHandler(leave)
 
     fun save(): Boolean {
         val id = clientId.trim()
         val sec = secret.trim()
         val url = redirectUrl.trim()
-        if (id.isEmpty() || (guide.needsSecret && sec.isEmpty()) || (guide.needsRedirectUrl && url.isEmpty())) {
+        if (id.isEmpty() || (guide.needsSecret && !guide.secretOptional && sec.isEmpty()) || (guide.needsRedirectUrl && url.isEmpty())) {
             error = ctx.getString(R.string.setup_field_required)
             return false
         }
         store.updateSettings { s ->
             s.copy(
                 clientIds = s.clientIds + (provider.serviceId to id),
-                clientSecrets = if (guide.needsSecret) s.clientSecrets + (provider.serviceId to sec) else s.clientSecrets,
+                clientSecrets = when {
+                    !guide.needsSecret -> s.clientSecrets
+                    sec.isEmpty() -> s.clientSecrets - provider.serviceId
+                    else -> s.clientSecrets + (provider.serviceId to sec)
+                },
                 deezerRedirectUrl = if (guide.needsRedirectUrl) url else s.deezerRedirectUrl,
             )
         }
@@ -100,7 +112,7 @@ fun SetupWizardScreen(provider: MusicProvider, onClose: () -> Unit) {
             TopAppBar(
                 title = { Text(stringResource(R.string.setup_title, provider.displayName)) },
                 navigationIcon = {
-                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.nav_back)) }
+                    IconButton(onClick = leave) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.nav_back)) }
                 },
                 actions = { HelpButton(Helps.fields, Helps.clearKey, label = stringResource(R.string.help_keys_title)) },
             )
@@ -167,7 +179,7 @@ fun SetupWizardScreen(provider: MusicProvider, onClose: () -> Unit) {
                 OutlinedTextField(
                     value = secret,
                     onValueChange = { secret = it; error = null },
-                    label = { Text(stringResource(R.string.setup_field_secret)) },
+                    label = { Text(stringResource(guide.secretLabelRes)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )

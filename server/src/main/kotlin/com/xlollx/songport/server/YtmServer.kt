@@ -50,6 +50,12 @@ class YtmServerProvider(override val slot: String = "") : CookieConnector {
     override val supportsAlbums = true
     override val supportsArtists = true
     override val supportsRecent = true
+    /** Followed podcasts, read only: following a show from here is not documented (see YtmClient.libraryPodcasts). */
+    override val supportsPodcasts = true
+    override fun supportsLibrary(playlistId: String?, asTarget: Boolean): Boolean =
+        if (playlistId == MusicProvider.PODCASTS_ID && asTarget) false else super.supportsLibrary(playlistId, asTarget)
+    /** The followed podcasts came with Trackhop 1.18: offered then (Features). */
+    override fun libraryIsV2(playlistId: String, asTarget: Boolean): Boolean = playlistId == MusicProvider.PODCASTS_ID
     /** Another account: its own cookies, kv file and caches (see [ServerWebHost]). */
     override val supportsMultipleAccounts = true
     override val canRenamePlaylists = true
@@ -129,9 +135,17 @@ class YtmServerProvider(override val slot: String = "") : CookieConnector {
         when (playlistId) {
             MusicProvider.ALBUMS_ID -> c.libraryAlbums()
             MusicProvider.ARTISTS_ID -> c.librarySubscriptions()
+            MusicProvider.PODCASTS_ID -> c.libraryPodcasts()
             MusicProvider.RECENT_ID -> c.history()
             else -> c.tracks(playlistId)
         }.map { toTrack(it) }
+    }
+
+    /** Reads only until the tracks turn up, page after page. */
+    override suspend fun findEntries(ctx: Env, playlistId: String, tracks: List<Track>, seen: (List<Track>) -> Unit): List<Track> {
+        if (MusicProvider.isLibrary(playlistId)) return super.findEntries(ctx, playlistId, tracks, seen)
+        val ids = tracks.mapTo(HashSet()) { it.id }
+        return io(ctx) { c -> c.findEntries(playlistId, ids).map { toTrack(it) } }.also(seen)
     }
 
     override fun webSearchUrl(ctx: Env, query: String): String = "https://music.youtube.com/search?q=" + URLEncoder.encode(query, "UTF-8")
@@ -174,6 +188,10 @@ class YtmServerProvider(override val slot: String = "") : CookieConnector {
 
     override suspend fun setPlaylistVisibility(ctx: Env, playlistId: String, public: Boolean) { io(ctx) { it.setPrivacy(playlistId, public) } }
 
+    override val canSetCover = true
+    override val coverIsV2 = true
+    override suspend fun setPlaylistCover(ctx: Env, playlistId: String, jpeg: ByteArray) { io(ctx) { it.setCover(playlistId, jpeg) } }
+
     override suspend fun deletePlaylist(ctx: Env, playlistId: String) { io(ctx) { it.deletePlaylist(playlistId) } }
 
     override suspend fun addTracks(ctx: Env, playlistId: String, tracks: List<Track>) {
@@ -187,6 +205,9 @@ class YtmServerProvider(override val slot: String = "") : CookieConnector {
             }
         }
     }
+
+    /** Entries go by a lasting id (or the track's own): one read a few minutes ago names the same entry, or none. */
+    override val keepsEntryIds: Boolean get() = true
 
     override suspend fun removeTracks(ctx: Env, playlistId: String, tracks: List<Track>) {
         if (tracks.isEmpty()) return
@@ -212,7 +233,7 @@ class YtmServerProvider(override val slot: String = "") : CookieConnector {
         durationMs = t.durationMs,
         itemId = t.setVideoId,
         uri = t.uri,
-        kind = when (t.kind) { "album" -> Track.KIND_ALBUM; "artist" -> Track.KIND_ARTIST; else -> "" },
+        kind = when (t.kind) { "album" -> Track.KIND_ALBUM; "artist" -> Track.KIND_ARTIST; "podcast" -> Track.KIND_PODCAST; else -> "" },
         year = t.year ?: 0,
     )
 

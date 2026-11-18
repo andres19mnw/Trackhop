@@ -8,10 +8,10 @@ tabs_label: Где установить Trackhop
 tab_phone: Android
 tab_computer: Компьютер
 tab_server: Свой сервер
-play_alt: "Google Play: скоро"
-play_note: 'На тестировании'
-appgallery_alt: "Huawei AppGallery: скоро"
-appgallery_note: "Готовится · без сервисов Google"
+play_alt: "Доступно в Google Play"
+play_note: 'Уже доступно'
+appgallery_alt: "Найдите в Huawei AppGallery"
+appgallery_note: "Без сервисов Google"
 store_bridge: '<b>Google Play или AppGallery?</b> Добавьте Trackhop Bridge для YouTube Music, Amazon Music и не только'
 fdroid_alt: Скачать в F-Droid
 fdroid_note: Собирается из исходников · новые версии через несколько дней
@@ -28,7 +28,7 @@ mac_alt: Скачать для macOS (Apple silicon)
 mac_note: 'Apple silicon · <a href="%DL%/Trackhop-Desktop-v%V%-macos-x64.dmg">для Intel</a> · <a href="/guide/desktop#package-managers-and-stores">Homebrew</a>'
 linux_alt: Скачать для Linux
 linux_note: '.deb · или <a href="https://snapcraft.io/trackhop">Snap</a> · <a href="%DL%/Trackhop-Desktop-v%V%-linux.flatpak">Flatpak</a>'
-computer_more: 'На Mac в первый раз откройте через правый клик › Открыть (<a href="/guide/desktop#macos">почему</a>) · <a href="#docker">Все загрузки</a>'
+computer_more: 'На Mac в первый раз разрешите запуск: Системные настройки › Конфиденциальность и безопасность › Все равно открыть (<a href="/guide/desktop#macos">почему</a>) · <a href="#docker">Все загрузки</a>'
 docker_alt: Запустить в Docker
 docker_note: 'Бета · ghcr.io или <a href="https://hub.docker.com/r/xlollx/trackhop">Docker Hub</a> · <a href="/guide/playlist-sync-nas">на NAS</a>'
 azure_title: "Бета: работает в вашей собственной подписке Azure (около 5 $ в месяц)"
@@ -38,21 +38,23 @@ server_more: 'Веб-страница, синхронизация по расп�
 virustotal: Каждый файл проверен на VirusTotal
 downloads: "{n} загрузок"
 downloads_title: Загрузки релизов с GitHub и скачивания образа с Docker Hub. F-Droid и магазины приложений не публикуют счётчики, так что реальное число больше.
+playlists_synced: "{n} публичных плейлистов синхронизировано"
+playlists_synced_title: "Публичные плейлисты в Spotify и YouTube, которые синхронизирует Trackhop (в описании стоит «Synced with Trackhop»). Приватные плейлисты и другие сервисы не учитываются, так что на самом деле их больше."
 demo_alt: "Обзор Trackhop: синхронизации, новая синхронизация, аккаунты, инструменты, трек, которым поделились, карточки совместимости и постера, недоступные треки, настройки"
 what_title: Что он умеет
 what_intro: Выберите источник и цель, укажите, как часто. Trackhop найдёт каждый трек на другой стороне, покажет, что изменится, и будет держать оба плейлиста в согласии.
 card1_title: Из любого сервиса в любой
-card1: Плейлисты, любимые треки, сохранённые альбомы и отслеживаемые исполнители. Или вставьте ссылку на любой публичный плейлист.
+card1: "Плейлисты, любимые треки, сохранённые альбомы и исполнители, на которых вы подписаны. Или ссылка на любой публичный плейлист. Новое в 2.0: один плейлист на компанию друзей, у каждого из которых свой сервис."
 card2_title: По расписанию
-card2: Каждый час, каждые 6 часов, ежедневно или еженедельно. Только добавления или ещё и удаления, с сохранением порядка источника.
+card2: "Каждый час, каждые 6 часов, ежедневно или еженедельно. Только добавления или ещё и удаления, с сохранением порядка источника. А также в обе стороны, вместе с удалениями."
 card3_title: Никаких догадок
 card3: "Предпросмотр перед каждой синхронизацией. Ненайденные треки попадают на проверку: выберите правильный один раз — Trackhop его запомнит."
 card4_title: Ваши аккаунты остаются вашими
 card4: Вы входите на собственной странице каждого сервиса. Токены доступа зашифрованы на телефоне и никогда его не покидают.
 card5_title: Ваш собственный музыкальный сервер
-card5: "Navidrome и другие серверы Subsonic, Jellyfin и Plex — рядом со стриминговыми сервисами. А ещё файлы: CSV, M3U, XML, JSON. <a href='https://www.navidrome.org/apps/'>Есть в каталоге приложений Navidrome.</a>"
+card5: "Navidrome и другие серверы Subsonic, Jellyfin, Emby, Plex, Lyrion и Mopidy — рядом со стриминговыми сервисами, со списком треков, которых на вашем сервере ещё нет. А ещё файлы: CSV, M3U, XML, JSON. <a href='https://www.navidrome.org/apps/'>Есть в каталоге приложений Navidrome.</a>"
 card6_title: Инструменты для плейлистов
-card6: Резервные копии, удаление дубликатов, объединение, разделение и сортировка, а также генератор плейлистов на вашем собственном ключе ИИ.
+card6: "Резервные копии, удаление дубликатов, объединение, разделение и сортировка и генератор плейлистов на вашем собственном ключе ИИ. Новое в 2.0: новинки, концерты, сет-листы и пластинки исполнителей ваших плейлистов."
 one_title: "Даже если у вас один сервис"
 one_intro: "Второй сервис не нужен. Даже если вы пользуетесь только Spotify, Apple Music, YouTube Music или другим, Trackhop позаботится о ваших плейлистах."
 one1_title: "Сохраните Discover Weekly"
@@ -139,3 +141,4 @@ instagram_alt: 'Trackhop в Instagram'
 say_title: 'Что говорят'
 say_intro: 'Комментарии под видео и постами о Trackhop и сообщения тех, кто его поддерживает. Имена и фото скрыты.'
 say_alt: 'Комментарии пользователей Trackhop и два сообщения от поддерживающих, которые хвалят автоматическую синхронизацию и безопасность, а также посты в X, где его называют "a game changer for music lovers who use multiple platforms"'
+gallery_title: "Посмотрите"

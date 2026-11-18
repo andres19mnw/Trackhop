@@ -1,0 +1,641 @@
+package com.xlollx.songport.notify
+
+import com.xlollx.songport.model.SyncJob
+import com.xlollx.songport.model.SyncReport
+import com.xlollx.songport.data.Tokens
+import com.xlollx.songport.platform.Env
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import okhttp3.FormBody
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.security.SecureRandom
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * Notifications: a short message to the person's phone or chat when a sync run ends with something
+ * worth knowing (changes, an error, tracks to review, removals held back, new releases of their
+ * artists). Any number of channels, each with the events it wants: Telegram, ntfy, Gotify, Discord,
+ * Slack, Matrix and Pushover. The same on the server (Docker, Desktop) and in the Android app; the
+ * server's webhook (Api.kt) stays as it was, for tools that want the whole run as JSON.
+ *
+ * Channels live in the "notify" key-values of the [Env]. On the server that is `kv/notify.json`,
+ * secrets included, written readable by its owner only like the webhook's secret and the sign-ins
+ * (Storage.kt: the data folder is the boundary on a server); on a shared server each person has
+ * their own, since each engine has its own data folder (MultiUser.kt). The app keeps the secrets
+ * apart, in the store its sign-ins are in ([Env.tokens], encrypted with the Android Keystore):
+ * [secretsInVault]. Secrets are never shown back in full, never put in a message, and left out of
+ * the configuration backups, as the services' sign-ins are (ConfigBackup).
+ *
+ * Sending never holds or fails a sync: it happens on a thread of its own, at most [TIMEOUT_S]
+ * seconds per channel, and a failure only goes to the log.
+ */
+object Notify {
+    private const val KV = "notify"
+    private const val VAULT = "notify:"
+
+    /** Secrets kept in [Env.tokens] rather than with the channels: the app turns it on at start. */
+    @Volatile var secretsInVault = false
+    private const val TIMEOUT_S = 10L
+
+    /** What a channel can be told about. */
+    enum class Event(val key: String, val label: String) {
+        CHANGES("changes", "A sync added or removed tracks"),
+        FAILED("failed", "A sync failed (a sign-in expired, a service did not answer)"),
+        REVIEW("review", "Tracks to review (uncertain matches)"),
+        REMOVALS("removals", "Removals waiting for your confirmation"),
+        RELEASES("releases", "New releases of your artists (a weekly New releases sync found some)"),
+        ;
+
+        companion object {
+            fun of(key: String?) = entries.firstOrNull { it.key == key }
+        }
+    }
+
+    /** One setting of a channel; [secret] ones are masked when shown and kept out of backups. */
+    class Field(
+        val key: String,
+        val label: String,
+        val secret: Boolean = false,
+        val optional: Boolean = false,
+        val default: String = "",
+        val placeholder: String = "",
+        /** An address: must be http:// or https://. */
+        val url: Boolean = false,
+    )
+
+    enum class Kind(val id: String, val label: String, val help: String, val fields: List<Field>) {
+        TELEGRAM(
+            "telegram", "Telegram", "Make a bot with @BotFather and paste its token; send the bot a message, then put your chat id (@userinfobot tells it).",
+            listOf(Field("token", "Bot token", secret = true, placeholder = "123456:ABC…"), Field("chat", "Chat id", placeholder = "123456789 or @channel")),
+        ),
+        NTFY(
+            "ntfy", "ntfy", "Subscribe to a topic in the ntfy app. Pick a topic hard to guess: on ntfy.sh anyone who knows it can read it.",
+            listOf(
+                Field("server", "Server", default = "https://ntfy.sh", url = true),
+                // Secret too: on ntfy.sh whoever knows the topic reads its messages.
+                Field("topic", "Topic", secret = true, placeholder = "trackhop-…"),
+                Field("token", "Access token (protected topics only)", secret = true, optional = true, placeholder = "tk_…"),
+            ),
+        ),
+        GOTIFY(
+            "gotify", "Gotify", "In Gotify, Apps › Create application, and paste its token.",
+            listOf(Field("server", "Server", url = true, placeholder = "https://gotify.example.org"), Field("token", "App token", secret = true)),
+        ),
+        DISCORD(
+            "discord", "Discord", "Channel settings › Integrations › Webhooks › New webhook › Copy webhook URL.",
+            listOf(Field("url", "Webhook URL", secret = true, url = true, placeholder = "https://discord.com/api/webhooks/…")),
+        ),
+        SLACK(
+            "slack", "Slack", "Make an app with an incoming webhook for a channel (api.slack.com/messaging/webhooks) and paste its URL.",
+            listOf(Field("url", "Webhook URL", secret = true, url = true, placeholder = "https://hooks.slack.com/services/…")),
+        ),
+        MATRIX(
+            "matrix", "Matrix", "A (bot) account in the room: its access token (Element: Settings › Help & About), and the room's id (Room settings › Advanced).",
+            listOf(
+                Field("server", "Homeserver", url = true, default = "https://matrix.org"),
+                Field("token", "Access token", secret = true),
+                Field("room", "Room id", placeholder = "!abcdef:matrix.org"),
+            ),
+        ),
+        PUSHOVER(
+            "pushover", "Pushover", "Your user key is on pushover.net's front page; create an application there for its API token.",
+            listOf(Field("token", "Application API token", secret = true), Field("user", "User key", secret = true)),
+        ),
+        ;
+
+        companion object {
+            fun of(id: String?) = entries.firstOrNull { it.id == id }
+        }
+    }
+
+    data class Channel(
+        val id: String,
+        val kind: Kind,
+        val name: String,
+        val enabled: Boolean = true,
+        val events: Set<Event> = Event.entries.toSet(),
+        val values: Map<String, String> = emptyMap(),
+    ) {
+        fun value(key: String): String = values[key].orEmpty()
+
+        /** The settings it still needs (a backup brings no secrets): empty when it can send. */
+        fun missing(): List<Field> = kind.fields.filter { !it.optional && value(it.key).isBlank() }
+
+        /** Its addresses (server, webhook), hidden from technical reports like the user's own servers. */
+        fun addresses(): List<String> = kind.fields.filter { it.url }.map { value(it.key) }.filter { it.isNotBlank() }
+
+        /** Its secrets' values, to keep them out of anything shown (an error message). */
+        fun secrets(): List<String> = kind.fields.filter { it.secret }.map { value(it.key) }.filter { it.length >= 4 }
+    }
+
+    data class Message(val title: String, val text: String, val rich: Rich? = null)
+
+    /**
+     * The 1.18 notification: the same parts on every channel, each drawn with what the channel has
+     * (bold and italics, an embed, blocks, a title and a priority). [text] of the [Message] holds
+     * the same lines as plain text, for the channels and clients that show only that.
+     */
+    data class Rich(
+        val tone: Tone, val icon: String, val title: String, val route: String,
+        val counts: List<Pair<String, Int>>, val detail: String?, val todo: String?, val time: String,
+    ) {
+        val countsLine: String get() = counts.joinToString(" · ") { (k, n) -> "$k: $n" }
+        val lines: List<String> get() = listOfNotNull(route, countsLine.ifEmpty { null }, detail, todo, "🕒 $time")
+    }
+
+    enum class Tone { OK, FAIL, WARN }
+
+    // ------------------------------------------------------------------ storage
+
+    fun channels(env: Env): List<Channel> {
+        val raw = env.keyValues(KV)["channels"].orEmpty().ifEmpty { return emptyList() }
+        val list = runCatching { Json.parseToJsonElement(raw).jsonArray.mapNotNull { fromJson(it, withSecrets = true) } }.getOrDefault(emptyList())
+        if (!secretsInVault) return list
+        return list.map { c ->
+            val kept = env.tokens.get(VAULT + c.id)?.extra.orEmpty()
+            c.copy(values = c.values + c.kind.fields.filter { it.secret }.associate { it.key to kept[it.key].orEmpty() })
+        }
+    }
+
+    fun channel(env: Env, id: String): Channel? = channels(env).firstOrNull { it.id == id }
+
+    private fun save(env: Env, list: List<Channel>) {
+        if (secretsInVault) {
+            val before = channels(env).map { it.id }.toSet()
+            list.forEach { c -> env.tokens.set(VAULT + c.id, Tokens(accessToken = "", extra = c.kind.fields.filter { it.secret }.associate { it.key to c.value(it.key) })) }
+            (before - list.map { it.id }.toSet()).forEach { env.tokens.clear(VAULT + it) }
+        }
+        val mode = if (secretsInVault) Secrets.DROP else Secrets.KEEP
+        env.keyValues(KV)["channels"] = JsonArray(list.map { toJson(it, secrets = mode) }).toString()
+    }
+
+    /** Adds [c], or replaces the channel with its id. */
+    fun put(env: Env, c: Channel) {
+        val list = channels(env)
+        save(env, if (list.any { it.id == c.id }) list.map { if (it.id == c.id) c else it } else list + c)
+    }
+
+    fun remove(env: Env, id: String): Boolean {
+        val list = channels(env)
+        if (list.none { it.id == id }) return false
+        save(env, list.filter { it.id != id })
+        return true
+    }
+
+    fun newId(): String = ByteArray(4).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+
+    /**
+     * What a form or a call asks for [kind], over [old] (an edit): a secret left empty keeps its
+     * value, the others are taken as given. Returns the channel, or why it cannot be saved.
+     */
+    fun build(id: String, kind: Kind, name: String, enabled: Boolean, events: Set<Event>, given: Map<String, String>, old: Channel?): Result<Channel> {
+        val values = LinkedHashMap<String, String>()
+        val prev = old?.takeIf { it.kind == kind }
+        // A saved secret stays only while the channel still points where it did: a new address asks for it again.
+        val keep = prev != null && sameAddresses(kind, prev) { f -> given[f.key]?.trim().orEmpty().ifEmpty { if (f.secret) prev.value(f.key) else "" } }
+        for (f in kind.fields) {
+            val v = given[f.key]?.trim().orEmpty()
+            values[f.key] = if (v.isEmpty() && f.secret) (if (keep) prev!!.value(f.key) else "") else v
+            val now = values.getValue(f.key)
+            if (now.isEmpty() && !f.optional) return Result.failure(IllegalArgumentException("${f.label} is needed."))
+            if (f.url && now.isNotEmpty() && (!now.startsWith("http://") && !now.startsWith("https://") || now.toHttpUrlOrNull() == null)) {
+                return Result.failure(IllegalArgumentException("${f.label}: an address that starts with http:// or https://."))
+            }
+        }
+        return Result.success(Channel(id, kind, name.trim().ifEmpty { kind.label }, enabled, events, values))
+    }
+
+    /** Every address of [kind] (server, webhook) the same in [now] as in [old]. */
+    private fun sameAddresses(kind: Kind, old: Channel, now: (Field) -> String): Boolean =
+        kind.fields.filter { it.url }.all { f -> now(f).trimEnd('/').equals(old.value(f.key).trimEnd('/'), ignoreCase = true) }
+
+    // ------------------------------------------------------------------ JSON
+
+    private enum class Secrets { KEEP, MASK, DROP }
+
+    private fun toJson(c: Channel, secrets: Secrets): JsonObject = buildJsonObject {
+        put("id", c.id)
+        put("kind", c.kind.id)
+        put("name", c.name)
+        put("enabled", c.enabled)
+        put("events", buildJsonArray { Event.entries.filter { it in c.events }.forEach { add(it.key) } })
+        put("settings", buildJsonObject {
+            for (f in c.kind.fields) {
+                val v = c.value(f.key)
+                when {
+                    !f.secret || secrets == Secrets.KEEP -> put(f.key, v)
+                    secrets == Secrets.MASK -> put(f.key, mask(v))
+                    // DROP: left out, so a restore asks for it again.
+                }
+            }
+        })
+    }
+
+    private fun fromJson(e: JsonElement, withSecrets: Boolean): Channel? {
+        val o = e as? JsonObject ?: return null
+        fun s(k: String) = (o[k] as? JsonPrimitive)?.contentOrNull
+        val kind = Kind.of(s("kind")) ?: return null
+        val id = s("id")?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,40}")) } ?: return null
+        val settings = o["settings"] as? JsonObject ?: JsonObject(emptyMap())
+        val values = kind.fields.filter { withSecrets || !it.secret }
+            .associate { f -> f.key to ((settings[f.key] as? JsonPrimitive)?.contentOrNull ?: "") }
+        val events = (o["events"] as? JsonArray)?.mapNotNull { Event.of((it as? JsonPrimitive)?.contentOrNull) }?.toSet() ?: Event.entries.toSet()
+        return Channel(id, kind, s("name") ?: kind.label, (o["enabled"] as? JsonPrimitive)?.booleanOrNull ?: true, events, values)
+    }
+
+    /** A channel for the API and the command line: its secrets masked. */
+    fun shown(c: Channel): JsonObject = buildJsonObject {
+        toJson(c, Secrets.MASK).forEach { (k, v) -> put(k, v) }
+        put("kindName", c.kind.label)
+        put("ready", c.missing().isEmpty())
+    }
+
+    /** A secret as it may be shown: its last four characters at most, and only when it is long. */
+    fun mask(v: String): String = when {
+        v.isEmpty() -> ""
+        v.length < 12 -> "••••"
+        else -> "••••" + v.takeLast(4)
+    }
+
+    // ------------------------------------------------------------------ backups
+
+    private val pretty = Json { prettyPrint = true }
+
+    /**
+     * The configuration file ([ConfigBackup]'s text) with this person's channels in it, without their
+     * secrets, under "notifications": the app, which does not know that key, reads the file as before.
+     */
+    fun intoBackup(env: Env, text: String): String {
+        val list = channels(env).ifEmpty { return text }
+        val o = runCatching { Json.parseToJsonElement(text).jsonObject }.getOrElse { return text }
+        val out = JsonObject(o + ("notifications" to JsonArray(list.map { toJson(it, Secrets.DROP) })))
+        return pretty.encodeToString(JsonElement.serializer(), out)
+    }
+
+    /** The channels a configuration file holds (without secrets), or none. */
+    fun inBackup(text: String): List<Channel> = runCatching {
+        Json.parseToJsonElement(text.removePrefix("﻿")).jsonObject["notifications"]?.jsonArray?.mapNotNull { fromJson(it, withSecrets = false) }
+    }.getOrNull().orEmpty()
+
+    /**
+     * Brings [incoming] in, as the syncs are: the same id replaces the channel but keeps the secrets
+     * this server has for it; the others are added, off until their secrets are entered again.
+     * Returns how many.
+     */
+    fun restore(env: Env, incoming: List<Channel>): Int {
+        if (incoming.isEmpty()) return 0
+        val here = channels(env).associateBy { it.id }
+        val merged = incoming.map { c ->
+            val old = here[c.id]?.takeIf { it.kind == c.kind }
+            // The secrets this Trackhop has for it, while the file sends them to the same addresses.
+            val keep = old != null && sameAddresses(c.kind, old) { f -> c.value(f.key) }
+            val values = c.kind.fields.associate { f -> f.key to (if (f.secret) (if (keep) old!!.value(f.key) else "") else c.value(f.key)) }
+            val next = c.copy(values = values)
+            // On only for a channel already here: one that came with a file (shared, perhaps) waits to be turned on.
+            if (keep && next.missing().isEmpty()) next else next.copy(enabled = false)
+        }
+        val ids = merged.map { it.id }.toSet()
+        save(env, channels(env).filter { it.id !in ids } + merged)
+        return merged.size
+    }
+
+    // ------------------------------------------------------------------ messages
+
+    /** What [report] has to tell; [releases]: the run of a "New releases" sync, whose additions are news of their own. */
+    fun events(r: SyncReport, releases: Boolean = false): Set<Event> = buildSet {
+        if (!r.ok) add(Event.FAILED)
+        if (r.ok && releases && r.added > 0) add(Event.RELEASES)
+        if (r.ok && !releases && (r.added > 0 || r.removed > 0)) add(Event.CHANGES)
+        if (r.reviewTracks.any { it.source.id !in r.reviewAsked }) add(Event.REVIEW)
+        if (r.heldBack > 0) add(Event.REMOVALS)
+    }
+
+    /** The message for a channel that wants [wanted], or null when the run has nothing of it. */
+    fun message(syncName: String, r: SyncReport, wanted: Set<Event>, releases: Boolean = false): Message? {
+        val happened = events(r, releases) intersect wanted
+        if (happened.isEmpty()) return null
+        val lines = buildList {
+            if (Event.FAILED in happened) add("Failed: ${errorLine(r.error)}")
+            if (Event.CHANGES in happened) add("+${r.added} −${r.removed}")
+            if (Event.RELEASES in happened) add("New releases: ${r.added} ${if (r.added == 1) "track" else "tracks"} added")
+            if (Event.REVIEW in happened) add("${r.reviewTracks.size} ${if (r.reviewTracks.size == 1) "track" else "tracks"} to review")
+            if (Event.REMOVALS in happened) add("${r.heldBack} ${if (r.heldBack == 1) "removal waits" else "removals wait"} for your confirmation")
+        }
+        return Message("Trackhop: $syncName", lines.joinToString("\n"))
+    }
+
+    /**
+     * The 1.18 message of a run of [job] ([Rich]): the result in the title, the route, the figures that
+     * are not zero, a few added songs, what to do when it failed, when and how long. Texts in the app's
+     * language ([Env.text]); null when the run has nothing a channel wanting [wanted] asked for.
+     */
+    fun richMessage(env: Env, job: SyncJob, r: SyncReport, wanted: Set<Event>, releases: Boolean = false): Message? {
+        val happened = events(r, releases) intersect wanted
+        if (happened.isEmpty()) return null
+        fun name(id: String) = com.xlollx.songport.providers.Providers.byId(id)?.displayName?.let { com.xlollx.songport.sync.Wrapped.brandName(it) } ?: id
+        val route = env.text("nf_route", name(job.source.provider), name(job.target.provider))
+        val minutes = r.durationMs / 60_000
+        val time = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(r.startedEpoch)) +
+            " · " + if (minutes < 1) env.text("nf_under_minute") else env.text("nf_minutes", minutes)
+        val counts = listOf(
+            env.text("nf_added") to r.added, env.text("nf_removed") to r.removed,
+            env.text("nf_review") to r.reviewTracks.size, env.text("nf_unmatched") to r.unmatched.size,
+        ).filter { it.second > 0 }
+        val songs = r.addedTracks.take(2).map { t -> listOf(t.artists.firstOrNull().orEmpty(), t.title).filter { it.isNotBlank() }.joinToString(" – ") }
+        val more = r.added - songs.size
+        val newSongs = if (songs.isEmpty()) null else env.text("nf_new", songs.joinToString(", ") + if (more > 0) " " + env.text("nf_and_more", more) else "")
+        val rich = when {
+            Event.FAILED in happened -> Rich(
+                Tone.FAIL, "⚠️", env.text("nf_title_failed", job.name), route, emptyList(),
+                errorLine(r.error), env.text("nf_todo", env.text("nf_todo_failed")), time,
+            )
+            Event.RELEASES in happened -> Rich(Tone.OK, "🆕", env.text("nf_title_releases", r.added), route, emptyList(), newSongs, null, time)
+            Event.REMOVALS in happened && Event.CHANGES !in happened -> Rich(
+                Tone.WARN, "🗑️", env.text("nf_title_removals", job.name, r.heldBack), route, emptyList(),
+                env.text("nf_removals_detail"), env.text("nf_todo", env.text("nf_todo_removals")), time,
+            )
+            else -> Rich(
+                Tone.OK, "✅", if (r.added > 0) env.text("nf_title_added", job.name, r.added) else job.name, route, counts,
+                newSongs ?: if (Event.REMOVALS in happened) env.text("nf_removals_detail") else null,
+                if (Event.REVIEW in happened) env.text("nf_todo", env.text("nf_todo_review")) else null, time,
+            )
+        }
+        return Message(rich.title, rich.lines.joinToString("\n"), rich)
+    }
+
+    /** [errorLine] for the app's screens. */
+    fun errorText(error: String?): String = errorLine(error)
+
+    /** An error's first line, short, with any address taken out (a server's, a link with a token). */
+    internal fun errorLine(error: String?): String =
+        error.orEmpty().lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().trim()
+            .replace(Regex("""\b[a-z][a-z0-9+.-]*://\S+""", RegexOption.IGNORE_CASE), "…")
+            .let { com.xlollx.songport.data.Redact.text(it) }
+            .let { if (it.length > 200) it.take(199) + "…" else it }
+            .ifEmpty { "unknown error" }
+
+    val TEST = Message("Trackhop: test", "Notifications work: this channel is set up.")
+
+    // ------------------------------------------------------------------ sending
+
+    /** Telegram's and Pushover's fixed addresses; the tests point them elsewhere. */
+    @Volatile var telegramApi = "https://api.telegram.org"
+    @Volatile var pushoverApi = "https://api.pushover.net"
+
+    private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
+    private val txn = AtomicLong(System.currentTimeMillis())
+
+    private val client by lazy {
+        OkHttpClient.Builder()
+            // The app's contacted-servers list sees these hosts too (Http.onRequest).
+            .addInterceptor(com.xlollx.songport.net.Http.hostInterceptor)
+            // Never sent on to another address: a redirect would carry Gotify's X-Gotify-Key (OkHttp drops
+            // only Authorization on a new host), and the message too, where the user did not point it.
+            .followRedirects(false).followSslRedirects(false)
+            .callTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .connectTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .readTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /** One thread or two, apart from the syncs: a slow channel never holds a run. */
+    private val pool: ExecutorService by lazy {
+        Executors.newFixedThreadPool(2) { r -> Thread(r, "notify").apply { isDaemon = true } }
+    }
+
+    private fun base(url: String): HttpUrl = url.trim().trimEnd('/').toHttpUrlOrNull() ?: throw IllegalArgumentException("not an address")
+
+    private fun json(body: JsonObject) = body.toString().toRequestBody(JSON_TYPE)
+
+    /** The HTTP request that delivers [m] through [c]. */
+    fun request(c: Channel, m: Message): Request {
+        val b = Request.Builder().header("User-Agent", "Trackhop")
+        m.rich?.let { return richRequest(c, it, b).build() }
+        return when (c.kind) {
+            Kind.TELEGRAM -> b.url(base(telegramApi).newBuilder().addPathSegment("bot" + c.value("token")).addPathSegment("sendMessage").build())
+                .post(json(buildJsonObject {
+                    put("chat_id", c.value("chat")); put("text", "${m.title}\n${m.text}"); put("disable_web_page_preview", true)
+                }))
+            Kind.NTFY -> b.url(base(c.value("server"))).apply {
+                c.value("token").takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
+            }.post(json(buildJsonObject {
+                // JSON publishing: titles with accents, which HTTP headers cannot carry.
+                put("topic", c.value("topic")); put("title", m.title); put("message", m.text)
+                put("tags", buildJsonArray { add("musical_note") })
+            }))
+            Kind.GOTIFY -> b.url(base(c.value("server")).newBuilder().addPathSegment("message").build())
+                .header("X-Gotify-Key", c.value("token"))
+                .post(json(buildJsonObject { put("title", m.title); put("message", m.text); put("priority", 5) }))
+            Kind.DISCORD -> b.url(base(c.value("url"))).post(json(buildJsonObject {
+                put("content", "**${m.title}**\n${m.text}")
+                // A sync called "@everyone" pings no one.
+                put("allowed_mentions", buildJsonObject { put("parse", JsonArray(emptyList())) })
+            }))
+            Kind.SLACK -> b.url(base(c.value("url"))).post(json(buildJsonObject {
+                fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                put("text", "*${esc(m.title)}*\n${esc(m.text)}")
+            }))
+            Kind.MATRIX -> b.url(
+                base(c.value("server")).newBuilder().addPathSegments("_matrix/client/v3/rooms").addPathSegment(c.value("room"))
+                    .addPathSegments("send/m.room.message").addPathSegment("trackhop${txn.incrementAndGet()}").build(),
+            ).header("Authorization", "Bearer ${c.value("token")}")
+                .put(json(buildJsonObject { put("msgtype", "m.text"); put("body", "${m.title}\n${m.text}") }))
+            Kind.PUSHOVER -> b.url(base(pushoverApi).newBuilder().addPathSegments("1/messages.json").build())
+                .post(FormBody.Builder().add("token", c.value("token")).add("user", c.value("user")).add("title", m.title).add("message", m.text).build())
+        }.build()
+    }
+
+    private fun html(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    /** [r] drawn with what [c]'s service has; the limits: Telegram 4096, Discord 4096 per embed, Pushover 1024. */
+    private fun richRequest(c: Channel, r: Rich, b: Request.Builder): Request.Builder {
+        val title = "${r.icon} ${r.title}"
+        val plain = r.lines.joinToString("\n")
+        fun htmlBody() = buildList {
+            add("<b>${html(title)}</b>"); add(html(r.route))
+            if (r.counts.isNotEmpty()) add(html(r.countsLine))
+            r.detail?.let { add(html(it)) }; r.todo?.let { add("<i>${html(it)}</i>") }; add(html("🕒 ${r.time}"))
+        }
+        return when (c.kind) {
+            Kind.TELEGRAM -> b.url(base(telegramApi).newBuilder().addPathSegment("bot" + c.value("token")).addPathSegment("sendMessage").build())
+                .post(json(buildJsonObject {
+                    put("chat_id", c.value("chat")); put("text", htmlBody().joinToString("\n").take(4000))
+                    put("parse_mode", "HTML"); put("disable_web_page_preview", true)
+                }))
+            Kind.NTFY -> b.url(base(c.value("server"))).apply {
+                c.value("token").takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
+            }.post(json(buildJsonObject {
+                put("topic", c.value("topic")); put("title", r.title); put("message", plain)
+                put("tags", buildJsonArray { add(if (r.tone == Tone.FAIL) "warning" else "musical_note") })
+                put("priority", if (r.tone == Tone.FAIL) 4 else 3)
+            }))
+            Kind.GOTIFY -> b.url(base(c.value("server")).newBuilder().addPathSegment("message").build())
+                .header("X-Gotify-Key", c.value("token"))
+                .post(json(buildJsonObject { put("title", title); put("message", plain); put("priority", if (r.tone == Tone.FAIL) 8 else 5) }))
+            Kind.DISCORD -> b.url(base(c.value("url"))).post(json(buildJsonObject {
+                put("allowed_mentions", buildJsonObject { put("parse", JsonArray(emptyList())) })
+                put("embeds", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", title.take(256))
+                        put("description", listOfNotNull(r.route, r.detail, r.todo?.let { "*$it*" }).joinToString("\n").take(4000))
+                        put("color", when (r.tone) { Tone.OK -> 0x1DB954; Tone.FAIL -> 0xE5484D; Tone.WARN -> 0xF5A524 })
+                        if (r.counts.isNotEmpty()) put("fields", buildJsonArray {
+                            r.counts.forEach { (k, n) -> add(buildJsonObject { put("name", k.take(256)); put("value", "$n"); put("inline", true) }) }
+                        })
+                        put("footer", buildJsonObject { put("text", "Trackhop · ${r.time}".take(2048)) })
+                    })
+                })
+            }))
+            Kind.SLACK -> b.url(base(c.value("url"))).post(json(buildJsonObject {
+                fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                put("text", "*${esc(title)}*\n${esc(plain)}")
+                put("blocks", buildJsonArray {
+                    fun section(t: String) = add(buildJsonObject {
+                        put("type", "section"); put("text", buildJsonObject { put("type", "mrkdwn"); put("text", t.take(3000)) })
+                    })
+                    section("*${esc(title)}*\n${esc(r.route)}" + if (r.counts.isNotEmpty()) "\n${esc(r.countsLine)}" else "")
+                    listOfNotNull(r.detail?.let(::esc), r.todo?.let { "_${esc(it)}_" }).takeIf { it.isNotEmpty() }?.let { section(it.joinToString("\n")) }
+                    add(buildJsonObject {
+                        put("type", "context")
+                        put("elements", buildJsonArray { add(buildJsonObject { put("type", "mrkdwn"); put("text", esc("🕒 ${r.time}")) }) })
+                    })
+                })
+            }))
+            Kind.MATRIX -> b.url(
+                base(c.value("server")).newBuilder().addPathSegments("_matrix/client/v3/rooms").addPathSegment(c.value("room"))
+                    .addPathSegments("send/m.room.message").addPathSegment("trackhop${txn.incrementAndGet()}").build(),
+            ).header("Authorization", "Bearer ${c.value("token")}")
+                .put(json(buildJsonObject {
+                    put("msgtype", "m.text"); put("body", "$title\n$plain")
+                    put("format", "org.matrix.custom.html"); put("formatted_body", htmlBody().joinToString("<br>"))
+                }))
+            Kind.PUSHOVER -> b.url(base(pushoverApi).newBuilder().addPathSegments("1/messages.json").build())
+                .post(FormBody.Builder().add("token", c.value("token")).add("user", c.value("user")).add("title", title.take(250))
+                    .add("message", htmlBody().drop(1).joinToString("\n").take(1024)).add("html", "1")
+                    .add("priority", if (r.tone == Tone.FAIL) "1" else "0").build())
+        }
+    }
+
+    /** Sends [m] through [c] now (this thread). Null when it arrived, else why not, with no secret in it. */
+    fun send(c: Channel, m: Message): String? {
+        c.missing().firstOrNull()?.let { return "${it.label} is missing." }
+        val error = try {
+            client.newCall(request(c, m)).execute().use { res ->
+                if (res.isSuccessful) null else "HTTP ${res.code}" + (reason(res.body?.string())?.let { ": $it" } ?: "")
+            }
+        } catch (e: Exception) {
+            e.message ?: e.javaClass.simpleName
+        }
+        return error?.let { scrub(c, it) }
+    }
+
+    /** The service's own word on a refusal (Telegram's "description", Gotify's "errorDescription"…), short. */
+    private fun reason(body: String?): String? {
+        val o = runCatching { Json.parseToJsonElement(body.orEmpty()).jsonObject }.getOrNull() ?: return null
+        val keys = listOf("description", "errorDescription", "error", "message", "errors")
+        val v = keys.firstNotNullOfOrNull { k ->
+            when (val e = o[k]) {
+                is JsonPrimitive -> e.contentOrNull
+                is JsonArray -> e.firstOrNull()?.let { (it as? JsonPrimitive)?.contentOrNull }
+                else -> null
+            }
+        }
+        return v?.take(200)
+    }
+
+    private fun scrub(c: Channel, s: String): String = c.secrets().fold(s) { acc, secret -> acc.replace(secret, "…") }
+
+    /** What a run has to tell, and to whom: each enabled, ready channel that wants something of it. */
+    fun deliveries(env: Env, job: SyncJob, report: SyncReport): List<Pair<Channel, Message>> {
+        val releases = job.source.provider == com.xlollx.songport.providers.NewReleasesProvider.SERVICE
+        return runCatching { channels(env) }.getOrDefault(emptyList()).filter { it.enabled && it.missing().isEmpty() }
+            .mapNotNull { c ->
+                // 1.18: the full message; its plain [Message.text] is still there for anything that reads only that.
+                val m = if (com.xlollx.songport.Features.v2) runCatching { richMessage(env, job, report, c.events, releases) }.getOrNull()
+                else null
+                (m ?: message(job.name, report, c.events, releases))?.let { c to it }
+            }
+    }
+
+    /** After a run: [deliveries] sent in the background. Never throws. */
+    fun afterRun(env: Env, job: SyncJob, report: SyncReport) {
+        for ((c, m) in deliveries(env, job, report)) {
+            runCatching { pool.execute { send(c, m)?.let { env.log("notify", "${c.name} (${c.kind.label}): $it") } } }
+                .onFailure { env.log("notify", "${c.name}: ${it.message}") }
+        }
+    }
+
+    /** "Send test": the result, said for a person (with what to do, for Telegram's usual refusals). */
+    fun test(c: Channel): String? = send(c, TEST)?.let { e ->
+        when (telegramHint(c, e)) {
+            TelegramHint.BOT_ID -> "$e. The chat id is the bot's own: put yours (@userinfobot tells it) or the group's."
+            TelegramHint.START_BOT -> "$e. Open your bot in Telegram and tap Start (or unblock it), then try again."
+            null -> e
+        }
+    }
+
+    // ------------------------------------------------------------------ Telegram helpers
+
+    /** What to do about a Telegram channel, from its settings or a refusal ([error]); the app says it in its own words. */
+    enum class TelegramHint { BOT_ID, START_BOT }
+
+    /** The bot's own id: the number before the ":" of its token. */
+    fun telegramBotId(token: String): String = token.trim().substringBefore(':').takeIf { it.isNotEmpty() && it.all(Char::isDigit) }.orEmpty()
+
+    fun telegramHint(c: Channel, error: String? = null): TelegramHint? {
+        if (c.kind != Kind.TELEGRAM) return null
+        val bot = telegramBotId(c.value("token"))
+        val e = error.orEmpty().lowercase()
+        return when {
+            bot.isNotEmpty() && c.value("chat").trim() == bot -> TelegramHint.BOT_ID
+            "send messages to bot" in e || "messages to the bot" in e -> TelegramHint.BOT_ID
+            "blocked by the user" in e || "chat not found" in e || "bot was kicked" in e -> TelegramHint.START_BOT
+            else -> null
+        }
+    }
+
+    /** A chat that wrote to the bot: its id (negative for a group), its name and its kind ("private", "group", "channel"…). */
+    data class TelegramChat(val id: String, val name: String, val type: String)
+
+    /**
+     * The chats that wrote to the bot lately, newest first, from Telegram's getUpdates: what "Find my
+     * chat id" fills the field with. Empty when nobody wrote yet; an error when the token is refused
+     * or the bot delivers to a webhook (getUpdates then answers 409). The token never shows in an error.
+     */
+    fun telegramChats(token: String): Result<List<TelegramChat>> = runCatching {
+        val url = base(telegramApi).newBuilder().addPathSegment("bot" + token.trim()).addPathSegment("getUpdates").build()
+        client.newCall(Request.Builder().url(url).get().build()).execute().use { res ->
+            val body = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IllegalStateException("HTTP ${res.code}" + (reason(body)?.let { ": $it" } ?: ""))
+            val updates = (Json.parseToJsonElement(body).jsonObject["result"] as? JsonArray).orEmpty()
+            updates.reversed().mapNotNull { u ->
+                val o = u.jsonObject
+                val msg = listOf("message", "channel_post", "my_chat_member", "edited_message").firstNotNullOfOrNull { o[it] as? JsonObject }
+                val chat = msg?.get("chat") as? JsonObject ?: return@mapNotNull null
+                fun str(k: String) = (chat[k] as? JsonPrimitive)?.contentOrNull
+                val id = str("id") ?: return@mapNotNull null
+                val name = str("title") ?: listOfNotNull(str("first_name"), str("last_name")).joinToString(" ").ifEmpty { str("username")?.let { "@$it" } ?: id }
+                TelegramChat(id, name, str("type").orEmpty())
+            }.distinctBy { it.id }
+        }
+    }.recoverCatching { throw IllegalStateException((it.message ?: it.javaClass.simpleName).replace(token.trim(), "…")) }
+}

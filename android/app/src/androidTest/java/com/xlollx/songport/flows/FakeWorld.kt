@@ -26,10 +26,14 @@ object FakeWorld {
     val public = ConcurrentHashMap<String, MutableMap<String, FakePlaylist>>()
     /** Provider ids that are signed in. */
     val connected: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    /** Covers set on a playlist: (provider id, playlist id). */
+    val coversSet: MutableList<Pair<String, String>> = java.util.Collections.synchronizedList(ArrayList())
     /** Titles each service's catalogue does not have (so a sync reports them "not found"). */
     val missing = ConcurrentHashMap<String, Set<String>>()
     /** While set, reading a playlist's tracks waits for it (suspended, no thread held): syncs stay running until the test lets them go. */
     @Volatile var hold: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    /** Spotify's saved albums (a list with id ALBUMS_ID in [playlists]): only the tests that turn it on see them. */
+    @Volatile var savedAlbums = false
 
     // ---- the seed every test starts from
 
@@ -53,8 +57,8 @@ object FakeWorld {
     val DEEZER_MISSING = setOf(Demo.SONGS[5].title, Demo.SONGS[6].title)
 
     fun reset() {
-        playlists.clear(); public.clear(); connected.clear(); missing.clear()
-        hold?.complete(Unit); hold = null
+        playlists.clear(); public.clear(); connected.clear(); missing.clear(); coversSet.clear()
+        hold?.complete(Unit); hold = null; savedAlbums = false
         playlists["spotify"] = mutableListOf(
             FakePlaylist(SPOTIFY_ROAD, "Road Trip", songs("spotify", 0 until 8)),
             FakePlaylist(SPOTIFY_CHILL, "Chill Evening", songs("spotify", 8 until 13)),
@@ -100,9 +104,10 @@ object FakeWorld {
 
     // ---- the services
 
-    val spotify = FakeProvider("spotify", "Spotify", 0xFF1DB954, "provider_note_spotify", detectsUnplayable = true, canReorder = true)
+    // Spotify takes playlist covers (as since 1.16); YouTube Music lists followed podcasts, a 1.18 offer (ReleaseSwitchFlowTest).
+    val spotify = FakeProvider("spotify", "Spotify", 0xFF1DB954, "provider_note_spotify", detectsUnplayable = true, canReorder = true, covers = true)
     val deezer = FakeProvider("deezer", "Deezer", 0xFFA238FF, "provider_note_deezer", detectsUnplayable = true, canReorder = true)
-    val ytm = FakeProvider("ytm", "YouTube Music", 0xFFFF0000, "provider_note_ytm", route = MusicProvider.Route.EASY)
+    val ytm = FakeProvider("ytm", "YouTube Music", 0xFFFF0000, "provider_note_ytm", route = MusicProvider.Route.EASY, podcasts = true)
     val youtube = FakeProvider("youtube", "YouTube Music", 0xFFFF0000, "provider_note_youtube", route = MusicProvider.Route.OFFICIAL)
     val jellyfin = FakeProvider("jellyfin", "Jellyfin", 0xFF00A4DC, "provider_note_jellyfin")
     val soundcloud = FakeProvider("soundcloud", "SoundCloud", 0xFFFF5500, "provider_note_soundcloud", linkOnly = true)
@@ -132,14 +137,33 @@ class FakeProvider(
     override val route: MusicProvider.Route? = null,
     override val linkOnly: Boolean = false,
     override val slot: String = "",
-) : MusicProvider {
+    /** Followed podcasts as a source, offered from 1.18 (as YouTube Music's). */
+    private val podcasts: Boolean = false,
+    /** Takes playlist covers (as Spotify's official API since 1.16). */
+    private val covers: Boolean = false,
+) : MusicProvider, com.xlollx.songport.providers.PlayCounts {
+    override val supportsPodcasts: Boolean get() = podcasts
+    override val supportsAlbums: Boolean get() = FakeWorld.savedAlbums && serviceId == "spotify"
+    override fun supportsLibrary(playlistId: String?, asTarget: Boolean): Boolean =
+        if (playlistId == MusicProvider.PODCASTS_ID && asTarget) false else super.supportsLibrary(playlistId, asTarget)
+    override fun libraryIsV2(playlistId: String, asTarget: Boolean): Boolean = playlistId == MusicProvider.PODCASTS_ID
+    override val canSetCover: Boolean get() = covers
+    override suspend fun setPlaylistCover(ctx: Env, playlistId: String, jpeg: ByteArray) { FakeWorld.coversSet += id to playlistId }
+    /** Jellyfin takes lyrics through its API (Tools › Synced lyrics, from 1.18). */
+    override val lyricsSupport: com.xlollx.songport.providers.LyricsSupport
+        get() = if (serviceId == "jellyfin") com.xlollx.songport.providers.LyricsSupport.SERVER_API else com.xlollx.songport.providers.LyricsSupport.NONE
+
+    /** A personal server's play counts (Jellyfin's, for the Wrapped and the poster from 1.18): none counted yet. */
+    override suspend fun playlistPlays(ctx: Env, playlistId: String): List<com.xlollx.songport.sync.Listening.Play> = emptyList()
+    override suspend fun topPlays(ctx: Env, n: Int): List<com.xlollx.songport.sync.Listening.Play> = emptyList()
+
     override val familyName: String get() = displayName
     override val requiresAuth: Boolean get() = !linkOnly
     override val canWrite: Boolean get() = !linkOnly
     override val canCreatePlaylists: Boolean get() = !linkOnly
     override val supportsMultipleAccounts: Boolean get() = !linkOnly
 
-    fun copyFor(slot: String) = FakeProvider(serviceId, displayName, brandColor, noteName, detectsUnplayable, canReorder, route, linkOnly, slot)
+    fun copyFor(slot: String) = FakeProvider(serviceId, displayName, brandColor, noteName, detectsUnplayable, canReorder, route, linkOnly, slot, podcasts, covers)
 
     override fun isConfigured(ctx: Env) = true
     override fun isConnected(ctx: Env) = id in FakeWorld.connected
@@ -159,7 +183,7 @@ class FakeProvider(
         own().firstOrNull { it.id == playlistId } ?: FakeWorld.public[serviceId]?.get(playlistId)
             ?: throw ProviderException("$displayName: no playlist $playlistId")
 
-    override suspend fun playlists(ctx: Env): List<Playlist> = own().map { Playlist(it.id, it.name, it.tracks.size, it.owned) }
+    override suspend fun playlists(ctx: Env): List<Playlist> = own().filter { !MusicProvider.isLibrary(it.id) }.map { Playlist(it.id, it.name, it.tracks.size, it.owned) }
 
     override suspend fun playlistInfo(ctx: Env, playlistId: String): Playlist = find(playlistId).let { Playlist(it.id, it.name, it.tracks.size, it.owned) }
 

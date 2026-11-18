@@ -100,4 +100,97 @@ object Timing {
         val name = stepName(interval(job))
         return if (timed(job) && job.at != null) "$name at ${job.at}" else name
     }
+
+    /** Several syncs that reach one service at about the same time: what the Syncs screen warns about. */
+    data class Crowd(val service: String, val at: String, val jobIds: List<String>)
+
+    /** Gaps the spreading tries, in minutes: the shortest that leaves no crowd wins. */
+    private val SPREAD_GAPS = listOf(15, 20, 30, 45, 60)
+
+    /**
+     * The largest group of at least [min] syncs that read or write the same service and start within
+     * [windowMin] minutes of each other, or null: every start of every scheduled sync over the next
+     * [days] days is laid out, whatever its kind (daily, weekly, chosen days, every few days or every
+     * few hours), and the busiest half hour of each service is counted. Issue #56: eleven syncs of one
+     * service at 09:00, and the service turned part of them away. Only the services [sensitive] says
+     * turn bursts away; files never. [Crowd.at] is the time of day of that half hour's first start.
+     */
+    fun crowded(
+        jobs: List<SyncJob>, windowMin: Int = 30, min: Int = 4, sensitive: (String) -> Boolean = { true },
+        now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault(), days: Int = 7,
+    ): Crowd? {
+        val until = now + days * 86_400_000L
+        val starts = jobs.flatMap { j -> starts(j, now, until, zone).map { j to it } }
+        val services = jobs.filter { scheduled(it) }.flatMap { listOf(it.source.provider, it.target.provider) }.toSet() - LOCAL
+        var best: Crowd? = null
+        for (service in services.filter(sensitive)) {
+            val mine = starts.filter { (j, _) -> j.source.provider == service || j.target.provider == service }.sortedBy { it.second }
+            for ((i, first) in mine.withIndex()) {
+                val end = first.second + windowMin * 60_000L
+                val ids = LinkedHashSet<String>()
+                for (k in i until mine.size) { if (mine[k].second > end) break; ids += mine[k].first.id }
+                // The two halves of a two-way pair run as one: they count once.
+                val units = ids.count { id -> jobs.firstOrNull { it.id == id }?.linkedJobId.let { p -> p == null || p !in ids || id < p } }
+                if (units >= min && ids.size > (best?.jobIds?.size ?: 0)) {
+                    val t = Instant.ofEpochMilli(first.second).atZone(zone).toLocalTime()
+                    best = Crowd(service, String.format(java.util.Locale.ROOT, "%02d:%02d", t.hour, t.minute), ids.toList())
+                }
+            }
+        }
+        return best
+    }
+
+    /** When [job] starts between [from] and [until]: from its next run on, one interval or one time of day after another. */
+    private fun starts(job: SyncJob, from: Long, until: Long, zone: ZoneId): List<Long> {
+        val out = ArrayList<Long>()
+        // Every few hours and never run: its rhythm starts with its first run, not known yet.
+        if (!timed(job) && job.lastRunEpoch <= 0) return out
+        var t = nextRun(job, from, zone) ?: return out
+        // A timed sync that is overdue runs once now, off its clock time: that is no crowd to warn
+        // about and no time to spread from. Its starts begin at the next time of day.
+        if (t < from) t = if (timed(job)) nextRun(job.copy(lastRunEpoch = from), from, zone) ?: return out else from
+        while (t <= until && out.size < 400) {
+            out += t
+            t = (if (timed(job)) nextRun(job.copy(lastRunEpoch = t), t, zone) else t + interval(job) * 60_000L) ?: break
+            if (t <= out.last()) break
+        }
+        return out
+    }
+
+    /**
+     * New times for the syncs of [crowd], for the user to confirm: the first keeps its time, each next
+     * one starts a gap later (15 minutes, longer when that still meets other syncs of the service),
+     * kept within the same day. The two halves of a two-way pair move together. Days, frequency and
+     * everything else stay. Only the syncs whose time changes are in the answer, in [jobs]' order.
+     */
+    fun spread(
+        jobs: List<SyncJob>, crowd: Crowd, sensitive: (String) -> Boolean = { true },
+        now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault(),
+    ): Map<String, String> {
+        // Only syncs with a time of day can be given another one; those every few hours keep theirs.
+        val group = jobs.filter { it.id in crowd.jobIds && timed(it) }
+        // One unit per pair: a half whose partner is in the group follows it.
+        val units = group.filter { j -> j.linkedJobId == null || group.none { it.id == j.linkedJobId } || j.id < j.linkedJobId }
+        val start = (parseAt(crowd.at) ?: LocalTime.of(9, 0)).let { it.hour * 60 + it.minute }
+        var answer: Map<String, String> = emptyMap()
+        for (gap in SPREAD_GAPS) {
+            val first = minOf(start, 1439 - (units.size - 1) * gap)
+            if (first < 0) break
+            val times = HashMap<String, String>()
+            units.forEachIndexed { i, u ->
+                val m = first + i * gap
+                val at = String.format(java.util.Locale.ROOT, "%02d:%02d", m / 60, m % 60)
+                times[u.id] = at
+                u.linkedJobId?.let { times[it] = at }
+            }
+            answer = times.filter { (id, at) -> group.firstOrNull { it.id == id }?.at?.trim() != at }
+            val after = jobs.map { j -> times[j.id]?.let { j.copy(at = it) } ?: j }
+            val left = crowded(after, sensitive = sensitive, now = now, zone = zone)
+            if (left == null || left.jobIds.none { it in crowd.jobIds }) break
+        }
+        return jobs.mapNotNull { j -> answer[j.id]?.let { j.id to it } }.toMap()
+    }
+
+    /** Services on the phone itself: files. */
+    private val LOCAL = setOf("csv")
 }

@@ -45,6 +45,43 @@ object BridgePlugin {
     /** Every feature of the built-in connectors is available, built in or through the plugin. */
     val full: Boolean get() = builtIn || pluginVersion >= FULL_VERSION
 
+    /**
+     * A plugin reporting this "version" (or more) also browses setlist.fm for the store builds
+     * ([SETLIST_ACTION]) and reads Vivaticket's gateway for Concerts (`vivaticket.read`), the two
+     * features the GitHub and F-Droid build carries itself. Trackhop Bridge does so since 1.11.0 (58;
+     * 57 went to the hotfix 1.10.3 and 56 is 1.10.2, both without them).
+     */
+    const val SITES_VERSION = 58
+
+    /** A plugin reporting this "version" (or more) also lists YouTube Music's followed podcasts (`__podcasts__`): Trackhop Bridge 1.11.0. */
+    const val YTM_PODCASTS_VERSION = 58
+
+    /**
+     * A plugin reporting this "version" (or more) also lists and changes Amazon Music's saved albums
+     * and followed artists (`amazon.tracks`, `amazon.add`, `amazon.remove` with `__albums__` or
+     * `__artists__`). They come with the same release as [SITES_VERSION], Trackhop Bridge 1.11.0, and
+     * follow it.
+     */
+    const val AMAZON_LIBRARY_VERSION = SITES_VERSION
+
+    /** The "version" the plugin's last status call reported, without asking (0 until one answered). */
+    val reportedVersion: Int get() = pluginVersion
+
+    /** The plugin's screen for setlist.fm, started for a result (see [SITES_VERSION]). */
+    const val SETLIST_ACTION = "com.xlollx.songport.ytmbridge.SETLIST_BROWSE"
+
+    /**
+     * The "version" the connectors report: every feature when built in, 0 without a plugin, else
+     * what the plugin's last status call said, asked now (`net.status`) when [ask] or when none has
+     * answered yet. Blocks when it asks: never on the main thread.
+     */
+    fun version(ctx: Context, ask: Boolean = false): Int {
+        if (builtIn) return Int.MAX_VALUE
+        if (find(ctx) == null) return 0
+        if (ask || pluginVersion == 0) runCatching { call(ctx, "net.status") }
+        return pluginVersion
+    }
+
     /** Where to get a plugin: nowhere to go when the connectors are built in, and never in the Play build. */
     val installUrl: String? = if (BuildConfig.PLUGIN_LINKS && !BuiltIn.available) "https://github.com/xlollx/Trackhop-Bridge/releases/latest" else null
 
@@ -129,8 +166,58 @@ object BridgePlugin {
     fun withSlot(extras: Bundle?, slot: String): Bundle? =
         if (slot.isEmpty()) extras else Bundle(extras ?: Bundle()).apply { putString(EXTRA_SLOT, slot) }
 
+    /**
+     * The [MusicProvider.readGate] of Spotify (web) and YouTube Music: the connectors fetch a playlist
+     * of either under one lock (BridgeCore's `cachedTracks` and `cachedSpotifyTracks`), every account.
+     */
+    const val BRIDGE_GATE = "bridge"
+
     /** The extra naming the account in the connectors' calls and sign-ins, as the Bridge reads it. */
     const val EXTRA_SLOT = "slot"
+
+    /** Asks the connectors to read a listing again rather than serve the one they keep (from the first page only). An older Bridge ignores it. */
+    const val EXTRA_FRESH = "fresh"
+
+    /** The extras of a `tracks` page from [offset]; [fresh]: the first page drops the listing kept for it ([MusicProvider.FreshRead]). */
+    fun page(offset: Int, fresh: Boolean = false): Bundle = Bundle().apply {
+        putInt("offset", offset)
+        if (fresh && offset == 0) putBoolean(EXTRA_FRESH, true)
+    }
+
+    /** The extra carrying a playlist's picture (a JPEG) to the connectors' `setCover` methods. */
+    const val EXTRA_COVER = "jpeg"
+
+    // Methods the installed plugin answered "unknown method" to, with the version it reported then.
+    private val unknownMethods = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /**
+     * Whether [method] may be asked: always when built in; of a plugin, unless it answered that it
+     * does not know it, until it reports another version (an update).
+     */
+    fun knows(method: String): Boolean = builtIn || unknownMethods[method]?.let { it != pluginVersion } ?: true
+
+    /** True when [error] is the connectors' "unknown method" for [method], which is then not asked again ([knows]). */
+    fun refusedAsUnknown(method: String, error: String?): Boolean {
+        if (error?.contains("unknown method") != true) return false
+        unknownMethods[method] = pluginVersion
+        return true
+    }
+
+    /**
+     * A playlist's picture through the connectors' [method] (`setCover`, `spotify.setCover`,
+     * `soundcloud.setCover`), with [call] the connector's own call. A plugin from before the
+     * method answers "unknown method": no cover, and the method is not asked again ([knows]).
+     */
+    suspend fun setCover(method: String, playlistId: String, jpeg: ByteArray, call: (String, String, Bundle) -> Bundle) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                call(method, playlistId, Bundle().apply { putByteArray(EXTRA_COVER, jpeg) })
+            } catch (e: com.xlollx.songport.model.ProviderException) {
+                if (refusedAsUnknown(method, e.message)) throw com.xlollx.songport.model.ProviderException("the connector plugin does not set covers yet")
+                throw e
+            }
+        }
+    }
 
     /** Opens a connector's sign-in: the built-in screen, or the plugin's through its action; for an extra account, with its slot. */
     fun startLogin(ctx: Context, action: String, slot: String = "") {

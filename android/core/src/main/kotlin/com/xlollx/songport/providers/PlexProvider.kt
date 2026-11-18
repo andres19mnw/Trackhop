@@ -12,15 +12,19 @@ import com.xlollx.songport.net.int
 import com.xlollx.songport.net.long
 import com.xlollx.songport.net.parseJson
 import com.xlollx.songport.net.str
+import com.xlollx.songport.sync.Listening
 import com.xlollx.songport.sync.Matcher
+import com.xlollx.songport.sync.MusicBrainz
 import kotlinx.serialization.json.JsonElement
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * Plex Media Server. Si accede con l'indirizzo del server e il proprio X-Plex-Token (Plex
  * documenta come trovarlo). A new playlist is made empty, pointed at the server's library
  * (checked on Plex 1.43): the engine then adds the tracks as on any other target.
  */
-class PlexProvider(override val slot: String = "") : CredentialsProvider() {
+class PlexProvider(override val slot: String = "") : CredentialsProvider(), PlayCounts {
     override val serviceId = SERVICE
     override val displayName = "Plex"
     override val routeNoteName: String? get() = "route_note_server"
@@ -28,6 +32,8 @@ class PlexProvider(override val slot: String = "") : CredentialsProvider() {
     override val noteName = "provider_note_plex"
     // Out of beta (01/11/2026): used against real servers and accounts, and passing LiveServersIT.
     override val beta = false
+    override val matchesByMbid = true
+    override val searchesTitleOnly: Boolean get() = true
     override val loginForm = LoginForm(needsUrl = true, needsUser = false, needsSecret = true, secretLabelName = "login_token", hintName = "login_hint_plex")
 
     override suspend fun login(ctx: Env, url: String, user: String, secret: String) {
@@ -53,6 +59,8 @@ class PlexProvider(override val slot: String = "") : CredentialsProvider() {
             album = m["parentTitle"].str ?: "",
             durationMs = m["duration"].long ?: 0,
             itemId = m["playlistItemID"].str ?: m["playlistItemID"].long?.toString(),
+            // The ids Plex matched the track to, when asked for (includeGuids): "mbid://<id>" is MusicBrainz's.
+            mbids = m["Guid"].arr.mapNotNull { g -> g["id"].str?.takeIf { it.startsWith("mbid://") }?.let { MusicBrainz.mbid(it.removePrefix("mbid://")) } },
         )
     }
 
@@ -62,15 +70,97 @@ class PlexProvider(override val slot: String = "") : CredentialsProvider() {
         }
 
     override suspend fun tracks(ctx: Env, playlistId: String): List<Track> =
-        api(ctx, "GET", "/playlists/$playlistId/items")["MediaContainer"]["Metadata"].arr.mapNotNull { toTrack(it) }
+        api(ctx, "GET", "/playlists/$playlistId/items?includeGuids=1")["MediaContainer"]["Metadata"].arr.mapNotNull { toTrack(it) }
+
+    /** Each song of the playlist with its `viewCount`: the plays of the account whose token signed in. */
+    override suspend fun playlistPlays(ctx: Env, playlistId: String): List<Listening.Play> {
+        if (MusicProvider.isLibrary(playlistId)) return emptyList()
+        return api(ctx, "GET", "/playlists/$playlistId/items")["MediaContainer"]["Metadata"].arr.mapNotNull { m -> toTrack(m)?.let { Listening.plexPlay(m, it) } }
+    }
+
+    /** The songs played most of each music library, sorted by the server itself (viewCount), then together. */
+    override suspend fun topPlays(ctx: Env, n: Int): List<Listening.Play> {
+        val sections = api(ctx, "GET", "/library/sections")["MediaContainer"]["Directory"].arr.filter { it["type"].str == "artist" }.mapNotNull { it["key"].str }
+        return sections.flatMap { s ->
+            api(ctx, "GET", "/library/sections/$s/all?type=10&sort=viewCount:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=$n")["MediaContainer"]["Metadata"].arr
+                .mapNotNull { m -> toTrack(m)?.let { Listening.plexPlay(m, it) } }
+        }.filter { it.plays > 0 }.sortedByDescending { it.plays }.take(n)
+    }
 
     override suspend fun search(ctx: Env, track: Track): List<Track> {
         // Plex matches the query against one name at a time ("metallica battery" finds nothing): the
-        // title alone, then the artist's songs first.
-        val q = Matcher.searchTitle(track.title)
-        val hubs = api(ctx, "GET", "/hubs/search?query=${Http.enc(q)}&limit=20")["MediaContainer"]["Hub"].arr
-        return Matcher.byArtist(track, hubs.filter { it["type"].str == "track" }.flatMap { it["Metadata"].arr }.mapNotNull { toTrack(it) }).take(5)
+        // title alone (folded, as written, bare while nothing close is found), the artist's songs and the closest first.
+        suspend fun find(q: String) = api(ctx, "GET", "/hubs/search?query=${Http.enc(q)}&limit=20&includeGuids=1")["MediaContainer"]["Hub"].arr
+            .filter { it["type"].str == "track" }.flatMap { it["Metadata"].arr }.mapNotNull { toTrack(it) }
+        var found = Matcher.byArtist(track, Matcher.searchByTitles(track) { find(it) }).sortedByDescending { Matcher.score(track, it) }.take(20)
+        if (track.mbids.isEmpty() || found.isEmpty()) return found.take(5)
+        // Looking for a MusicBrainz recording: where the search left the ids out, the candidates are
+        // read once more with them. The one tagged with the recording goes first.
+        if (found.none { it.mbids.isNotEmpty() }) {
+            val ids = try {
+                api(ctx, "GET", "/library/metadata/${found.joinToString(",") { it.id }}?includeGuids=1")["MediaContainer"]["Metadata"].arr
+                    .mapNotNull { toTrack(it) }.associate { it.id to it.mbids }
+            } catch (e: ProviderException) { emptyMap() }
+            found = found.map { c -> ids[c.id]?.takeIf { it.isNotEmpty() }?.let { c.copy(mbids = it) } ?: c }
+        }
+        return found.sortedByDescending { c -> c.mbids.any { it in track.mbids } }.take(5)
     }
+
+    /** Every track of the server's music libraries, a page at a time. */
+    override suspend fun librarySongs(ctx: Env, onProgress: (Int) -> Unit): List<Track> {
+        val out = ArrayList<Track>()
+        val sections = api(ctx, "GET", "/library/sections")["MediaContainer"]["Directory"].arr.filter { it["type"].str == "artist" }.mapNotNull { it["key"].str }
+        for (section in sections) {
+            var offset = 0
+            while (true) {
+                val page = api(ctx, "GET", "/library/sections/$section/all?type=10&includeGuids=1&X-Plex-Container-Start=$offset&X-Plex-Container-Size=$LIBRARY_PAGE")["MediaContainer"]["Metadata"].arr
+                out += page.mapNotNull { toTrack(it) }
+                offset += page.size
+                onProgress(out.size)
+                if (page.size < LIBRARY_PAGE) break
+            }
+        }
+        return out
+    }
+
+    /**
+     * Plex reads lyrics from a `.lrc` (timed) or `.txt` (plain) file named like the track, in its folder
+     * (support.plex.tv, Adding local lyrics; the Local Media Assets agent). Its API has no call that adds
+     * them. A track's lyrics are its streams of type 4.
+     */
+    override val lyricsSupport: LyricsSupport get() = LyricsSupport.SIDECAR
+
+    /**
+     * Every track of the music libraries with its file (`Media.Part.file`), then their details read
+     * [LYRICS_BATCH] at a time (`/library/metadata/{ids}`), whose streams say whether there are lyrics.
+     */
+    override suspend fun lyricsSongs(ctx: Env, onProgress: (Int) -> Unit): List<LyricsSong> {
+        val listed = ArrayList<Pair<Track, String?>>()
+        val sections = api(ctx, "GET", "/library/sections")["MediaContainer"]["Directory"].arr.filter { it["type"].str == "artist" }.mapNotNull { it["key"].str }
+        for (section in sections) {
+            var offset = 0
+            while (true) {
+                val page = api(ctx, "GET", "/library/sections/$section/all?type=10&X-Plex-Container-Start=$offset&X-Plex-Container-Size=$LIBRARY_PAGE")["MediaContainer"]["Metadata"].arr
+                page.forEach { m -> toTrack(m)?.let { listed += it to fileOf(m) } }
+                offset += page.size
+                if (page.size < LIBRARY_PAGE) break
+            }
+        }
+        val out = ArrayList<LyricsSong>()
+        for (chunk in listed.chunked(LYRICS_BATCH)) {
+            val details = api(ctx, "GET", "/library/metadata/${chunk.joinToString(",") { it.first.id }}")["MediaContainer"]["Metadata"].arr
+                .associateBy { it["ratingKey"].str }
+            for ((t, file) in chunk) {
+                val m = details[t.id]
+                val has = m["Media"].arr.any { media -> media["Part"].arr.any { part -> part["Stream"].arr.any { it["streamType"].int == LYRICS_STREAM } } }
+                out += LyricsSong(t, has, file ?: fileOf(m))
+            }
+            onProgress(out.size)
+        }
+        return out
+    }
+
+    private fun fileOf(m: JsonElement?): String? = m["Media"].arr.firstNotNullOfOrNull { media -> media["Part"].arr.firstNotNullOfOrNull { it["file"].str } }
 
     override suspend fun createPlaylist(ctx: Env, name: String, description: String): Playlist {
         val t = creds(ctx)
@@ -93,6 +183,23 @@ class PlexProvider(override val slot: String = "") : CredentialsProvider() {
         api(ctx, "DELETE", "/playlists/$playlistId")
     }
 
+    override val canSetCover: Boolean get() = true
+    override val coverIsV2: Boolean get() = true
+
+    /**
+     * The playlist's poster: the JPEG as the body of `POST /library/metadata/{ratingKey}/posters`, the
+     * upload Plex's web app makes (a playlist is a metadata item like any other); Plex then selects it.
+     */
+    override suspend fun setPlaylistCover(ctx: Env, playlistId: String, jpeg: ByteArray) {
+        val t = creds(ctx)
+        val resp = Http.send(
+            "POST", "${t.extra["url"]}/library/metadata/$playlistId/posters",
+            mapOf("X-Plex-Token" to t.accessToken, "Accept" to "application/json"),
+            jpeg.toRequestBody("image/jpeg".toMediaType()),
+        )
+        if (!resp.ok) throw ProviderException("$displayName: cover not set (HTTP ${resp.code})")
+    }
+
     override suspend fun addTracks(ctx: Env, playlistId: String, tracks: List<Track>) {
         val machine = creds(ctx).extra["machine"] ?: throw ProviderException("$displayName: reconnect")
         tracks.chunked(50).forEach { chunk ->
@@ -101,9 +208,17 @@ class PlexProvider(override val slot: String = "") : CredentialsProvider() {
         }
     }
 
+    override val removesSingleEntry: Boolean get() = true
     override suspend fun removeTracks(ctx: Env, playlistId: String, tracks: List<Track>) {
         tracks.mapNotNull { it.itemId }.forEach { api(ctx, "DELETE", "/playlists/$playlistId/items/$it") }
     }
 
-    companion object { const val SERVICE = "plex" }
+    companion object {
+        const val SERVICE = "plex"
+        private const val LIBRARY_PAGE = 500
+        /** Tracks whose details one request reads for the lyrics report. */
+        private const val LYRICS_BATCH = 50
+        /** Plex's stream type for lyrics (1 video, 2 audio, 3 subtitles, 4 lyrics). */
+        private const val LYRICS_STREAM = 4
+    }
 }

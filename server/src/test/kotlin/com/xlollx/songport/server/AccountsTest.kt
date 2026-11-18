@@ -266,6 +266,73 @@ class AccountsTest {
         }
     }
 
+    // ------------------------------------------------------------------ OpenSubsonic API key
+
+    /** An OpenSubsonic server that takes API keys (apiKeyAuthentication) and records what each call carried. */
+    private class FakeOpenSubsonic {
+        val calls = mutableListOf<Pair<String, Map<String, String>>>()
+        private val http = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/") { ex ->
+                val method = ex.requestURI.path.substringAfterLast('/')
+                val q = (ex.requestURI.rawQuery ?: "").split('&').filter { it.isNotEmpty() }
+                    .associate { java.net.URLDecoder.decode(it.substringBefore('='), "UTF-8") to java.net.URLDecoder.decode(it.substringAfter('=', ""), "UTF-8") }
+                synchronized(calls) { calls += method to q }
+                val ok = """"status":"ok","version":"1.16.1","type":"navidrome","openSubsonic":true"""
+                val body = when (method) {
+                    "getOpenSubsonicExtensions" -> """{"subsonic-response":{$ok,"openSubsonicExtensions":[{"name":"apiKeyAuthentication","versions":[1]}]}}"""
+                    "tokenInfo" -> if (q["apiKey"] == "k3y") """{"subsonic-response":{$ok,"tokenInfo":{"username":"lorenzo"}}}"""
+                        else """{"subsonic-response":{"status":"failed","version":"1.16.1","error":{"code":44,"message":"Invalid API key"}}}"""
+                    else -> """{"subsonic-response":{$ok}}"""
+                }
+                val bytes = body.toByteArray()
+                ex.responseHeaders.add("Content-Type", "application/json")
+                ex.sendResponseHeaders(200, bytes.size.toLong())
+                ex.responseBody.use { it.write(bytes) }
+            }
+            start()
+        }
+        val url = "http://127.0.0.1:${http.address.port}"
+        fun stop() = http.stop(0)
+    }
+
+    @Test fun subsonicOffersAnApiKeySignInBesideThePassword() {
+        val nav = FakeOpenSubsonic()
+        try {
+            post("/connectors/add", mapOf("service" to "subsonic"))
+            val page = get("/connectors/subsonic").body()
+            // The password form as before, and a second one for the key.
+            assertTrue(page.contains("""name="secret""""))
+            assertTrue(page.contains("""name="mode" value="apikey""""))
+            assertTrue(page.contains("""name="apiKey""""))
+            assertTrue(page.contains("login_apikey"))
+
+            assertTrue(post("/connectors/subsonic/connect", mapOf("mode" to "apikey", "url" to nav.url, "apiKey" to "wrong")).location().contains("err="))
+            assertNull(env.tokens.get("subsonic"))
+            val ok = post("/connectors/subsonic/connect", mapOf("mode" to "apikey", "url" to nav.url, "apiKey" to "k3y"))
+            assertTrue(ok.location(), ok.location().contains("ok="))
+            val t = env.tokens.get("subsonic")!!
+            assertEquals("lorenzo", t.userName)
+            assertEquals("apikey", t.extra["auth"])
+            val info = nav.calls.last()
+            assertEquals("tokenInfo", info.first)
+            assertEquals("k3y", info.second["apiKey"])
+            assertTrue(listOf("u", "t", "s", "p").none { it in info.second })
+        } finally { nav.stop() }
+    }
+
+    @Test fun subsonicPasswordSignInStaysAsItWas() {
+        val nav = FakeOpenSubsonic()
+        try {
+            post("/connectors/add", mapOf("service" to "subsonic"))
+            assertTrue(post("/connectors/subsonic/connect", mapOf("url" to nav.url, "user" to "lorenzo", "secret" to "pw")).location().contains("ok="))
+            val ping = nav.calls.single()
+            assertEquals("ping", ping.first)
+            assertEquals("lorenzo", ping.second["u"])
+            assertNull(ping.second["apiKey"])
+            assertNull(env.tokens.get("subsonic")!!.extra["auth"])
+        } finally { nav.stop() }
+    }
+
     // ------------------------------------------------------------------ Quick Connect
 
     private fun qcToken(location: String) = location.substringAfter("t=")
@@ -322,6 +389,46 @@ class AccountsTest {
             HttpResponse.BodyHandlers.ofString(),
         )
         assertEquals(403, cross.statusCode())
+    }
+
+    @Test fun lyrionAndMopidyConnectFromThePageWithTheAddressAlone() {
+        // One stand-in answering as both servers do to the first call of a sign-in.
+        val nas = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/") { ex ->
+                ex.requestBody.readBytes()
+                val (code, body) = when (ex.requestURI.path) {
+                    "/jsonrpc.js" -> 200 to """{"id":1,"method":"slim.request","result":{"_version":"9.1.0"}}"""
+                    "/mopidy/rpc" -> 200 to """{"jsonrpc":"2.0","id":1,"result":"3.4.2"}"""
+                    else -> 404 to ""
+                }
+                val bytes = body.toByteArray()
+                ex.sendResponseHeaders(code, if (bytes.isEmpty()) -1 else bytes.size.toLong())
+                if (bytes.isNotEmpty()) ex.responseBody.use { it.write(bytes) } else ex.close()
+            }
+            start()
+        }
+        try {
+            val url = "http://127.0.0.1:${nas.address.port}"
+            post("/connectors/add", mapOf("service" to "lyrion"))
+            val lyrion = get("/connectors/lyrion").body()
+            // User and password are there for a protected server, and may stay empty.
+            assertTrue(lyrion.contains("""name="user" autocomplete="off">"""))
+            assertTrue(lyrion.contains("""name="url" required"""))
+            assertTrue(lyrion.contains("beta"))
+            assertTrue(post("/connectors/lyrion/connect", mapOf("url" to url, "user" to "", "secret" to "")).location().contains("?ok="))
+            assertEquals(url, env.tokens.get("lyrion")?.extra?.get("url"))
+
+            post("/connectors/add", mapOf("service" to "mopidy"))
+            val mopidy = get("/connectors/mopidy").body()
+            assertFalse(mopidy.contains("""name="user""""))
+            assertFalse(mopidy.contains("""name="secret""""))
+            assertTrue(post("/connectors/mopidy/connect", mapOf("url" to url)).location().contains("?ok="))
+            assertEquals(url, env.tokens.get("mopidy")?.extra?.get("url"))
+            // Somewhere that is neither: said, and nothing saved over the sign-in that works.
+            assertTrue(post("/connectors/lyrion/disconnect", emptyMap()).location().contains("?ok="))
+            assertTrue(post("/connectors/lyrion/connect", mapOf("url" to "$url/x")).location().contains("?err="))
+            assertNull(env.tokens.get("lyrion"))
+        } finally { nas.stop(0) }
     }
 
     @Test fun slotsAreNumberedAsInTheApp() {

@@ -10,19 +10,19 @@ pages in your browser, and runs scheduled syncs while the computer is on. It is 
 
 ## Install
 
-The current version is **1.8.1** ([what's in it](https://github.com/xlollx/Trackhop/releases/tag/server-v1.8.1)); every version is in the
+The current version is **2.0.0** ([what's in it](https://github.com/xlollx/Trackhop/releases/tag/server-v2.0.0)); every version is in the
 [Desktop & Server releases](https://github.com/xlollx/Trackhop/releases?q=server-v&expanded=true)
 (tagged `server-v…`: Desktop and Docker have their own version, separate from the app's).
 
 | System | Download | How |
 |---|---|---|
-| Windows 10 or 11 | [Installer (.msi)](https://github.com/xlollx/Trackhop/releases/download/server-v1.8.1/Trackhop-Desktop-v1.8.1-windows.msi) | Open it. It installs for your user only, no administrator needed, with a Start menu entry. |
-| Windows, no install | [Portable (.zip)](https://github.com/xlollx/Trackhop/releases/download/server-v1.8.1/Trackhop-Desktop-v1.8.1-windows.zip) | Unzip anywhere (Documents, a USB stick) and run `Trackhop\Trackhop.exe`. |
-| macOS 11 or later, Apple silicon | [.dmg (arm64)](https://github.com/xlollx/Trackhop/releases/download/server-v1.8.1/Trackhop-Desktop-v1.8.1-macos-arm64.dmg) | Open it, drag *Trackhop* into *Applications*; the first time, [Open Anyway](#macos). |
-| macOS 11 or later, Intel | [.dmg (x64)](https://github.com/xlollx/Trackhop/releases/download/server-v1.8.1/Trackhop-Desktop-v1.8.1-macos-x64.dmg) | The same, for Intel Macs. |
-| Debian, Ubuntu, Mint… | [.deb](https://github.com/xlollx/Trackhop/releases/download/server-v1.8.1/Trackhop-Desktop-v1.8.1-linux.deb) | `sudo apt install ./Trackhop-Desktop-v1.8.1-linux.deb`, then *Trackhop* in the menu. |
-| Any other Linux (x86-64) | [.tar.gz](https://github.com/xlollx/Trackhop/releases/download/server-v1.8.1/Trackhop-Desktop-v1.8.1-linux.tar.gz) | Unpack and run `Trackhop/bin/Trackhop`. |
-| Linux with Flatpak | [.flatpak](https://github.com/xlollx/Trackhop/releases/download/server-v1.8.1/Trackhop-Desktop-v1.8.1-linux.flatpak) | `flatpak install --user Trackhop-Desktop-v1.8.1-linux.flatpak` (Flatpak offers GNOME's runtime from Flathub), then *Trackhop* in the menu. |
+| Windows 10 or 11 | [Installer (.msi)](https://github.com/xlollx/Trackhop/releases/download/server-v2.0.0/Trackhop-Desktop-v2.0.0-windows.msi) | Open it. It installs for your user only, no administrator needed, with a Start menu entry. |
+| Windows, no install | [Portable (.zip)](https://github.com/xlollx/Trackhop/releases/download/server-v2.0.0/Trackhop-Desktop-v2.0.0-windows.zip) | Unzip anywhere (Documents, a USB stick) and run `Trackhop\Trackhop.exe`. |
+| macOS 11 or later, Apple silicon | [.dmg (arm64)](https://github.com/xlollx/Trackhop/releases/download/server-v2.0.0/Trackhop-Desktop-v2.0.0-macos-arm64.dmg) | Open it, drag *Trackhop* into *Applications*; the first time, [Open Anyway](#macos). |
+| macOS 11 or later, Intel | [.dmg (x64)](https://github.com/xlollx/Trackhop/releases/download/server-v2.0.0/Trackhop-Desktop-v2.0.0-macos-x64.dmg) | The same, for Intel Macs. |
+| Debian, Ubuntu, Mint… | [.deb](https://github.com/xlollx/Trackhop/releases/download/server-v2.0.0/Trackhop-Desktop-v2.0.0-linux.deb) | `sudo apt install ./Trackhop-Desktop-v2.0.0-linux.deb`, then *Trackhop* in the menu. |
+| Any other Linux (x86-64) | [.tar.gz](https://github.com/xlollx/Trackhop/releases/download/server-v2.0.0/Trackhop-Desktop-v2.0.0-linux.tar.gz) | Unpack and run `Trackhop/bin/Trackhop`. |
+| Linux with Flatpak | [.flatpak](https://github.com/xlollx/Trackhop/releases/download/server-v2.0.0/Trackhop-Desktop-v2.0.0-linux.flatpak) | `flatpak install --user Trackhop-Desktop-v2.0.0-linux.flatpak` (Flatpak offers GNOME's runtime from Flathub), then *Trackhop* in the menu. |
 
 ### Package managers and stores
 
@@ -88,11 +88,13 @@ Only this computer can reach the page: it listens on `127.0.0.1` and asks for no
 
 ## Services
 
-As on the [server](docker#services): Spotify, YouTube and TIDAL with your own key; Navidrome and
-other Subsonic servers, Jellyfin, Plex; Last.fm and ListenBrainz as sources; SoundCloud public
-links; CSV files; YouTube Music with pasted cookies (unofficial, alpha). Deezer is not there yet on
-the desktop (it wants an `https` redirect). Amazon Music, Spotify without a key and Apple Music
-are not there yet either: they need a browser inside the app, which is the next step.
+As on the [server](docker#services): Spotify, YouTube and TIDAL with your own key, Deezer with your
+own app (it wants an `https` redirect); Navidrome and other Subsonic servers, Jellyfin, Emby, Plex;
+Last.fm (a source, and a target for loved tracks) and ListenBrainz as a source; SoundCloud, NetEase
+Cloud Music, QQ Music and Anghami public links; CSV files; YouTube Music, Spotify and Deezer with
+pasted cookies, and LiveOne, Anghami and Qobuz (unofficial, beta). Amazon Music and Apple Music
+are not there: they need the service's web player running inside the app, which only the phone
+app has.
 
 A service can be added more than once (two Jellyfin servers, two Spotify accounts), each with its
 own sign-in and name, and synced to each other; Jellyfin also signs in with Quick Connect. See
@@ -101,7 +103,8 @@ own sign-in and name, and synced to each other; Jellyfin also signs in with Quic
 
 The **Microsoft Store** version offers only the official connections, the personal servers,
 Last.fm, ListenBrainz and files (store rules, as for the app on Google Play): for the unofficial ones
-(YouTube Music, Spotify and Deezer with cookies, SoundCloud links) use the installer or the ZIP.
+(YouTube Music, Spotify, Deezer, LiveOne, Anghami and Qobuz with cookies; SoundCloud, NetEase, QQ
+Music and Anghami links) use the installer or the ZIP.
 
 **Your own key.** Register this redirect with the service: `http://127.0.0.1:8642/callback`
 (Spotify and Google both accept plain `http` for `127.0.0.1`). The service's page in Trackhop

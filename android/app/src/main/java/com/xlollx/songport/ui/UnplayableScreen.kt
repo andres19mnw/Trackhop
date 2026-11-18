@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -93,7 +93,6 @@ fun UnplayableScreen(provider: MusicProvider, onClose: () -> Unit) {
     var lists by remember(provider.id) { mutableStateOf<List<Playlist>?>(null) }
     // null = every playlist of the service.
     var chosen by remember(provider.id) { mutableStateOf<Playlist?>(null) }
-    var expanded by remember { mutableStateOf(false) }
     var scan by remember(provider.id) { mutableStateOf<LibraryTools.UnplayableScan?>(null) }
     var scanning by remember { mutableStateOf<String?>(null) }
     var applying by remember { mutableStateOf<Progress?>(null) }
@@ -107,7 +106,7 @@ fun UnplayableScreen(provider: MusicProvider, onClose: () -> Unit) {
     LaunchedEffect(provider.id) {
         if (!provider.detectsUnplayable) return@LaunchedEffect
         lists = try { Tools.unplayableTargets(ctx, provider) } catch (e: CancellationException) { throw e } catch (e: Exception) {
-            snackbar.showSnackbar(e.message ?: ctx.getString(R.string.error_generic)); emptyList()
+            snackbar.showSnackbar(e.userMessage(ctx)); emptyList()
         }
     }
 
@@ -120,7 +119,7 @@ fun UnplayableScreen(provider: MusicProvider, onClose: () -> Unit) {
         proposals.clear(); decisions.clear(); openKey = null
         scope.launch {
             val r = try { Tools.scanUnplayable(ctx, provider, targets) { scanning = it } } catch (e: CancellationException) { throw e } catch (e: Exception) {
-                snackbar.showSnackbar(e.message ?: ctx.getString(R.string.error_generic)); null
+                snackbar.showSnackbar(e.userMessage(ctx)); null
             }
             scan = r
             scanning = null
@@ -173,7 +172,7 @@ fun UnplayableScreen(provider: MusicProvider, onClose: () -> Unit) {
                 }
             } catch (e: CancellationException) { throw e } catch (e: Exception) {
                 applying = null
-                snackbar.showSnackbar(e.message ?: ctx.getString(R.string.error_generic))
+                snackbar.showSnackbar(e.userMessage(ctx))
             }
         }
     }
@@ -183,7 +182,7 @@ fun UnplayableScreen(provider: MusicProvider, onClose: () -> Unit) {
     val toRemove = decisions.values.count { it is Decision.Remove }
 
     if (confirm) {
-        AlertDialog(
+        FitDialog(
             onDismissRequest = { confirm = false },
             title = { Text(stringResource(R.string.unplayable_confirm_title)) },
             text = {
@@ -234,18 +233,12 @@ fun UnplayableScreen(provider: MusicProvider, onClose: () -> Unit) {
                 if (items == null) {
                     Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.loading)) }
                 } else {
-                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                        OutlinedTextField(
-                            value = chosen?.name ?: stringResource(R.string.unplayable_all_playlists),
-                            onValueChange = {}, readOnly = true,
-                            label = { Text(stringResource(R.string.editor_playlist)) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                    run {
+                        val all = stringResource(R.string.unplayable_all_playlists)
+                        PlaylistChoice(
+                            stringResource(R.string.editor_playlist), items, chosen, provider, onPick = { chosen = it }, title = chosen?.name ?: all,
+                            first = { close -> item("all") { PickerRow(all, onClick = { chosen = null; close() }, selected = chosen == null) { PlaylistThumb(all, null, 48.dp, icon = androidx.compose.material.icons.Icons.Filled.LibraryMusic) } } },
                         )
-                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                            DropdownMenuItem(text = { Text(stringResource(R.string.unplayable_all_playlists)) }, onClick = { chosen = null; expanded = false })
-                            items.forEach { p -> DropdownMenuItem(text = { Text(p.name) }, onClick = { chosen = p; expanded = false }) }
-                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -262,7 +255,7 @@ fun UnplayableScreen(provider: MusicProvider, onClose: () -> Unit) {
                                         val n = Tools.undoUnplayable(ctx, provider, fix)
                                         undoable = null
                                         snackbar.showSnackbar(ctx.getString(R.string.unplayable_undone, n))
-                                    } catch (e: CancellationException) { throw e } catch (e: Exception) { snackbar.showSnackbar(e.message ?: ctx.getString(R.string.error_generic)) }
+                                    } catch (e: CancellationException) { throw e } catch (e: Exception) { snackbar.showSnackbar(e.userMessage(ctx)) }
                                 }
                             }) { Text(stringResource(R.string.unplayable_undo_last, fix.swaps.size)) }
                             Spacer(Modifier.width(8.dp))

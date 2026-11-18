@@ -6,8 +6,11 @@ import com.xlollx.songport.providers.EmbyProvider
 import com.xlollx.songport.providers.JellyfinProvider
 import com.xlollx.songport.providers.LastFmProvider
 import com.xlollx.songport.providers.ListenBrainzProvider
+import com.xlollx.songport.providers.LyrionProvider
+import com.xlollx.songport.providers.MopidyProvider
 import com.xlollx.songport.providers.LocalFilesProvider
 import com.xlollx.songport.providers.AnghamiProvider
+import com.xlollx.songport.providers.JioSaavnProvider
 import com.xlollx.songport.providers.NeteaseProvider
 import com.xlollx.songport.providers.QqMusicProvider
 import com.xlollx.songport.providers.SoundCloudProvider
@@ -35,6 +38,8 @@ import java.io.File
 fun installServerConnectors(officialOnly: Boolean = false) {
     // TikTok's page is read only where unofficial sources are allowed (not the Microsoft Store package).
     com.xlollx.songport.sync.TikTokShare.enabled = !officialOnly
+    // Concerts: Vivaticket's dates in Italy, read from its site (unofficial too).
+    com.xlollx.songport.sync.Vivaticket.enabled = !officialOnly
     if (!officialOnly) com.xlollx.songport.sync.TikTokShare.recognizer = ServerAudio.recognizer
     installServerConnectorsOnly(officialOnly)
 }
@@ -55,6 +60,8 @@ private fun installServerConnectorsOnly(officialOnly: Boolean) = Providers.insta
         Factory(JellyfinProvider.SERVICE) { JellyfinProvider(it) },
         Factory(EmbyProvider.SERVICE) { EmbyProvider(it) },
         Factory(PlexProvider.SERVICE) { PlexProvider(it) },
+        Factory(LyrionProvider.SERVICE) { LyrionProvider(it) },
+        Factory(MopidyProvider.SERVICE) { MopidyProvider(it) },
         Factory(LastFmProvider.SERVICE) { LastFmProvider(it) },
         Factory(ListenBrainzProvider.SERVICE) { ListenBrainzProvider(it) },
     ),
@@ -66,6 +73,7 @@ private fun installServerConnectorsOnly(officialOnly: Boolean) = Providers.insta
         NeteaseProvider.takeUnless { officialOnly },
         AnghamiProvider.takeUnless { officialOnly },
         QqMusicProvider.takeUnless { officialOnly },
+        JioSaavnProvider.takeUnless { officialOnly },
     ),
 )
 
@@ -92,7 +100,7 @@ class Config(
 
     /** Keys given to the container instead of being typed in the page (same names as the app's build). */
     val buildDefaults: Map<String, String> = buildMap {
-        for (k in listOf("SPOTIFY_CLIENT_ID", "TIDAL_CLIENT_ID", "DEEZER_APP_ID", "GOOGLE_CLIENT_ID", "LASTFM_API_KEY")) {
+        for (k in listOf("SPOTIFY_CLIENT_ID", "TIDAL_CLIENT_ID", "DEEZER_APP_ID", "GOOGLE_CLIENT_ID", "LASTFM_API_KEY", "LASTFM_SHARED_SECRET", "TICKETMASTER_API_KEY", "SETLISTFM_API_KEY")) {
             env[k]?.takeIf { it.isNotBlank() }?.let { put(k, it.trim()) }
         }
         put("DEEZER_REDIRECT_URL", env["DEEZER_REDIRECT_URL"]?.takeIf { it.isNotBlank() } ?: "$baseUrl/callback")
@@ -137,6 +145,8 @@ fun launch(
     config: Config, edition: Html.Edition, onQuit: (() -> Unit)? = null, onShow: (() -> Unit)? = null, officialOnly: Boolean = false,
     account: Html.Account? = null, sharedRoot: File? = null, permissions: Set<String>? = null,
 ): Launched {
+    // The release switch (TRACKHOP_PREVIEW_2), before the engine asks it.
+    Features.init()
     config.dataDir.mkdirs()
     Log.init(config.dataDir)
     fun resource(name: String) = Config::class.java.getResourceAsStream(name)?.use { String(it.readBytes()).trim() }
@@ -146,6 +156,9 @@ fun launch(
     BuildDefaults.values = config.buildDefaults
     // MusicBrainz asks every client to name itself, with its version and a contact.
     com.xlollx.songport.ai.ArtistMixSource.userAgent = "Trackhop/${serverVersion()} ( https://trackhop.org )"
+    com.xlollx.songport.sync.LrcLib.userAgent = "Trackhop/${serverVersion()} (https://github.com/xlollx/Trackhop)"
+    // Merch and Concerts: the artists' own sites, found beyond MusicBrainz (Wikidata) and read for their shop and dates.
+    com.xlollx.songport.sync.ArtistSites.enabled = true
     installServerConnectors(officialOnly)
     val env = ServerEnv(config.dataDir, Strings.load(config.locale), config.baseUrl, permissions)
     // A first start: the services the server offers are not listed until the user adds them, as in the app.

@@ -4,6 +4,7 @@ import com.xlollx.songport.platform.Env
 import com.xlollx.songport.model.Playlist
 import com.xlollx.songport.model.Track
 import com.xlollx.songport.sync.CsvCodec
+import com.xlollx.songport.sync.NamePatterns
 import com.xlollx.songport.sync.PlaylistFiles
 import java.io.File
 
@@ -133,14 +134,21 @@ object LocalFilesProvider : MusicProvider {
     // --- import/export per la UI (Storage Access Framework) ---
 
     /** Importa un file in qualsiasi formato riconosciuto. @return numero di brani importati. */
-    fun importFile(ctx: Env, fileName: String, text: String): Int {
-        val tracks = PlaylistFiles.parse(fileName, text)
+    fun importFile(ctx: Env, fileName: String, text: String): Int = importFileAsPlaylist(ctx, fileName, text).trackCount
+
+    /**
+     * Come [importFile], ma restituisce anche la playlist creata: l'id serve per usarla subito
+     * come origine di una sync (inviare un file importato a un servizio senza sceglierlo a mano).
+     */
+    fun importFileAsPlaylist(ctx: Env, fileName: String, text: String): Playlist {
+        val settings = ctx.store.data.settings
+        val tracks = PlaylistFiles.parse(fileName, text, PlaylistFiles.NameLayout.of(settings.fileNameLayout), NamePatterns.compileAll(settings.fileNamePatterns))
         val base = CsvCodec.safeName(fileName.substringBeforeLast('.').ifBlank { "playlist" })
         var candidate = base
         var n = 2
         while (file(ctx, candidate).exists()) { candidate = "$base ($n)"; n++ }
         write(file(ctx, candidate), CsvCodec.encode(tracks))
-        return tracks.size
+        return Playlist(candidate, candidate, tracks.size)
     }
 
     /** Salva una lista di brani come nuovo file (nome reso unico). @return id della playlist creata. */
@@ -159,6 +167,8 @@ object LocalFilesProvider : MusicProvider {
         JSPF("application/json", "jspf"),
         XSPF("application/xspf+xml", "xspf"),
         TXT("text/plain", "txt"),
+        /** Podcast subscriptions, for AntennaPod, Pocket Casts, Podcast Addict: only for followed podcasts (see [forShows]). */
+        OPML("text/x-opml", "opml"),
         ;
 
         /** Il testo del file in questo formato; [name] serve ai formati che hanno un titolo. */
@@ -168,7 +178,31 @@ object LocalFilesProvider : MusicProvider {
             JSPF -> PlaylistFiles.toJspf(name, tracks)
             XSPF -> PlaylistFiles.toXspf(name, tracks)
             TXT -> PlaylistFiles.toText(tracks)
+            OPML -> PlaylistFiles.toOpml(name, tracks)
         }
+
+        companion object {
+            /** The formats offered for a list: every format as before, and OPML first where it holds shows ([shows]). */
+            fun forShows(shows: Boolean): List<Export> = entries.filter { it != OPML }.let { if (shows && com.xlollx.songport.Features.v2) listOf(OPML) + it else it }
+
+            /** Every format offered for File playlists: OPML is 1.18's ([com.xlollx.songport.Features]). */
+            fun offered(): List<Export> = entries.filter { it != OPML || com.xlollx.songport.Features.v2 }
+
+            /** Whether [playlistId] or the [tracks] read from it are followed podcasts. */
+            fun isShows(playlistId: String?, tracks: List<Track> = emptyList()): Boolean =
+                playlistId == MusicProvider.PODCASTS_ID || (tracks.isNotEmpty() && tracks.all { it.kind == Track.KIND_PODCAST || !it.feedUrl.isNullOrBlank() })
+        }
+    }
+
+    /**
+     * The text of [tracks] as [format], with the feeds an OPML file needs looked up first (see
+     * [com.xlollx.songport.sync.Podcasts.withFeeds]); [onProgress] gets the lookups done and to do.
+     * Answers the text and how many shows are written without a feed.
+     */
+    suspend fun encodeLooked(ctx: Env, format: Export, name: String, tracks: List<Track>, onProgress: (Int, Int) -> Unit = { _, _ -> }): Pair<String, Int> {
+        if (format != Export.OPML) return format.encode(name, tracks) to 0
+        val shows = com.xlollx.songport.sync.Podcasts.withFeeds(ctx, tracks, onProgress)
+        return format.encode(name, shows) to shows.count { it.feedUrl.isNullOrBlank() }
     }
 
     fun exportText(ctx: Env, playlistId: String, format: Export): String {
@@ -198,14 +232,17 @@ object LocalFilesProvider : MusicProvider {
 
     /** A fresh formatter per use: SimpleDateFormat is not thread-safe, and backups and the Files screen may overlap. */
     private fun stamp() = java.text.SimpleDateFormat("yyyy-MM-dd HH.mm", java.util.Locale.ROOT)
-    private val STAMP_TAIL = Regex(""" \((\d{4}-\d{2}-\d{2} \d{2}\.\d{2})\)$""")
+    /** The stamp, and the number a second version written in the same minute takes ("… (2026-11-11 19.41) (2)"). */
+    private val STAMP_TAIL = Regex(""" \((\d{4}-\d{2}-\d{2} \d{2}\.\d{2})\)(?: \((\d+)\))?$""")
     private val COPY_TAIL = Regex(""" \(\d+\)$""")
 
     fun entries(ctx: Env): List<Entry> =
         dir(ctx).listFiles { f -> f.extension == "csv" }.orEmpty().map { f ->
             val name = f.nameWithoutExtension
             val tail = STAMP_TAIL.find(name)
+            // A second version of the same minute sorts after the first: a millisecond per number.
             val stampedAt = tail?.let { runCatching { stamp().parse(it.groupValues[1])?.time }.getOrNull() }
+                ?.plus((tail.groupValues[2].toIntOrNull() ?: 1) - 1)
             val base = COPY_TAIL.replace(STAMP_TAIL.replace(name, ""), "")
             Entry(
                 id = name, name = name, trackCount = CsvCodec.parse(read(f)).size,
@@ -214,16 +251,21 @@ object LocalFilesProvider : MusicProvider {
             )
         }
 
-    enum class BackupOutcome { WRITTEN, UNCHANGED }
+    /** [KEPT]: the listing came back empty where the newest version has tracks, and that version stays the newest. */
+    enum class BackupOutcome { WRITTEN, UNCHANGED, KEPT }
 
     /**
      * Writes one dated version of a service playlist's backup, unless the newest version already has
      * exactly these tracks, then trims that playlist's versions to [KEEP_VERSIONS]. Files a sync reads
-     * or writes ([protectedIds]) are never removed, whatever their age.
+     * or writes ([protectedIds]) are never removed, whatever their age. An empty listing over a
+     * newest version that has tracks is not written: far likelier a section the service did not
+     * hand over than a library emptied, and written it would push a good version out and read, in
+     * Vanished songs, as everything gone.
      */
     fun writeBackup(ctx: Env, service: String, playlistName: String, tracks: List<Track>, protectedIds: Set<String>, now: Long = System.currentTimeMillis()): BackupOutcome {
         val base = CsvCodec.safeName("$service - $playlistName")
         val versions = entries(ctx).filter { it.base == base && it.service != null }.sortedByDescending { it.writtenAt }
+        if (tracks.isEmpty() && (versions.firstOrNull()?.trackCount ?: 0) > 0) return BackupOutcome.KEPT
         val text = CsvCodec.encode(tracks)
         if (versions.firstOrNull()?.let { read(file(ctx, it.id)) } == text) return BackupOutcome.UNCHANGED
         val when_ = stamp().format(java.util.Date(now))

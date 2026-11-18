@@ -23,7 +23,7 @@ Discover holds a few more, all computed on the phone:
 Two playlists in, a score out. Each side can be:
 
 - a **public link** pasted in (Spotify, Apple Music, YouTube/YouTube Music, Deezer, TIDAL, and
-  SoundCloud in the GitHub/F-Droid build; short share links too), or
+  SoundCloud in the GitHub/F-Droid build or with the Trackhop Bridge plugin; short share links too), or
 - one of **your own playlists** on a connected service, liked songs included.
 
 Sharing **two playlist links at once** to Trackhop (select both messages in a chat, or paste two
@@ -78,6 +78,34 @@ Tick **Cover drawn by your AI** to have the AI you set up for the Playlist gener
 instead: OpenAI (gpt-image-1, or DALL·E 3 when the key has no access to it), Google Gemini
 (gemini-2.5-flash-image) or an OpenAI-compatible server for which you entered an image model.
 Claude, Groq and OpenRouter do not make images here, and the option says so.
+
+**Free, on your own computer:** [LocalAI](https://localai.io) speaks the same API as OpenAI and
+draws images with open models (Stable Diffusion, FLUX). Set it up as an OpenAI-compatible server
+(its address, for example `http://192.168.1.10:8080/v1`) and put its image model's name in
+**Image model**: covers cost nothing and never leave your network.
+
+**Free, with any AI (from Trackhop 2.0):** a free Cloudflare account draws covers with FLUX.1
+schnell (Workers AI), even when your AI is Claude, Groq or OpenRouter. In the AI setup, under
+**Free covers with Cloudflare**, put two things from your Cloudflare account:
+
+1. **Account ID**: sign in at [dash.cloudflare.com](https://dash.cloudflare.com). The address in the
+   browser then reads `dash.cloudflare.com/` followed by a code of 32 letters and digits: that code is
+   the Account ID. It is also shown, with a copy button, on the **Workers & Pages** page, in the
+   column on the right.
+2. **API token**: in the dashboard, your profile (top right) › **API Tokens** › **Create Token**, then
+   the **Workers AI** template › **Continue to summary** › **Create Token**. Copy the token now:
+   Cloudflare shows it only once. Cloudflare's own steps:
+   [Workers AI REST API](https://developers.cloudflare.com/workers-ai/get-started/rest-api/).
+
+Trackhop asks Cloudflare first and, if it refuses (the daily free allowance used up), the AI above
+when it draws. The token stays encrypted on the phone, like the AI's key.
+
+**Your image (from Trackhop 2.0):** free and with no key. Choose **Your image**, then **Ask ChatGPT**
+or **Ask Gemini**: Trackhop writes the request (a wordless cover for the playlist) and opens the app
+with it, or copies it and opens the site when the app is not installed. Make the picture there with
+your own account, save it, and tap **Choose image** to put it on the poster or the roast card. Any
+other picture from your phone works too. Trackhop does not operate those apps for you: you make the
+picture yourself, as their terms ask.
 
 It runs on your own key, so it may cost a few cents per picture. Only the playlist's title, its five
 most frequent artists and its description are sent, with a request for square cover art without

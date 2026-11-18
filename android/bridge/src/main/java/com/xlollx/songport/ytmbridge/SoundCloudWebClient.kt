@@ -89,6 +89,8 @@ class SoundCloudWebClient(private val ctx: Context) {
      * is the session over ([EXPIRED]).
      */
     private fun api(method: String, path: String, body: JsonElement? = null): JsonElement {
+        // Found gone for good: said at once, without a call or a hidden page, until the next sign-in.
+        if (SoundCloudRenewal.expiredAt(ctx) != null && token() != null) throw BridgeException(EXPIRED)
         SoundCloudRenewal.renewIfOld(ctx)
         var refreshed = false
         var target = session.get(ctx, "apiHost") ?: SoundCloudBridge.API_V2
@@ -124,7 +126,8 @@ class SoundCloudWebClient(private val ctx: Context) {
                 BridgeNet.log("soundcloud", "the session's token was refused by api-v2 and by ${SoundCloudBridge.API_MOBI} (HTTP 401)")
             }
             when {
-                code in 200..299 -> return runCatching { parseJson(text) }.getOrNull() ?: JsonNull
+                // A call that works shows the session alive: pages that renewed nothing before no longer count.
+                code in 200..299 -> { if (tok != null) SoundCloudRenewal.clearStrikes(ctx); return runCatching { parseJson(text) }.getOrNull() ?: JsonNull }
                 code == 404 -> throw NotFound()
                 code == 403 && DataDome.kindOfBody(text) != null -> throw BridgeException(SoundCloudBridge.BLOCKED)
                 (code == 401 || code == 403) && !refreshed -> { refreshed = true; runCatching { clientId(refresh = true) } }
@@ -133,7 +136,9 @@ class SoundCloudWebClient(private val ctx: Context) {
                 // Refused everywhere: the token has expired. The site renews it, and the call is made once more.
                 code == 401 && tok != null && !renewed -> {
                     renewed = true
-                    if (!SoundCloudRenewal.renew(ctx, tok, "the token was refused with HTTP 401 on ${url.host}")) throw BridgeException(EXPIRED)
+                    if (!SoundCloudRenewal.renew(ctx, tok, "the token was refused with HTTP 401 on ${url.host}"))
+                        // The renewal's page could not reach SoundCloud: the connection, not a session to sign in again.
+                        throw BridgeException(SoundCloudRenewal.lostConnection?.let { "SoundCloud: the session could not be renewed ($it)" } ?: EXPIRED)
                     switched = false
                     target = session.get(ctx, "apiHost") ?: SoundCloudBridge.API_V2
                 }
@@ -157,7 +162,7 @@ class SoundCloudWebClient(private val ctx: Context) {
             try {
                 http.newCall(req).execute().use { r -> return r.code to (r.body?.string() ?: "") }
             } catch (e: java.io.IOException) {
-                if (attempt >= 1) throw BridgeException("SoundCloud unreachable: ${e.message ?: e.javaClass.simpleName}")
+                if (attempt >= 1) throw BridgeException("SoundCloud unreachable: ${NetWords.of(e)}", e)
                 Thread.sleep(1_500)
                 attempt++
             }
@@ -369,6 +374,11 @@ class SoundCloudWebClient(private val ctx: Context) {
 
     fun delete(id: String) {
         api("DELETE", "/playlists/${numeric(id)}")
+    }
+
+    /** A set's artwork, as the web app's "Edit" sends it: the JPEG base64-encoded in `image_data`, on the set's own artwork path. */
+    fun setArtwork(id: String, jpeg: ByteArray) {
+        api("PUT", "/playlists/${numeric(id)}/artwork", jsonObj("image_data" to java.util.Base64.getEncoder().encodeToString(jpeg)))
     }
 
     /** Liking and unliking, one track at a time as the web app does, a little apart. */

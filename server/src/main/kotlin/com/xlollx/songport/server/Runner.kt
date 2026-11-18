@@ -1,5 +1,6 @@
 package com.xlollx.songport.server
 
+import com.xlollx.songport.notify.Notify
 import com.xlollx.songport.model.Progress
 import com.xlollx.songport.model.Schedule
 import com.xlollx.songport.model.SyncJob
@@ -28,6 +29,13 @@ class Runner(private val env: ServerEnv, private val edition: Html.Edition = Htm
     /** A scheduled sync that found no network is tried again sooner than its next interval. */
     private val retryAt = ConcurrentHashMap<String, Long>()
 
+    /**
+     * Since when the server has had no internet, as its last runs found ([com.xlollx.songport.model.SyncReport.offline]);
+     * null once a run reached the services again. The pages say it under the header.
+     */
+    @Volatile var offlineSince: Long? = null
+        private set
+
     /** Radio syncs listen to their station while their window is open (see RadioListener). */
     val radio by lazy { RadioListener(env, this) }
 
@@ -35,20 +43,34 @@ class Runner(private val env: ServerEnv, private val edition: Html.Edition = Htm
 
     /** Starts [job] now unless it is already running (checked and marked at once: posts come in parallel). */
     @Synchronized
-    fun start(job: SyncJob, scheduled: Boolean = false) {
+    fun start(job: SyncJob, scheduled: Boolean = false, confirmRemovals: Boolean = false) {
         if (isRunning(job.id)) return
         // A Stop or Pause posted after the previous run had ended must not reach this one.
         SyncState.finish(job.id)
         SyncState.start(job.id)
         scope.launch {
-            slots.withPermit { run(job, scheduled) }
+            slots.withPermit { run(job, scheduled, confirmRemovals && !scheduled) }
         }
     }
 
-    private suspend fun run(job: SyncJob, scheduled: Boolean) {
+    /**
+     * [confirmRemovals]: the caller (the API, the command line) says the removals a run would hold
+     * back are meant. What the preview shows now is confirmed as the app's tick does, for this run
+     * only; a scheduled run never comes here with it.
+     */
+    private suspend fun run(job: SyncJob, scheduled: Boolean, confirmRemovals: Boolean = false) {
         try {
             env.log("sync", "start ${job.name} (${if (scheduled) "scheduled" else "manual"})")
-            val report = SyncEngine(env).run(job, unattended = scheduled) { p ->
+            Api.notifyStarted(env, job, scheduled)
+            if (confirmRemovals && job.radio == null) runCatching {
+                val seen = SyncEngine(env).plan(job, createTarget = false, interactive = true)
+                if (seen.removalsNeedConfirmation) {
+                    env.store.confirmRemovals(job.id, seen.toRemove.map { it.id })
+                    env.log("sync", "${job.name}: ${seen.toRemove.size} removals confirmed by the caller")
+                }
+            }
+            val engine = SyncEngine(env)
+            val report = engine.run(job, unattended = scheduled) { p ->
                 SyncState.progress(job.id, p)
                 if (p.step == Progress.Step.WAITING) SyncState.stopCheck(env, job.id) else SyncState.checkpoint(env, job.id)
             }
@@ -58,12 +80,17 @@ class Runner(private val env: ServerEnv, private val edition: Html.Edition = Htm
                     (report.error?.let { " ERR $it" } ?: ""),
             )
             Api.notify(env, job, report)
-            // The channels the person set up (Notify.kt): in the background, never failing the run.
-            Notify.afterRun(env, job, report)
-            if (scheduled && !report.ok && isTransientNetwork(report.error)) {
+            Api.notifyWanted(env, job, engine.wantedAdded)
+            // The channels the person set up (core's Notify): in the background, never failing the run.
+            if (env.may(Permissions.API)) Notify.afterRun(env, job, report)
+            // No internet, or a service out of reach: tried again sooner than the next interval (a sync
+            // run by hand too, when it has a schedule), never counted as the sync's own failure.
+            if (!report.ok && (report.netError != null || (scheduled && isTransientNetwork(report.error)))) {
                 retryAt[job.id] = System.currentTimeMillis() + RETRY_MS
                 env.log("sync", "no network for ${job.name}: will retry")
             } else retryAt.remove(job.id)
+            if (report.offline) { if (offlineSince == null) offlineSince = System.currentTimeMillis() }
+            else if (report.netError == null) offlineSince = null
         } catch (e: Exception) {
             env.log("sync", "${job.name}: ${e.javaClass.simpleName}: ${e.message}")
         } finally {
@@ -94,9 +121,11 @@ class Runner(private val env: ServerEnv, private val edition: Html.Edition = Htm
                 val now = System.currentTimeMillis()
                 env.store.data.jobs.filter { isDue(it, now) && !isRunning(it.id) }.forEach { start(it, scheduled = true) }
                 // The backup schedule (Tools › Full backup), as the app's BackupWorker.
-                if (Backups.isDue(env, now)) Tasks.start(Backups.TITLE, "/tools/backup", { env.log("backup", it) }) { t -> Backups.run(env) { t.progress = it } }
+                if (Backups.isDue(env, now)) Tasks.start(Backups.TITLE, "/tools/backup", { env.log("backup", it) }, env.owner) { t -> Backups.run(env) { t.progress = it } }
                 // Lyrics for the files added to the library this week (Tools › Lyrics, Docker only).
-                if (env.may(Permissions.ADMIN) && Lyrics.isDue(env, edition, now)) Tasks.start(Lyrics.TITLE, "/tools/lyrics", { env.log("lyrics", it) }) { t -> lyricsResult(Lyrics.run(env, Lyrics.Options()) { t.progress = it }) }
+                if (env.may(Permissions.ADMIN) && Lyrics.isDue(env, edition, now)) Tasks.start(Lyrics.TITLE, "/tools/lyrics", { env.log("lyrics", it) }, env.owner) { t -> lyricsResult(Lyrics.run(env, Lyrics.Options()) { t.progress = it }) }
+                // The followed artists' look (Tools › Followed artists), once a day or a week.
+                if (Features.v2) env.alertsTick(now)
                 // "A new version is out" (Settings › Updates): twice a day at most, where this engine may check.
                 runCatching { Updates.checkIfDue(now) }
                 delay(TICK_MS)

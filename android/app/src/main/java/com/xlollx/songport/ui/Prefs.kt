@@ -14,15 +14,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -273,13 +270,17 @@ fun <T> ChoiceDialog(
     options: List<Pair<T, String>>,
     selected: T?,
     onDismiss: () -> Unit,
+    /** A line under the choices, to say more about them. */
+    note: String? = null,
+    /** Something small at the end of each choice's row (a preview of it). */
+    trailing: (@Composable (T) -> Unit)? = null,
     onSelect: (T) -> Unit,
 ) {
-    AlertDialog(
+    FitDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column(Modifier.selectableGroup().verticalScroll(rememberScrollState())) {
+            Column(Modifier.selectableGroup()) {
                 options.forEach { (value, label) ->
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(MaterialTheme.shapes.small)
@@ -289,9 +290,14 @@ fun <T> ChoiceDialog(
                     ) {
                         RadioButton(selected = value == selected, onClick = null)
                         Spacer(Modifier.width(12.dp))
-                        Text(label, style = MaterialTheme.typography.bodyLarge)
+                        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        if (trailing != null) trailing(value)
                     }
                 }
+                if (note != null) Text(
+                    note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp),
+                )
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },

@@ -115,6 +115,9 @@ tasks.register('printVersion') { doLast { println serverVersion } }
 test {
     // File names with accents (a playlist "Città"): the JVM reads them in the locale's encoding.
     if (!System.getProperty('os.name').startsWith('Windows')) environment 'LC_ALL', 'C.UTF-8'
+    // The release switch (Features) is on from 2.0; the tests start with it off, as they were written,
+    // and each test of the 2.0 features turns it on itself.
+    systemProperty 'trackhop.preview2', 'false'
     testLogging {
         events "failed"
         exceptionFormat "full"

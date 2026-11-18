@@ -24,6 +24,10 @@ on:
         description: 'Submit the version for review after the upload'
         type: boolean
         default: true
+      remark:
+        description: 'Note for the reviewer (max 300 characters; empty = the standard note below)'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -38,6 +42,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       API: https://connect-api.cloud.huawei.com/api
       PACKAGE: com.xlollx.songport
+      # Sent with every submission: Huawei reviews from mainland China, where developer.spotify.com
+      # (needed for the user's own Spotify key, Spotify's rule) does not open; 1.16.3 was rejected for it.
+      REMARK: "${{ inputs.remark || 'Spotify needs the user''s own free Spotify developer key (Spotify''s rule). developer.spotify.com does not open from mainland China, where Trackhop is not offered: please test it from a release region. Other features work without it, e.g. the File source (CSV/M3U).' }}"
     steps:
       - name: No API client
         if: ${{ env.HAS_KEY != 'true' }}
@@ -113,7 +120,7 @@ jobs:
           fi
           # The package is checked by AppGallery after the upload: submitting too early is refused, so try for a while.
           for i in $(seq 1 20); do
-            res=$(curl -sS -X POST "${H[@]}" "$API/publish/v2/app-submit?appId=$app")
+            res=$(curl -sS -X POST "${H[@]}" "$API/publish/v2/app-submit?appId=$app&remark=$(jq -rn --arg r "${REMARK:0:300}" '$r|@uri')")
             if ok "$res"; then echo "::notice::$TAG submitted to AppGallery for review."; exit 0; fi
             echo "Not yet ($i): $(jq -c .ret <<<"$res")"
             sleep 30

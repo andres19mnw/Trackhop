@@ -119,6 +119,18 @@ class WebTest {
         assertFalse(get("/connectors").body().contains("href=\"/connectors/csv\""))
     }
 
+    /** Last.fm read with the user name only offers the password, once, to love tracks (#51); with a session, it does not. */
+    @Test fun lastFmOffersLovingTracks() {
+        assertEquals(303, post("/connectors/add", "service=lastfm", *origin).statusCode())
+        env.tokens.set("lastfm", com.xlollx.songport.data.Tokens("RJ", userName = "RJ"))
+        val page = get("/connectors/lastfm").body()
+        assertTrue(page, page.contains("lastfm_love_title"))
+        assertTrue(page.contains("""<input type="hidden" name="user" value="RJ">"""))
+        assertTrue(page.contains("""name="secret" autocomplete="current-password" required"""))
+        env.tokens.set("lastfm", com.xlollx.songport.data.Tokens("RJ", userName = "RJ", extra = mapOf("sk" to "SK")))
+        assertFalse(get("/connectors/lastfm").body().contains("lastfm_love_title"))
+    }
+
     @Test fun aSyncOnlyTakesListedPlaylists() {
         assertEquals(303, post("/connectors/add", "service=csv", *origin).statusCode())
         File(data, "csv").mkdirs()
@@ -133,6 +145,17 @@ class WebTest {
         val ok = post("/syncs", "src=csv&dst=csv&srcPlaylist=mine&dstPlaylist=&name=Mine&schedule=MANUAL", *origin)
         assertTrue(ok.headers().firstValue("Location").orElse(""), ok.headers().firstValue("Location").orElse("").startsWith("/syncs/"))
         assertTrue(get("/").body().contains("Mine"))
+    }
+
+    /** An address the server does not have: a friendly page in its words, with the 404 status and a way home. */
+    @Test fun anUnknownPageIsAFriendlyNotFound() {
+        val r = get("/no-such-page")
+        assertEquals(404, r.statusCode())
+        val body = r.body()
+        assertTrue(body.contains(Html.h(env.text("web_err_404_title"))))
+        assertTrue(body.contains(Html.h(env.text("web_err_home"))))
+        assertTrue(body.contains("href=\"/\""))
+        assertFalse(body.contains(env.text("web_err_500_title")))
     }
 
     @Test fun playlistFilesDownloadAndNothingElse() {
@@ -182,6 +205,47 @@ class WebTest {
         assertEquals(null, env.store.job("k")!!.color)
         post("/syncs/k/schedule", "name=k&color=teal", *origin)
         assertEquals("teal", env.store.job("k")!!.color)
+    }
+
+    @Test fun thePageNamesColoursTagsStarsAndFilters() {
+        fun job(id: String) = com.xlollx.songport.model.SyncJob(id, id, com.xlollx.songport.model.PlaylistRef("subsonic", id, id), com.xlollx.songport.model.PlaylistRef("csv", id, id))
+        listOf("one", "two", "three").forEach { env.store.upsertJob(job(it)) }
+        // The page's form: a colour of one's own with a name is a label; tags and the star with it.
+        post("/syncs/two/schedule", "name=two&groups=1&color=custom&customColor=%23ff8800&labelName=From+Spotify&tags=genre%3Dmetal%2C+kids%2C+mood%3A%22late+night%22&favorite=on", *origin)
+        val two = env.store.job("two")!!
+        assertEquals("#FF8800", two.color)
+        val label = env.store.data.settings.labels.single()
+        assertEquals("From Spotify", label.name); assertEquals(label.id, two.label)
+        assertEquals(mapOf("genre" to "metal", "kids" to "", "mood" to "late night"), two.tags)
+        assertTrue(two.favorite)
+        // Another sync picks the saved label among the ready colours, and takes the very same colour.
+        assertTrue(get("/syncs/three").body().contains("value=\"label:${label.id}\""))
+        post("/syncs/three/schedule", "name=three&groups=1&color=label%3A${label.id}&labelName=From+Spotify&tags=genre%3Dpop", *origin)
+        assertEquals("#FF8800", env.store.job("three")!!.color)
+        assertEquals(label.id, env.store.job("three")!!.label)
+        // The starred sync comes first; the label, the tags and the star show on the cards and as chips.
+        val home = get("/").body()
+        assertTrue(home.indexOf("id=\"sync-two\"") < home.indexOf("id=\"sync-one\""))
+        assertTrue(home.contains("★ Favourites") && home.contains(">From Spotify</a>") && home.contains("genre: metal") && home.contains(">kids</a>"))
+        fun shown(q: String) = get("/$q").body().let { b -> listOf("one", "two", "three").filter { b.contains("id=\"sync-$it\"") } }
+        assertEquals(listOf("two"), shown("?fav=1"))
+        assertEquals(listOf("two", "three"), shown("?label=${label.id}"))
+        assertEquals(listOf("two"), shown("?tag=genre:metal"))
+        assertEquals(listOf("two", "three"), shown("?tag=genre"))
+        assertEquals(listOf("three"), shown("?q=genre:pop"))
+        assertEquals(listOf("two", "three"), shown("?q=spotify"))
+        assertEquals(listOf("two"), shown("?q=late"))
+        // A form without these fields (an older page left open) changes none of them.
+        post("/syncs/two/schedule", "name=two&color=custom&customColor=%23ff8800", *origin)
+        assertEquals(two.tags, env.store.job("two")!!.tags)
+        assertTrue(env.store.job("two")!!.favorite)
+        // The name cleared: the label goes, both keep the colour.
+        post("/syncs/two/schedule", "name=two&groups=1&color=label%3A${label.id}&labelName=&tags=", *origin)
+        assertTrue(env.store.data.settings.labels.isEmpty())
+        assertEquals(listOf("#FF8800", "#FF8800"), listOf("two", "three").map { env.store.job(it)!!.color })
+        assertEquals(listOf(null, null), listOf("two", "three").map { env.store.job(it)!!.label })
+        assertTrue(env.store.job("two")!!.tags.isEmpty())
+        assertFalse(env.store.job("two")!!.favorite)
     }
 
     @Test fun reviewPicksIgnoresAndConfirms() {
@@ -270,6 +334,87 @@ class WebTest {
         assertEquals(200, get("/tools/export").statusCode())
     }
 
+    // #49: "Artist - Album - Title" names, read as chosen on the upload form; the choice is kept.
+    @Test fun uploadReadsThreePartNamesAsChosen() {
+        val boundary = "----trackhop"
+        fun upload(name: String, text: String, names: String) = client.send(
+            HttpRequest.newBuilder(URI("$base/files")).header("Authorization", auth).header("Origin", base)
+                .header("Content-Type", "multipart/form-data; boundary=$boundary").POST(HttpRequest.BodyPublishers.ofByteArray((
+                    "--$boundary\r\nContent-Disposition: form-data; name=\"names\"\r\n\r\n$names\r\n" +
+                        "--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"$name\"\r\nContent-Type: text/plain\r\n\r\n$text\r\n--$boundary--\r\n"
+                    ).toByteArray(Charsets.UTF_8))).build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+        assertEquals(303, upload("One.txt", "Band - Album - Song\n", "ARTIST_ALBUM_TITLE").statusCode())
+        val one = com.xlollx.songport.sync.CsvCodec.parse(File(data, "csv/One.csv").readText()).single()
+        assertEquals("Song", one.title)
+        assertEquals("Album", one.album)
+        assertEquals("ARTIST_ALBUM_TITLE", env.store.data.settings.fileNameLayout)
+        assertTrue(get("/connectors/csv").body().contains("""<option value="ARTIST_ALBUM_TITLE" selected>"""))
+        assertEquals(303, upload("Two.txt", "Band - Album - Song\n", "ARTIST_TITLE").statusCode())
+        assertEquals("Album - Song", com.xlollx.songport.sync.CsvCodec.parse(File(data, "csv/Two.csv").readText()).single().title)
+    }
+
+    @Test fun uploadWithTheUsersOwnPatterns() {
+        val boundary = "----trackhop"
+        fun upload(name: String, text: String, patterns: String) = client.send(
+            HttpRequest.newBuilder(URI("$base/files")).header("Authorization", auth).header("Origin", base)
+                .header("Content-Type", "multipart/form-data; boundary=$boundary").POST(HttpRequest.BodyPublishers.ofByteArray((
+                    "--$boundary\r\nContent-Disposition: form-data; name=\"names\"\r\n\r\nCUSTOM\r\n" +
+                        "--$boundary\r\nContent-Disposition: form-data; name=\"patterns\"\r\n\r\n$patterns\r\n" +
+                        "--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"$name\"\r\nContent-Type: text/plain\r\n\r\n$text\r\n--$boundary--\r\n"
+                    ).toByteArray(Charsets.UTF_8))).build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+        val bad = upload("Bad.txt", "Song (Band)\n", "{artist} - {album}")
+        assertTrue(bad.headers().firstValue("Location").orElse("").contains("err="))
+        assertFalse(File(data, "csv/Bad.csv").exists())
+        assertEquals(303, upload("Mine.txt", "Song (Band)\n", "{title} ({artist})").statusCode())
+        val t = com.xlollx.songport.sync.CsvCodec.parse(File(data, "csv/Mine.csv").readText()).single()
+        assertEquals("Song", t.title)
+        assertEquals("Band", t.artistLine)
+        assertEquals("CUSTOM", env.store.data.settings.fileNameLayout)
+        assertTrue(get("/connectors/csv").body().contains("{title} ({artist})"))
+        // Trying a line: what the patterns read, said on the page, the line kept in the field.
+        val tried = post("/files/try", "patterns=${java.net.URLEncoder.encode("{artist}/{album}/{track} {title}", "UTF-8")}&sample=${java.net.URLEncoder.encode("Music/Muse/Absolution/03 Hysteria.mp3", "UTF-8")}", *origin)
+        val where = java.net.URLDecoder.decode(tried.headers().firstValue("Location").orElse(""), "UTF-8")
+        assertTrue(where, where.contains("Artist: Muse · Album: Absolution · Title: Hysteria"))
+        assertTrue(get(tried.headers().firstValue("Location").get().removePrefix(base)).body().contains("value=\"Music/Muse/Absolution/03 Hysteria.mp3\""))
+    }
+
+    // "Send to a service" from a File playlist: the new-sync form starts with File as the source and
+    // that file picked, and offers neither File nor a target that cannot make a playlist.
+    @Test fun aFileIsSentToAServiceFromItsPage() {
+        assertEquals(303, post("/connectors/add", "service=csv", *origin).statusCode())
+        File(data, "csv").mkdirs()
+        File(data, "csv/Road trip.csv").writeText("title,artist\nSong,Band\n")
+        val page = get("/connectors/csv").body()
+        assertTrue(page, page.contains("/syncs/new?src=csv&amp;srcPlaylist=Road%20trip") || page.contains("/syncs/new?src=csv&amp;srcPlaylist=Road+trip"))
+        val form = get("/syncs/new?src=csv&srcPlaylist=Road+trip").body()
+        assertTrue(form, form.contains("""<option value="csv" selected>"""))
+        assertTrue(form, form.contains("""name="srcPlaylist" value="Road trip""""))
+        assertTrue(form, !Regex("""<select name="dst">.*?value="csv"""", RegexOption.DOT_MATCHES_ALL).containsMatchIn(form.substringAfter("""<select name="dst">""").substringBefore("</select>").let { """<select name="dst">$it""" }))
+    }
+
+    @Test fun tickedFilesDownloadAsAZipAndDeleteAtOnce() {
+        File(data, "csv").mkdirs()
+        listOf("One", "Two", "Three").forEach { File(data, "csv/$it.csv").writeText("title,artist\n$it,Band\n") }
+        val page = get("/connectors/csv").body()
+        assertTrue(page.contains("""name="f:One.csv""""))
+        assertTrue(page.contains("""<form id="bulk""""))
+        val zip = client.send(
+            HttpRequest.newBuilder(URI("$base/files/bulk")).header("Authorization", auth).header("Origin", base)
+                .header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString("f%3AOne.csv=on&f%3ATwo.csv=on&format=m3u&action=zip")).build(),
+            HttpResponse.BodyHandlers.ofByteArray(),
+        )
+        assertEquals(200, zip.statusCode())
+        val names = java.util.zip.ZipInputStream(zip.body().inputStream()).use { z -> generateSequence { z.nextEntry?.name }.toList() }
+        assertEquals(listOf("One.m3u", "Two.m3u"), names.sorted())
+        assertEquals(303, post("/files/bulk", "f%3AOne.csv=on&f%3AThree.csv=on&action=delete", *origin).statusCode())
+        assertEquals(listOf("Two.csv"), File(data, "csv").list()!!.toList())
+        assertTrue(post("/files/bulk", "action=delete", *origin).headers().firstValue("Location").orElse("").contains("err="))
+    }
+
     @Test fun toolsFindAndRemoveDuplicatesInTheBackground() {
         File(data, "csv").mkdirs()
         File(data, "csv/Dup.csv").writeText("title,artist\nSong,Band\nOther,Band\nSong,Band\n")
@@ -293,7 +438,68 @@ class WebTest {
         assertEquals("the file and the set-up", 2, Backups.copyToFolder(env))
         assertTrue(File(folder, "Dup.csv").exists())
         assertEquals(200, get("/tools/unplayable").statusCode())
+        // MusicBrainz tags: listed among the tools; without a personal server connected it says so.
+        assertTrue(get("/tools").body().contains("/tools/mbtags"))
+        val tags = get("/tools/mbtags")
+        assertEquals(200, tags.statusCode())
+        assertTrue(tags.body(), tags.body().contains("No connected service can do this"))
         assertEquals(200, get("/tools").statusCode())
+    }
+
+    @Test fun missingOnMyServerIsListedTickedAndDownloaded() {
+        assertTrue(get("/tools").body().contains("/tools/wanted"))
+        assertTrue(get("/tools/wanted").body().contains("None of your syncs goes to your own server yet"))
+        val t = com.xlollx.songport.model.Track("s1", "Paranoid <live>", listOf("Black Sabbath"), album = "Paranoid")
+        env.store.update { d ->
+            d.copy(
+                jobs = d.jobs + com.xlollx.songport.model.SyncJob("w", "To Navidrome", com.xlollx.songport.model.PlaylistRef("spotify", "p", "P"), com.xlollx.songport.model.PlaylistRef("subsonic", "t", "T")),
+                reports = listOf(com.xlollx.songport.model.SyncReport("rw", "w", "To Navidrome", 1_780_000_000_000, 10, sourceCount = 3, unmatchedTracks = listOf(t))) + d.reports,
+            )
+        }
+        val page = get("/tools/wanted?view=albums").body()
+        assertTrue(page, page.contains("Black Sabbath</b> — Paranoid &lt;live&gt;") && page.contains("Black Sabbath — Paranoid <span"))
+        // The Lidarr address, with the list's own key, once the API has a token.
+        Api.newToken(env)
+        assertTrue(get("/tools/wanted").body().contains("/api/v1/wanted?format=lidarr&amp;key=${Api.listKey(env)}"))
+        val csv = get("/tools/wanted?format=csv")
+        assertTrue(csv.headers().firstValue("Content-Disposition").get().contains("missing-on-my-server.csv"))
+        assertTrue(csv.body().contains("Paranoid <live>,Black Sabbath,Paranoid"))
+        val id = com.xlollx.songport.sync.Wanted.list(env.store.data).single().id
+        assertEquals(303, post("/tools/wanted", "action=tick&id=${java.net.URLEncoder.encode(id, "UTF-8")}", *origin).statusCode())
+        assertTrue(get("/tools/wanted").body().contains("Nothing missing"))
+        assertTrue(get("/tools/wanted?all=true").body().contains("Not got after all"))
+    }
+
+    @Test fun toolsListTheSongsOfAServerWithoutMusicBrainzTags() {
+        // A stand-in Navidrome: two songs, one tagged.
+        val navidrome = HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/") { ex ->
+                val songs = if (ex.requestURI.path.endsWith("search3")) ""","searchResult3":{"song":[
+                    {"id":"a","title":"Tagged","artist":"Band","musicBrainzId":"5fb524f1-8cc8-4c04-a921-e34c0a911ea7"},
+                    {"id":"b","title":"Bare <b>","artist":"Band","album":"Demo"}]}""" else ""
+                val body = """{"subsonic-response":{"status":"ok","version":"1.16.1"$songs}}""".toByteArray()
+                ex.sendResponseHeaders(200, body.size.toLong())
+                ex.responseBody.use { it.write(body) }
+            }
+            start()
+        }
+        try {
+            env.tokens.set("subsonic", com.xlollx.songport.data.Tokens(accessToken = "pw", userName = "me", extra = mapOf("url" to "http://127.0.0.1:${navidrome.address.port}")))
+            env.store.updateSettings { it.copy(connectors = it.connectors + "subsonic") }
+            assertTrue(get("/tools/mbtags").body().contains("""<option value="subsonic">"""))
+            assertTrue(get("/tools/mbtags?service=subsonic").body().contains("never changed"))
+            val started = post("/tools/mbtags", "service=subsonic", *origin)
+            assertEquals(303, started.statusCode())
+            val task = started.headers().firstValue("Location").get()
+            var page = ""
+            repeat(50) { if (!page.contains("MusicBrainz tags.")) { Thread.sleep(100); page = get(task).body() } }
+            assertTrue(page, page.contains("<b>1</b> of 2 songs"))
+            assertTrue(page, page.contains("Band — Bare &lt;b&gt;"))
+            assertFalse(page, page.contains("Tagged"))
+            assertTrue(page, page.contains("picard.musicbrainz.org"))
+        } finally {
+            navidrome.stop(0)
+        }
     }
 
     @Test fun aiPlaylistWithALocalOpenAiCompatibleModel() {
@@ -351,6 +557,13 @@ class WebTest {
         assertTrue(File(data, "csv/Road.csv").exists())
         assertEquals(303, post("/playlists/csv/Road", "action=delete", *origin).statusCode())
         assertFalse(File(data, "csv/Road.csv").exists())
+    }
+
+    @Test fun everyPageLeadsToTheGuidesSearch() {
+        val home = get("/").body()
+        assertTrue(home.contains("""<a href="https://trackhop.org/guide/">Search the guides</a>"""))
+        assertTrue(home.contains("""<a href="https://trackhop.org/guide/docker">Guide</a>"""))
+        assertTrue(get("/tools").body().contains("Search the guides"))
     }
 
     @Test fun backLeadsOneLevelUp() {
@@ -464,6 +677,124 @@ class WebTest {
         assertEquals(303, post("/syncs/${job.id}/radio", "day6=on&day7=on&start=12%3A00&end=12%3A00", *origin).statusCode())
         assertEquals("Weekends, all day", com.xlollx.songport.sync.RadioTitles.describe(env.store.job(job.id)!!.radio!!))
         assertTrue(post("/syncs/${job.id}/radio", "start=12%3A00&end=13%3A00", *origin).headers().firstValue("Location").orElse("").contains("err="))
+    }
+
+    /** A two-way pair (from the app): its page offers "removals too", saved on both halves; a sync on its own does not show it. */
+    @Test fun aPairsPageTurnsItsRemovalsOnForBothHalves() {
+        assertEquals(303, post("/connectors/add", "service=csv", *origin).statusCode())
+        File(data, "csv").mkdirs()
+        File(data, "csv/One.csv").writeText("title,artist\nSong,Someone\n")
+        File(data, "csv/Two.csv").writeText("title,artist\nSong,Someone\n")
+        env.store.upsertJob(com.xlollx.songport.model.SyncJob("ab", "Pair", com.xlollx.songport.model.PlaylistRef("csv", "One", "One"), com.xlollx.songport.model.PlaylistRef("csv", "Two", "Two"), linkedJobId = "ba"))
+        env.store.upsertJob(com.xlollx.songport.model.SyncJob("ba", "Pair ↔", com.xlollx.songport.model.PlaylistRef("csv", "Two", "Two"), com.xlollx.songport.model.PlaylistRef("csv", "One", "One"), linkedJobId = "ab", twin = true))
+        env.store.upsertJob(com.xlollx.songport.model.SyncJob("solo", "Solo", com.xlollx.songport.model.PlaylistRef("csv", "One", "One"), com.xlollx.songport.model.PlaylistRef("csv", null, "Copy")))
+        val page = get("/syncs/ab").body()
+        assertTrue(page, page.contains("name=\"twoWayRemovals\"") && !page.contains("name=\"twoWayRemovals\" checked"))
+        assertFalse(get("/syncs/solo").body().contains("twoWayRemovals"))
+        assertEquals(303, post("/syncs/ab/schedule", "name=Pair&changes=add&twoWayRemovals=on", *origin).statusCode())
+        assertTrue(env.store.job("ab")!!.twoWayRemovals && env.store.job("ba")!!.twoWayRemovals)
+        assertTrue(get("/syncs/ba").body().contains("name=\"twoWayRemovals\" checked"))
+        assertEquals(303, post("/syncs/ba/schedule", "name=Pair&changes=add", *origin).statusCode())
+        assertFalse(env.store.job("ab")!!.twoWayRemovals || env.store.job("ba")!!.twoWayRemovals)
+    }
+
+    /** Two-way from the page, as the app's editor: ticked in the new sync's form or on its page, the ↔ half is made; unticked, it goes. */
+    @Test fun aTwoWayPairIsMadeAndUnmadeOnThePage() {
+        assertEquals(303, post("/connectors/add", "service=csv", *origin).statusCode())
+        File(data, "csv").mkdirs()
+        File(data, "csv/One.csv").writeText("title,artist\nSong,Someone\n")
+        File(data, "csv/Two.csv").writeText("title,artist\nOther,Someone\n")
+        val form = get("/syncs/new?src=csv&dst=csv").body()
+        assertTrue(form, form.contains("name=\"twoWay\"") && form.contains("name=\"twoWayRemovals\""))
+        // Not towards a playlist still to be made.
+        val refused = post("/syncs", "src=csv&dst=csv&srcPlaylist=One&dstPlaylist=&every=1440&changes=add&twoWay=on", *origin)
+        assertTrue(refused.headers().firstValue("Location").orElse("").contains("err="))
+        assertTrue(env.store.data.jobs.isEmpty())
+        val made = post("/syncs", "src=csv&dst=csv&srcPlaylist=One&dstPlaylist=Two&name=Pair&every=1440&at=07%3A30&changes=add&twoWay=on&twoWayRemovals=on", *origin)
+        assertEquals(303, made.statusCode())
+        val main = env.store.data.jobs.first { it.name == "Pair" }
+        val twin = env.store.job(main.linkedJobId!!)!!
+        assertTrue(twin.twin && twin.twoWayRemovals && main.twoWayRemovals)
+        assertEquals("Pair ↔", twin.name); assertEquals("Two", twin.source.playlistId); assertEquals("One", twin.target.playlistId); assertEquals("07:30", twin.at)
+        // The first sync's page has the tick; the ↔ half's says whose half it is and leaves the tick there.
+        val page = get("/syncs/${main.id}").body()
+        assertTrue(page, page.contains("name=\"twoWay\" checked") && page.contains("name=\"twoWayRemovals\" checked") && page.contains("two-way, removals too"))
+        val half = get("/syncs/${twin.id}").body()
+        assertTrue(half, half.contains("The ↔ half of the two-way sync") && !half.contains("name=\"twoWay\"") && half.contains("name=\"twoWayRemovals\" checked"))
+        // Saved with a colour and a tag: the other half wears them too.
+        assertEquals(303, post("/syncs/${main.id}/schedule", "name=Pair&every=360&changes=add&pair=1&twoWay=on&color=teal&groups=1&tags=mood%3Dgym&favorite=on", *origin).statusCode())
+        env.store.job(twin.id)!!.let {
+            assertEquals("teal", it.color); assertEquals(mapOf("mood" to "gym"), it.tags); assertTrue(it.favorite)
+            assertEquals(360, com.xlollx.songport.sync.Timing.interval(it))
+            // "Removals too" unticked on the form: off on both.
+            assertFalse(it.twoWayRemovals || env.store.job(main.id)!!.twoWayRemovals)
+        }
+        // Unticked: the reverse sync is deleted, this one stays; the playlists too.
+        assertEquals(303, post("/syncs/${main.id}/schedule", "name=Pair&every=360&changes=add&pair=1&twoWayRemovals=on", *origin).statusCode())
+        assertEquals(null, env.store.job(twin.id))
+        env.store.job(main.id)!!.let { assertEquals(null, it.linkedJobId); assertFalse(it.twoWayRemovals) }
+        assertTrue(File(data, "csv/Two.csv").isFile)
+        // And ticked again on the page of a sync that has both playlists.
+        assertTrue(get("/syncs/${main.id}").body().let { it.contains("name=\"twoWay\"") && !it.contains("name=\"twoWay\" checked") })
+        assertEquals(303, post("/syncs/${main.id}/schedule", "name=Pair&every=360&changes=add&pair=1&twoWay=on", *origin).statusCode())
+        assertTrue(env.store.job(env.store.job(main.id)!!.linkedJobId!!)!!.twin)
+    }
+
+    /** A pair is turned on and off, and deleted, as one on the page. */
+    @Test fun aPairIsToggledAndDeletedAsOneOnThePage() {
+        assertEquals(303, post("/connectors/add", "service=csv", *origin).statusCode())
+        File(data, "csv").mkdirs()
+        File(data, "csv/One.csv").writeText("title,artist\nSong,Someone\n")
+        File(data, "csv/Two.csv").writeText("title,artist\nOther,Someone\n")
+        env.store.upsertJob(com.xlollx.songport.model.SyncJob("ab", "Pair", com.xlollx.songport.model.PlaylistRef("csv", "One", "One"), com.xlollx.songport.model.PlaylistRef("csv", "Two", "Two"), linkedJobId = "ba"))
+        env.store.upsertJob(com.xlollx.songport.model.SyncJob("ba", "Pair ↔", com.xlollx.songport.model.PlaylistRef("csv", "Two", "Two"), com.xlollx.songport.model.PlaylistRef("csv", "One", "One"), linkedJobId = "ab", twin = true))
+        env.store.upsertJob(com.xlollx.songport.model.SyncJob("solo", "Solo", com.xlollx.songport.model.PlaylistRef("csv", "One", "One"), com.xlollx.songport.model.PlaylistRef("csv", null, "Copy")))
+        assertEquals(303, post("/syncs/ba/toggle", "", *origin).statusCode())
+        assertFalse(env.store.job("ab")!!.enabled || env.store.job("ba")!!.enabled)
+        assertTrue(env.store.job("solo")!!.enabled)
+        assertEquals(303, post("/syncs/ab/toggle", "", *origin).statusCode())
+        assertTrue(env.store.job("ab")!!.enabled && env.store.job("ba")!!.enabled)
+        assertTrue(get("/syncs/ab").body().contains("and its other half"))
+        assertFalse(get("/syncs/solo").body().contains("and its other half"))
+        env.store.putPairState(env.store.job("ab")!!, com.xlollx.songport.data.PairState("csv|One", "csv|Two", mapOf("1" to "1")))
+        assertEquals(303, post("/syncs/ba/delete", "", *origin).statusCode())
+        assertEquals(listOf("solo"), env.store.data.jobs.map { it.id })
+        assertTrue(env.store.data.pairStates.isEmpty())
+        assertTrue(File(data, "csv/Two.csv").isFile)
+    }
+
+    /** Removals a run held back: the sync says how many, its page lists them, and a tick lets one run make them. */
+    @Test fun heldRemovalsAreSeenAndConfirmedOnThePage() {
+        assertEquals(303, post("/connectors/add", "service=csv", *origin).statusCode())
+        File(data, "csv").mkdirs()
+        File(data, "csv/One.csv").writeText("title,artist\nSong,Someone\n")
+        File(data, "csv/Two.csv").writeText("title,artist\nSong,Someone\n" + (1..12).joinToString("") { "Gone $it,Old <b> $it\n" })
+        env.store.upsertJob(com.xlollx.songport.model.SyncJob("m", "Mirror", com.xlollx.songport.model.PlaylistRef("csv", "One", "One"), com.xlollx.songport.model.PlaylistRef("csv", "Two", "Two"), mirrorRemovals = true))
+        fun ran(after: String?) {
+            val until = System.currentTimeMillis() + 20_000
+            while ((env.store.job("m")!!.lastReportId == after || get("/syncs/m").body().contains("http-equiv=\"refresh\"")) && System.currentTimeMillis() < until) Thread.sleep(100)
+        }
+        assertEquals(303, post("/syncs/m/run", "", *origin).statusCode())
+        ran(null)
+        val first = env.store.job("m")!!.lastReportId
+        assertEquals(12, env.store.report(first!!)!!.heldBack)
+        for (path in listOf("/", "/syncs/m")) assertTrue(path, get(path).body().contains("""<a href="/syncs/m/removals">12 removals held back</a>"""))
+        val page = get("/syncs/m/removals").body()
+        assertTrue(page, page.contains("Remove these 12 tracks from the destination") && page.contains("Old &lt;b&gt; 7 — Gone 7") && page.contains("12 hours"))
+        // Without the tick nothing is confirmed.
+        val ids = Regex("""name="id" value="([^"]+)"""").findAll(page).map { it.groupValues[1] }.toList()
+        assertEquals(12, ids.size)
+        val body = ids.joinToString("&") { "id=" + java.net.URLEncoder.encode(it, "UTF-8") }
+        assertTrue(post("/syncs/m/removals", body, *origin).headers().firstValue("Location").orElse("").contains("err="))
+        assertTrue(env.store.data.removalConfirmations.isEmpty())
+        assertTrue(File(data, "csv/Two.csv").readText().contains("Gone 7"))
+        // Ticked: this run removes them, and nothing is held any more.
+        assertEquals(303, post("/syncs/m/removals", "$body&confirm=on", *origin).statusCode())
+        ran(first)
+        assertFalse(File(data, "csv/Two.csv").readText().contains("Gone"))
+        assertEquals(0, env.store.report(env.store.job("m")!!.lastReportId!!)!!.heldBack)
+        assertFalse(get("/syncs/m").body().contains("held back</a>"))
+        assertTrue(get("/syncs/m/removals").body().contains("nothing is held back now"))
     }
 
     /** "Keep every track": chosen in the new sync's form and on its page, shown on its card, kept by a config backup. */

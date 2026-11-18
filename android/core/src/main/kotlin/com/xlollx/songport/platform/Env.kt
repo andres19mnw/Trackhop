@@ -36,10 +36,20 @@ interface Env {
     fun keyValues(name: String): KeyValues
 
     /**
-     * [raw] image bytes as a JPEG of at most [maxSide] px and [maxBytes] bytes, or null when the
-     * image can't be decoded or never fits.
+     * [raw] image bytes as a square JPEG (the centre of the image, as [com.xlollx.songport.sync.Covers.square]
+     * cuts it) of [minSide] to [maxSide] px and at most [maxBytes] bytes, or null when the image
+     * can't be decoded or never fits.
      */
-    fun shrinkJpeg(raw: ByteArray, maxSide: Int, maxBytes: Int): ByteArray?
+    fun squareJpeg(raw: ByteArray, minSide: Int, maxSide: Int, maxBytes: Int): ByteArray?
+
+    /**
+     * Who else to agree with before writing to a playlist: the user's own Trackhop server when the
+     * app is set to coordinate with it ([com.xlollx.songport.sync.ServerLocks]); null otherwise.
+     */
+    val targetCoordinator: com.xlollx.songport.sync.TargetCoordinator? get() = null
+
+    /** The engine runs on the user's server (Docker, Desktop), not on the phone: "no internet" is the server's. */
+    val onServer: Boolean get() = false
 
     companion object {
         /** The redirect of the Android app, also the one shown in the setup guides. */
